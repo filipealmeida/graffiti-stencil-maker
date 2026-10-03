@@ -1,0 +1,6 @@
+numpy
+pillow
+scipy
+flask
+cairosvg
+manifold3d

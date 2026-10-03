@@ -1,0 +1,7 @@
+.venv/
+__pycache__/
+*.pyc
+*.stl
+sandbox/
+.vscode/
+prompts/
