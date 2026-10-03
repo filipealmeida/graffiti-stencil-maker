@@ -26,7 +26,7 @@ def parse_params(form) -> Params:
     thr = form.get("threshold", "")
     return Params(
         width_mm=float(form.get("width", 100)),
-        resolution=min(600, max(20, int(form.get("resolution", 250)))),
+        resolution=min(1000, max(20, int(form.get("resolution", 250)))),
         thickness_mm=float(form.get("thickness", 2)),
         margin_mm=float(form.get("margin", 8)),
         bridge_mm=float(form.get("bridge", 1.6)),
