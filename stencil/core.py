@@ -31,6 +31,10 @@ class Params:
     min_island_mm2: float = 0.0   # islands (material not touching the frame) smaller than this area are deleted
     max_overhang_deg: float = 0.0 # >0: raised bridges grow at most layer_height*tan(angle) per layer (angle from vertical)
     flip: bool = False            # export upside down (island side up) so that nothing overhangs when printed
+    pad_count: int = 0            # 0-4 raised pads with a threaded hole, placed on the margin only
+    pad_thread: str = "M8"        # M4, M6, M8 or M10
+    pad_height_mm: float = 6.0    # how far the pad rises above the plate
+    thread_clearance_mm: float = 0.2  # radial clearance added to the thread void so printed threads mate
 
 
 def load_image(data: bytes, filename: str = "") -> Image.Image:
@@ -185,7 +189,7 @@ def build_mask(img: Image.Image, p: Params):
     min_area = max(1, round((p.min_feature_mm / px_mm) ** 2))
     paint = _remove_small(paint, min_area)
     mat = _remove_small(~paint, min_area)         # tiny material specks become holes
-    pad = max(1, round(p.margin_mm / px_mm))
+    pad = max(1, int(np.ceil(p.margin_mm / px_mm - 1e-6)) if p.pad_count > 0 else round(p.margin_mm / px_mm))   # pads need the full margin
     mat0 = np.pad(mat, pad, constant_values=True)
     bridge_px = max(2, round(p.bridge_mm / px_mm))
     deleted = 0
@@ -407,6 +411,79 @@ def trace_svg(section, w: float, h: float) -> str:
             f'viewBox="0 0 {w:.2f} {h:.2f}"><path fill="#000" fill-rule="evenodd" d="{d}"/></svg>\n')
 
 
+THREADS = {"M4": (4.0, 0.7), "M6": (6.0, 1.0), "M8": (8.0, 1.25), "M10": (10.0, 1.5)}   # (major diameter, pitch) in mm
+PAD_WALL_MM = 2.0                                 # solid ring around the thread: pad diameter = major diameter + 2 * wall
+
+
+def pad_diameter(thread: str) -> float:
+    return THREADS[thread][0] + 2 * PAD_WALL_MM
+
+
+def pad_centers(count: int, W: float, H: float, margin: float):
+    """Pad centres in plate mm (y up, image top at y = H). Always in the middle of the frame band."""
+    c = margin / 2
+    if count == 1:
+        return [(W / 2, H - c)]
+    if count == 2:
+        return [(W / 2, H - c), (W / 2, c)]
+    if count == 3:
+        return [(c, H - c), (W - c, H - c), (W / 2, c)]
+    return [(c, H - c), (W - c, H - c), (c, c), (W - c, c)]
+
+
+def thread_void(thread: str, clearance: float, z0: float, z1: float):
+    """Right-handed internal thread cavity (the external thread shape plus clearance), made by twisting a polar cross-section."""
+    import manifold3d as m3d
+    d, pitch = THREADS[thread]
+    r_maj = d / 2 + clearance
+    depth = 0.54 * pitch
+    n = 96
+    pts = []
+    for i in range(n):
+        t = i / n                                  # position along one pitch
+        if t < 0.0625 or t >= 0.9375:
+            f = 1.0                                # crest of the void (thread root of the hole), P/8 wide
+        elif t < 0.375:
+            f = 1 - (t - 0.0625) / 0.3125          # 60 degree flank
+        elif t <= 0.625:
+            f = 0.0                                # flat at the minor diameter, P/4 wide
+        else:
+            f = (t - 0.625) / 0.3125
+        r = r_maj - depth * (1 - f)
+        a = 2 * np.pi * t
+        pts.append((r * np.cos(a), r * np.sin(a)))
+    h = z1 - z0
+    cs = m3d.CrossSection([np.array(pts)], m3d.FillRule.NonZero)
+    body = m3d.Manifold.extrude(cs, h, int(np.ceil(h / pitch * 20)), 360.0 * h / pitch)
+    return body.translate((0.0, 0.0, z0))
+
+
+def add_pads(solid, p: Params, W: float, H: float, margin: float, T: float, lh: float):
+    """Raised pads with a threaded hole on the print-top face (so they never need support). Returns (solid, centres, pad diameter)."""
+    import manifold3d as m3d
+    if p.pad_thread not in THREADS:
+        raise ValueError(f"unknown thread {p.pad_thread!r}; use one of {', '.join(THREADS)}")
+    d, pitch = THREADS[p.pad_thread]
+    dia = pad_diameter(p.pad_thread)
+    if margin < dia - 1e-6:
+        raise ValueError(f"margin too small for {p.pad_thread} pads: the margin is {margin:.1f} mm and a {p.pad_thread} pad is {dia:g} mm wide (the pads must sit inside the margin)")
+    h = 0.0 if p.flip else float(p.pad_height_mm)       # printed upside down: plain threaded holes through the margin, no raised pad
+    if not p.flip and (h < lh or T + h < 4 * pitch):
+        raise ValueError(f"pad height too small for an {p.pad_thread} thread: plate + pad must be at least {4 * pitch:g} mm (pad height at least {max(lh, 4 * pitch - T):.1f} mm)")
+    r = min(dia / 2, margin / 2)
+    cs = pad_centers(int(p.pad_count), W, H, margin)
+    for i in range(len(cs)):
+        for j in range(i):
+            if np.hypot(cs[i][0] - cs[j][0], cs[i][1] - cs[j][1]) < 2 * r - 1e-6:
+                raise ValueError(f"the plate is too small for {p.pad_count} {p.pad_thread} pads: they would overlap")
+    z_hi = T + h
+    if not p.flip:
+        pads = [m3d.Manifold.cylinder(h + lh, r, r, 96).translate((x, y, T - lh)) for x, y in cs]
+        solid = m3d.Manifold.batch_boolean([solid] + pads, m3d.OpType.Add)
+    voids = [thread_void(p.pad_thread, p.thread_clearance_mm, -0.5, z_hi + 0.5).translate((x, y, 0.0)) for x, y in cs]
+    return solid - m3d.Manifold.batch_boolean(voids, m3d.OpType.Add), cs, dia
+
+
 def make_stencil(data: bytes, filename: str = "", params: Params | None = None, progress=None):
     """Return (stl_bytes, stats). `progress(fraction, stage)` is called as work advances."""
     p = params or Params()
@@ -443,15 +520,25 @@ def make_stencil(data: bytes, filename: str = "", params: Params | None = None, 
         if len(solid.decompose()) == 1:       # smoothing must never split the part
             break
     trace = trace_svg(solid.slice(lh / 2), mat0.shape[1] * px, mat0.shape[0] * px)
+    plate = solid                               # overhangs are measured on the plate alone; thread flanks are not counted
+    pads_info = []
+    if int(p.pad_count) > 0:
+        report(0.9, "Adding threaded pads")
+        W, H = mat0.shape[1] * px, mat0.shape[0] * px
+        solid, pcs, pdia = add_pads(solid, p, W, H, stats["pad_px"] * px, T, lh)
+        pads_info = [[round(x, 2), round(y, 2)] for x, y in pcs]
     if p.flip:
-        # turn the part over (180 deg about the x axis, not a mirror): the printed object is the real stencil seen from behind
-        solid = solid.rotate((0.0, 180.0, 0.0)).translate((float(mat0.shape[1] * px), 0.0, float(T)))
+        # turn the part over (180 deg about the y axis, not a mirror): the printed object is the real stencil seen from behind
+        def turn(m):
+            return m.rotate((0.0, 180.0, 0.0)).translate((float(mat0.shape[1] * px), 0.0, float(T)))
+        solid, plate = turn(solid), turn(plate)
+    overhang = round(overhang_area(plate, lh, n_layers, p.max_overhang_deg or 45.0), 2)
     report(0.92, "Checking mesh")
     pieces = len(solid.decompose())
     mesh = solid.to_mesh()
     tris = mesh.vert_properties[:, :3][mesh.tri_verts].astype(np.float32)
     stats.update(
-        overhang_area_mm2=round(overhang_area(solid, lh, n_layers, p.max_overhang_deg or 45.0), 2),
+        overhang_area_mm2=overhang,
         flipped=bool(p.flip),
         islands_remaining=int(pieces - 1),
         triangles=int(len(tris)),
@@ -461,7 +548,9 @@ def make_stencil(data: bytes, filename: str = "", params: Params | None = None, 
         z_bridging=p.z_bridging if p.raised_bridges else None,
         layer_height_mm=round(lh, 4),
         smoothing_mm=round(float(sigma * factor * px), 3),
-        size_mm=[round(mat0.shape[1] * px, 2), round(mat0.shape[0] * px, 2), T],
+        size_mm=[round(mat0.shape[1] * px, 2), round(mat0.shape[0] * px, 2), round(T + (p.pad_height_mm if pads_info and not p.flip else 0.0), 3)],
+        pads=pads_info,
+        pad_thread_turns=round(T / THREADS[p.pad_thread][1] if p.flip else (T + p.pad_height_mm) / THREADS[p.pad_thread][1], 1) if pads_info else None,
         params=asdict(p),
     )
     report(0.95, "Rendering first layer")

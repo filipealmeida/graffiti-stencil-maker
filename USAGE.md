@@ -43,6 +43,10 @@ If `-o` is omitted, the output is the input name with `.stl`.
 | `--max-overhang DEG` | 0 (off) | With raised bridges: each layer may stick out at most layer height × tan(DEG) past the layer below (DEG measured from vertical; 45 = one layer height). Bridges too long for this finish with a flat span in the top layer; the longest is reported as *Longest flat top span* |
 | `--flip` | off | Print upside down: the part is rotated 180° about the Y axis (like turning a page), so the layers (and the layer slider, first-layer preview and viewer) follow the printed orientation. Every layer then sits on the one below, so there are no overhangs. The first printed layer appears horizontally mirrored relative to the art |
 | `--svg [FILE]` | off | Also write the traced artwork as an SVG in mm (the first layer, in the art's own orientation even with `--flip`; black material, holes cut out). Default name: input name + `.svg` |
+| `--pads 0-4` | 0 | Raised pads with a threaded hole, on the frame margin only (to screw a pole into). 1 = top centre, 2 = top + bottom centre, 3 = top corners + bottom centre, 4 = four corners |
+| `--pad-thread M4\|M6\|M8\|M10` | M8 | Thread of the pad hole (ISO, right-handed, printed in the part). The pad is thread diameter + 4 mm wide, so the margin must be at least M4 8, M6 10, M8 12, M10 14 mm (the web UI raises the margin for you) |
+| `--pad-height MM` | 6 | How far the pad rises above the plate. Plate + pad must be at least 4 thread pitches (M8: 5 mm) |
+| `--thread-clearance MM` | 0.2 | Radial clearance added to the hole thread so a printed or metal bolt screws in; raise it if your printer is tight |
 | `--extra-top-layers N` | 1 | Extra copies of the final layer stacked on top (adds N × layer height to the thickness) to make the part stronger |
 | `--resolution PX` | 250 | Pixels along the longest side (higher = finer, bigger file) |
 
@@ -57,6 +61,9 @@ Examples:
 On success it prints a JSON summary (islands found / bridges added / islands remaining,
 watertight, triangle count, size). The exit code is non-zero if any island remains or
 the mesh is not watertight.
+
+### Threaded mounting pads
+`--pads N --pad-thread M8 --pad-height 6` adds N round pads on the frame margin (never over the artwork), each with a through hole carrying a real internal thread, so a pole or bolt can be screwed in. Pads are on the print-top face, so they print without supports and without breaking the island-free guarantee. The STL gets taller by the pad height, and the layer slider shows the pads only on the last layer. With `--flip` there is no raised pad: you get only the threaded holes through the margin (the plate keeps its thickness and `--pad-height` is ignored), so the thread has only as many turns as the plate is thick divided by the pitch (reported as `pad_thread_turns`; thicken the plate if you need more grip). The hole thread is not counted in the overhang statistic (its flanks are 60° like any ISO thread; print with a 0.2 mm layer height and test-fit first). The SVG export contains the artwork without the pad holes. In the web UI use the *Mounting pads* group.
 
 ### Smooth outlines
 

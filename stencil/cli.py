@@ -28,6 +28,10 @@ def main(argv=None):
                     help="with --raised-bridges: 'steps' grows the island layer by layer; 'ramp' makes one continuous diagonal slope from the island-bearing first layer to the island-free top layer; 'stepramp' uses steps joined by short slopes")
     ap.add_argument("--min-island", type=float, default=d.min_island_mm2, help="delete islands (pieces not touching the frame) smaller than this area in mm2 (default %(default)s = keep all)")
     ap.add_argument("--max-overhang", type=float, default=d.max_overhang_deg, help="with --raised-bridges: limit overhang per layer to layer_height*tan(angle), angle from vertical in degrees (e.g. 45); 0 = unlimited")
+    ap.add_argument("--pads", type=int, default=0, choices=range(0, 5), metavar="0-4", help="raised pads with a threaded hole on the margin: 1 top; 2 top+bottom; 3 top corners+bottom; 4 corners (default: 0)")
+    ap.add_argument("--pad-thread", default=d.pad_thread, choices=["M4", "M6", "M8", "M10"], help="pad thread (default %(default)s); needs a margin of at least major diameter + 4 mm (M4 8, M6 10, M8 12, M10 14)")
+    ap.add_argument("--pad-height", type=float, default=d.pad_height_mm, help="height of the pad above the plate in mm (default %(default)s)")
+    ap.add_argument("--thread-clearance", type=float, default=d.thread_clearance_mm, help="radial clearance of the printed thread in mm (default %(default)s)")
     ap.add_argument("--svg", nargs="?", const="", metavar="FILE", help="also write the traced artwork (first layer, mm) as SVG (default name: input name + .svg)")
     ap.add_argument("--flip", action="store_true", help="export upside down (island side up) so the stencil prints with no overhangs")
     ap.add_argument("--extra-top-layers", type=int, default=d.extra_top_layers, help="extra copies of the last layer on top for strength (default %(default)s)")
@@ -46,7 +50,8 @@ def main(argv=None):
                threshold=a.threshold, invert=a.invert, min_feature_mm=a.min_feature, smooth_mm=a.smooth,
                raised_bridges=a.raised_bridges, layer_height_mm=a.layer_height, z_bridging=a.z_bridging,
                extra_top_layers=max(0, a.extra_top_layers), min_island_mm2=max(0.0, a.min_island),
-               max_overhang_deg=max(0.0, a.max_overhang), flip=a.flip)
+               max_overhang_deg=max(0.0, a.max_overhang), flip=a.flip,
+               pad_count=a.pads, pad_thread=a.pad_thread, pad_height_mm=a.pad_height, thread_clearance_mm=max(0.0, a.thread_clearance))
     stl, stats = make_stencil(src.read_bytes(), src.name, p)
     out = Path(a.output) if a.output else src.with_suffix(".stl")
     out.write_bytes(stl)

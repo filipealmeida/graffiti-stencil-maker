@@ -36,6 +36,10 @@ def parse_params(form) -> Params:
         min_island_mm2=max(0.0, float(form.get("min_island", 0) or 0)),
         max_overhang_deg=min(89.0, max(0.0, float(form.get("max_overhang", 0) or 0))),
         flip=form.get("flip") in ("1", "true", "on"),
+        pad_count=min(4, max(0, int(form.get("pads", 0) or 0))),
+        pad_thread=form.get("pad_thread") if form.get("pad_thread") in ("M4", "M6", "M8", "M10") else "M8",
+        pad_height_mm=min(50.0, max(0.2, float(form.get("pad_height", 6) or 6))),
+        thread_clearance_mm=min(1.0, max(0.0, float(form.get("thread_clearance", 0.2) or 0.2))),
         extra_top_layers=min(50, max(0, int(form.get("extra_top", 1)))),
         layer_height_mm=max(0.05, float(form.get("layer_height") or form.get("bridge_height") or 0.2)),
     )

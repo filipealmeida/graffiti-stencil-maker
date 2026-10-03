@@ -126,6 +126,14 @@ main{flex:1;position:relative;min-height:0}#view{position:absolute;inset:0}
 <label class="chk" title="Island side up: every layer sits on the one below, so there are no overhangs"><input id="flip" type="checkbox"> Print upside down</label>
 <small class="hint">Exports the STL flipped so nothing overhangs.</small>
 </div></details>
+<details class="grp" data-g="mount"><summary>Mounting pads</summary><div>
+<label for="pads" title="Raised pads with a threaded hole on the margin, to screw a pole into">Pads</label>
+<select id="pads"><option value="0">None</option><option value="1">1 — top centre</option><option value="2">2 — top and bottom centre</option><option value="3">3 — top corners + bottom centre</option><option value="4">4 — corners</option></select>
+<div class="dep" id="dep_pad"><label for="pad_thread">Thread</label>
+<select id="pad_thread"><option>M4</option><option>M6</option><option selected>M8</option><option>M10</option></select>
+<label for="pad_height" title="How far the pad rises above the plate">Pad height (mm)</label><input id="pad_height" type="number" value="6" step="0.5" min="1">
+<small class="hint" id="padhint">Pads sit inside the frame margin only.</small></div>
+</div></details>
 <details class="grp" id="statsd"><summary>Details</summary><div id="stats"><span class="mut">Nothing generated yet</span></div></details>
 </div>
 <div id="ctlfoot">
@@ -320,12 +328,13 @@ addEventListener('resize',resize);new ResizeObserver(resize).observe(view);resiz
 (function loop(){requestAnimationFrame(loop);controls.update();renderer.render(scene,camera)})();
 
 // ---- settings --------------------------------------------------------------------------------
-const DEFAULTS={threshold:256,invert:false,width:100,thickness:2,margin:8,bridge:1.6,smooth:0,raised:false,z_bridging:'steps',layer_height:0.2,min_island:0,max_overhang:0,flip:false,extra_top:1,resolution:250};
+const DEFAULTS={threshold:256,invert:false,width:100,thickness:2,margin:8,bridge:1.6,smooth:0,raised:false,z_bridging:'steps',layer_height:0.2,min_island:0,max_overhang:0,flip:false,extra_top:1,resolution:250,pads:0,pad_thread:'M8',pad_height:6};
 const PRESETS={simple:{raised:false,flip:false,smooth:0,min_island:0,max_overhang:0},
   printable:{raised:true,z_bridging:'steps',flip:true,min_island:3,max_overhang:0},
   smooth:{smooth:0.5}};
 const ids=Object.keys(DEFAULTS);
-const LIMITS={width:[20,2000],thickness:[0.2,100],margin:[1,500],bridge:[0.6,50],layer_height:[0.05,5],extra_top:[0,50],min_island:[0,1e6],max_overhang:[0,89]};
+const LIMITS={width:[20,2000],thickness:[0.2,100],margin:[1,500],bridge:[0.6,50],layer_height:[0.05,5],extra_top:[0,50],min_island:[0,1e6],max_overhang:[0,89],pad_height:[1,50]};
+const PADD={M4:8,M6:10,M8:12,M10:14};   // pad diameter = thread + 4 mm; must fit inside the margin
 // Returns a list of problems for the current form (empty = ok); invalid fields are marked and never sent or saved.
 function validate(){
   const probs=[];
@@ -335,6 +344,8 @@ function validate(){
   }
   const w=parseFloat($('width').value),m=parseFloat($('margin').value);
   if(Number.isFinite(w)&&Number.isFinite(m)&&w-2*m<=0){probs.push('Frame margin must be less than half the plate width');$('margin').classList.add('bad');$('width').classList.add('bad')}
+  const np=+$('pads').value,pd=PADD[$('pad_thread').value];
+  if(np>0&&Number.isFinite(m)&&m<pd){probs.push(`${$('pad_thread').value} pads need a margin of at least ${pd} mm`);$('margin').classList.add('bad')}
   const fe=$('fielderr');fe.style.display=probs.length?'block':'none';fe.textContent=probs.join('. ');
   return probs;
 }
@@ -348,6 +359,8 @@ function loadSettings(){try{const o=JSON.parse(localStorage.getItem(SKEY)||'{}')
   document.querySelectorAll('details.grp').forEach(d=>{if(o.groups&&o.groups[d.dataset.g]!==undefined)d.open=o.groups[d.dataset.g]})}catch(_){}}
 function deps(){
   const r=$('raised').checked,f=$('flip').checked;
+  const pn=+$('pads').value>0;$('dep_pad').classList.toggle('off-dep',!pn);$('pad_thread').disabled=!pn;$('pad_height').disabled=!pn||$('flip').checked;
+  $('padhint').textContent=pn?`Pad ⌀ ${PADD[$('pad_thread').value]} mm on the margin`+(f?' — printing upside down: plain threaded holes, no raised pad (the plate alone is thin, so only a few thread turns)':' — raised on the top face, no support needed'):'Pads sit inside the frame margin only.';
   $('z_bridging').disabled=!r;$('dep_z').classList.toggle('off-dep',!r);
   const ovOff=!r||f;$('max_overhang').disabled=ovOff;$('dep_ov').classList.toggle('off-dep',ovOff);
   $('ovhint').textContent=!r?'0 = unlimited. Needs raised bridges.':f?'Not needed when printing upside down.':'0 = unlimited. 45° = one layer height per layer.';
@@ -362,6 +375,7 @@ function changed(){sync();saveSettings();
   if(validate().length){clearTimeout(timer);return}
   if($('auto').checked){clearTimeout(timer);timer=setTimeout(run,Math.min(1500,Math.max(300,lastGenMs*0.5)))}else if(file)setDirty(true)}
 ids.forEach(i=>$(i).addEventListener('input',changed));
+['pads','pad_thread'].forEach(i=>$(i).addEventListener('change',()=>{const need=PADD[$('pad_thread').value];if(+$('pads').value>0&&(parseFloat($('margin').value)||0)<need){setV('margin',need);changed()}}));
 $('auto').addEventListener('change',()=>{saveSettings();if($('auto').checked&&dirty&&file)run();else setDirty(dirty)});
 $('gen').onclick=()=>run();
 $('ovtoggle').addEventListener('change',()=>{saveSettings();applyOv()});
@@ -448,6 +462,7 @@ async function run(){
   fd.append('invert',$('invert').checked?'1':'0');
   fd.append('raised',$('raised').checked?'1':'0');
   fd.append('flip',$('flip').checked?'1':'0');
+  fd.append('pads',$('pads').value);fd.append('pad_thread',$('pad_thread').value);fd.append('pad_height',$('pad_height').value);
   for(const k of ['smooth','min_island','max_overhang','z_bridging','layer_height','extra_top','width','thickness','margin','bridge','resolution'])fd.append(k,$(k).value);
   try{
     const up=await upload(fd),j=up.body;
