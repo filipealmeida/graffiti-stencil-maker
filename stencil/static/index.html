@@ -134,6 +134,16 @@ main{flex:1;position:relative;min-height:0}#view{position:absolute;inset:0}
 <label for="pad_height" title="How far the pad rises above the plate">Pad height (mm)</label><input id="pad_height" type="number" value="6" step="0.5" min="1">
 <small class="hint" id="padhint">Pads sit inside the frame margin only.</small></div>
 </div></details>
+<details class="grp" data-g="tiles"><summary>Tiles &amp; connectors</summary><div>
+<label for="tile_x" title="Largest piece width; the plate is cut into equal tiles. 0 = no limit">Max tile width (mm, 0 = off)</label><input id="tile_x" type="number" value="0" step="10" min="0">
+<label for="tile_y" title="Largest piece height. 0 = no limit">Max tile height (mm, 0 = off)</label><input id="tile_y" type="number" value="0" step="10" min="0">
+<div class="dep" id="dep_conn"><label for="connector_diameter" title="Blind holes in both sides of every seam; glue a rod into each pair. Needs a plate thicker than 4 mm. Hexagon: across the corners">Connector holes (diameter)</label>
+<select id="connector_diameter"><option value="0">None (plain cut)</option><option value="2.5">2.5 mm</option><option value="3">3 mm</option><option value="4">4 mm</option><option value="5">5 mm</option><option value="6">6 mm</option></select>
+<label for="connector_shape">Shape</label><select id="connector_shape"><option value="hex">Hexagon</option><option value="round">Cylinder</option></select>
+<label for="connector_clearance" title="Radial gap between rod and hole, for the glue">Hole clearance (mm)</label><input id="connector_clearance" type="number" value="0.2" step="0.05" min="0" max="1">
+<small class="hint" id="connhint">Holes sit at most 40 mm apart along a seam, stacked when the plate is thick enough.</small></div>
+<div id="actions2" style="display:flex;gap:6px;margin-top:8px"><a id="dltiles" class="btn sm off" role="button" download="tiles.zip">Download tiles (ZIP)</a><a class="btn sm sec" href="/api/connectors.zip" download="connectors.zip" title="Hex and cylinder rods, radius 2.5 to 6 mm">Connector rods (STL)</a></div>
+</div></details>
 <details class="grp" id="statsd"><summary>Details</summary><div id="stats"><span class="mut">Nothing generated yet</span></div></details>
 </div>
 <div id="ctlfoot">
@@ -328,12 +338,12 @@ addEventListener('resize',resize);new ResizeObserver(resize).observe(view);resiz
 (function loop(){requestAnimationFrame(loop);controls.update();renderer.render(scene,camera)})();
 
 // ---- settings --------------------------------------------------------------------------------
-const DEFAULTS={threshold:256,invert:false,width:100,thickness:2,margin:8,bridge:1.6,smooth:0,raised:false,z_bridging:'steps',layer_height:0.2,min_island:0,max_overhang:0,flip:false,extra_top:1,resolution:250,pads:0,pad_thread:'M8',pad_height:6};
+const DEFAULTS={threshold:256,invert:false,width:100,thickness:2,margin:8,bridge:1.6,smooth:0,raised:false,z_bridging:'steps',layer_height:0.2,min_island:0,max_overhang:0,flip:false,extra_top:1,resolution:250,pads:0,pad_thread:'M8',pad_height:6,tile_x:0,tile_y:0,connector_diameter:0,connector_shape:'hex',connector_clearance:0.2};
 const PRESETS={simple:{raised:false,flip:false,smooth:0,min_island:0,max_overhang:0},
   printable:{raised:true,z_bridging:'steps',flip:true,min_island:3,max_overhang:0},
   smooth:{smooth:0.5}};
 const ids=Object.keys(DEFAULTS);
-const LIMITS={width:[20,2000],thickness:[0.2,100],margin:[1,500],bridge:[0.6,50],layer_height:[0.05,5],extra_top:[0,50],min_island:[0,1e6],max_overhang:[0,89],pad_height:[1,50]};
+const LIMITS={width:[20,2000],thickness:[0.2,100],margin:[1,500],bridge:[0.6,50],layer_height:[0.05,5],extra_top:[0,50],min_island:[0,1e6],max_overhang:[0,89],pad_height:[1,50],tile_x:[0,5000],tile_y:[0,5000],connector_clearance:[0,1]};
 const PADD={M4:8,M6:10,M8:12,M10:14};   // pad diameter = thread + 4 mm; must fit inside the margin
 // Returns a list of problems for the current form (empty = ok); invalid fields are marked and never sent or saved.
 function validate(){
@@ -364,6 +374,13 @@ function deps(){
   $('z_bridging').disabled=!r;$('dep_z').classList.toggle('off-dep',!r);
   const ovOff=!r||f;$('max_overhang').disabled=ovOff;$('dep_ov').classList.toggle('off-dep',ovOff);
   $('ovhint').textContent=!r?'0 = unlimited. Needs raised bridges.':f?'Not needed when printing upside down.':'0 = unlimited. 45° = one layer height per layer.';
+  const tiled=(+$('tile_x').value>0)||(+$('tile_y').value>0),plate=(+$('thickness').value||0)+(+$('extra_top').value||0)*(+$('layer_height').value||0),thick=plate>4;
+  const hex=$('connector_shape').value==='hex',need=d=>(hex?Math.sqrt(3)/2*d:d)+2;
+  $('connector_diameter').disabled=!tiled||!thick;$('connector_shape').disabled=$('connector_clearance').disabled=$('connector_diameter').disabled;
+  $('dep_conn').classList.toggle('off-dep',$('connector_diameter').disabled);
+  [...$('connector_diameter').options].forEach(o=>{if(+o.value>0)o.disabled=need(+o.value)>plate+1e-9});
+  if($('connector_diameter').selectedOptions[0]?.disabled)$('connector_diameter').value='0';
+  $('connhint').textContent=!tiled?'Set a max tile size to enable.':!thick?'Connectors need a plate thicker than 4 mm.':`Plate ${plate.toFixed(1)} mm: ${hex?'hexagon':'cylinder'} diameters needing more than that are greyed out (1 mm wall around each hole). Holes are at most 40 mm apart along a seam, stacked when thick enough.`;
 }
 function sync(){$('thv').textContent=$('threshold').value==256?'auto':$('threshold').value;$('resv').textContent=$('resolution').value;$('smv').textContent=$('smooth').value==0?'off':$('smooth').value+' mm';deps()}
 loadSettings();
@@ -428,6 +445,10 @@ function showResult(s){
     ['Layers',`${s.layers} × ${s.layer_height_mm} mm`],['Size',s.size_mm.join(' × ')+' mm'],['Threshold used',s.threshold]];
   if(s.max_flat_span_mm)rows.push(['Longest flat top span',s.max_flat_span_mm+' mm']);
   if(s.flipped)rows.push(['Orientation','upside down']);
+  if(s.tiles){rows.push(['Tiles',`${s.tiles.length} (${s.tile_grid[0]} × ${s.tile_grid[1]})`]);
+    if(s.connectors)rows.push(['Connector holes',`${s.connectors.count} × ${s.connectors.shape} ⌀${s.connectors.diameter_mm} mm, ${s.connectors.rows} row(s) — rods ${s.connectors.rod_length_mm} mm long`+(s.connectors.positions_without_room?`; ${s.connectors.positions_without_room} spot(s) without enough material`:'')+`; largest gap along a seam ${s.connectors.max_gap_mm} mm`+(s.connectors.thin_wall_holes?`; ${s.connectors.thin_wall_holes} with a thin 0.6 mm wall`:'')]);
+    if(s.connectors&&s.connectors.max_gap_mm>40)pills.append(pill(`Connector gap ${s.connectors.max_gap_mm} mm`,'warn'));
+    const sp=s.tiles.filter(t=>t.pieces>1).length;if(sp)rows.push(['Tiles in several pieces',sp])}
   const st=$('stats');st.textContent='';
   for(const [k,v] of rows){const d=document.createElement('div'),b=document.createElement('b');b.textContent=k+': ';d.append(b,String(v));st.append(d)}
 }
@@ -463,7 +484,7 @@ async function run(){
   fd.append('raised',$('raised').checked?'1':'0');
   fd.append('flip',$('flip').checked?'1':'0');
   fd.append('pads',$('pads').value);fd.append('pad_thread',$('pad_thread').value);fd.append('pad_height',$('pad_height').value);
-  for(const k of ['smooth','min_island','max_overhang','z_bridging','layer_height','extra_top','width','thickness','margin','bridge','resolution'])fd.append(k,$(k).value);
+  for(const k of ['smooth','min_island','max_overhang','z_bridging','layer_height','extra_top','width','thickness','margin','bridge','resolution','tile_x','tile_y','connector_diameter','connector_shape','connector_clearance'])fd.append(k,$(k).value);
   try{
     const up=await upload(fd),j=up.body;
     if(j.error)throw new Error(j.error);
@@ -507,6 +528,7 @@ async function run(){
     $('dl').href=url;$('dl').download=file.name.replace(/\.[^.]+$/,'')+'.stl';$('dl').classList.remove('off');
     $('dlsvg').href='/api/jobs/'+j.id+'/trace.svg';$('dlsvg').download=file.name.replace(/\.[^.]+$/,'')+'.svg';$('dlsvg').classList.remove('off');
     const good=s.islands_remaining===0&&s.watertight;
+    if(s.tiles){$('dltiles').href='/api/jobs/'+j.id+'/tiles.zip';$('dltiles').download=file.name.replace(/\.[^.]+$/,'')+'_tiles.zip';$('dltiles').classList.remove('off')}else{$('dltiles').removeAttribute('href');$('dltiles').classList.add('off')}
     $('bar').style.opacity=0;
     $('msg').innerHTML=good?'<span style="color:#6d6">Island-free ✔</span>'+(noGL?' (3D preview unavailable: no WebGL)':' — drag to rotate, scroll to zoom'):'<span style="color:#f66">Problem detected</span>';
     showResult(s);

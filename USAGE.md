@@ -115,6 +115,12 @@ The *First layer* panel (web UI) supports mouse-wheel zoom, drag to pan and doub
 .venv/bin/python -m stencil logo.png --smooth 0.5 --raised-bridges --layer-height 0.2
 ```
 
+## Tiles and connectors
+
+For plates larger than the printer bed: `--tile-max 200x150` cuts the plate into equal tiles no larger than that and writes `<output>_tiles.zip` (tiles `r<row>c<col>`, row 1 on top). Mounting pads are slid along the frame so none is cut by a seam.
+
+`--connector-diameter 2.5|3|4|5|6` (mm; hexagons are measured across the corners; with `--connector-shape hex|round`, default `hex`) drills blind holes into both sides of each seam, aiming for one every 30 mm (never planned further apart than 40 mm) and stacked vertically when the plate is thick enough. With connectors, seams may shift by up to 8 mm (tiles stay within the size limit) to where the plate has most material; a hole that does not fit is moved along the seam and, as a last resort, drilled with a 0.6 mm wall instead of 1 mm. The holes are inside the plate, so the main STL (and the 3D preview) shows the tiles 10 mm apart to make the seam holes visible; the real, unspaced tiles are in the zip. The result card reports the largest gap between connectors along a seam and warns above 40 mm (sparse artwork at the seam: use a smaller diameter or another tile size). Holes are only drilled where at least 1 mm of material surrounds them, the plate must be thicker than 4 mm, and each diameter needs a plate of at least `diameter + 2` mm (`0.87 * diameter + 2` for hexagons). Glue a rod into each hole pair; the zip contains the matching rod, and all rods (19 mm long, standing on the bed) are in `toolbox/stls/connectors/` (rebuild with `python toolbox/build_connectors.py`) and downloadable from the web interface.
+
 ## Web interface
 
 ```sh

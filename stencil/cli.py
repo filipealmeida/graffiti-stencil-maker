@@ -37,6 +37,10 @@ def main(argv=None):
     ap.add_argument("--extra-top-layers", type=int, default=d.extra_top_layers, help="extra copies of the last layer on top for strength (default %(default)s)")
     ap.add_argument("--threshold", type=int, default=None, help="0-255 (default: automatic)")
     ap.add_argument("--invert", action="store_true", help="light areas become holes instead of dark")
+    ap.add_argument("--tile-max", metavar="X[xY]", help="split into equal tiles at most X by Y mm (Y defaults to X); written to a zip next to the output")
+    ap.add_argument("--connector-diameter", type=float, default=0.0, choices=[0.0, 2.5, 3.0, 4.0, 5.0, 6.0], help="blind holes in the seams for glued rods, diameter in mm (hexagon: across corners; plate must be thicker than 4 mm; 0 = plain cut)")
+    ap.add_argument("--connector-shape", choices=["hex", "round"], default="hex", help="hole and rod shape (default %(default)s)")
+    ap.add_argument("--connector-clearance", type=float, default=d.connector_clearance_mm, help="radial clearance of the hole around the rod in mm (default %(default)s)")
     a = ap.parse_args(argv)
 
     if a.serve:
@@ -45,20 +49,36 @@ def main(argv=None):
         return 0
     if not a.input:
         ap.error("input image required (or use --serve)")
+    tx = ty = 0.0
+    if a.tile_max:
+        try:
+            parts = [float(v) for v in a.tile_max.lower().split("x")]
+            tx, ty = parts[0], parts[-1]
+        except ValueError:
+            ap.error("--tile-max must look like 200 or 200x150")
     src = Path(a.input)
     p = Params(width_mm=a.width, resolution=a.resolution, thickness_mm=a.thickness, margin_mm=a.margin, bridge_mm=a.bridge,
                threshold=a.threshold, invert=a.invert, min_feature_mm=a.min_feature, smooth_mm=a.smooth,
                raised_bridges=a.raised_bridges, layer_height_mm=a.layer_height, z_bridging=a.z_bridging,
                extra_top_layers=max(0, a.extra_top_layers), min_island_mm2=max(0.0, a.min_island),
                max_overhang_deg=max(0.0, a.max_overhang), flip=a.flip,
-               pad_count=a.pads, pad_thread=a.pad_thread, pad_height_mm=a.pad_height, thread_clearance_mm=max(0.0, a.thread_clearance))
-    stl, stats = make_stencil(src.read_bytes(), src.name, p)
+               pad_count=a.pads, pad_thread=a.pad_thread, pad_height_mm=a.pad_height, thread_clearance_mm=max(0.0, a.thread_clearance),
+               tile_max_x_mm=max(0.0, tx), tile_max_y_mm=max(0.0, ty), connector_diameter_mm=a.connector_diameter,
+               connector_shape=a.connector_shape, connector_clearance_mm=max(0.0, a.connector_clearance))
+    try:
+        stl, stats = make_stencil(src.read_bytes(), src.name, p)
+    except ValueError as e:
+        ap.error(str(e))
     out = Path(a.output) if a.output else src.with_suffix(".stl")
     out.write_bytes(stl)
+    if "tiles_zip" in stats:
+        z = out.with_name(out.stem + "_tiles.zip")
+        z.write_bytes(stats["tiles_zip"])
+        print(f"wrote {z} ({len(stats['tiles'])} tiles)", file=sys.stderr)
     if a.svg is not None:
         svg = Path(a.svg) if a.svg else src.with_suffix(".svg")
         svg.write_text(stats["trace_svg"], encoding="utf-8")
         print(f"wrote {svg}", file=sys.stderr)
     print(f"wrote {out} ({stats['triangles']} triangles)", file=sys.stderr)
-    print(json.dumps({k: v for k, v in stats.items() if k not in ("params", "first_layer_svg", "trace_svg", "overlay_png")}))
+    print(json.dumps({k: v for k, v in stats.items() if k not in ("params", "first_layer_svg", "trace_svg", "overlay_png", "tiles_zip")}))
     return 0 if stats["islands_remaining"] == 0 and stats["watertight"] else 1

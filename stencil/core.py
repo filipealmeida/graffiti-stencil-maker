@@ -4,6 +4,7 @@ from __future__ import annotations
 import io
 import struct
 from dataclasses import dataclass, asdict
+from pathlib import Path
 
 import numpy as np
 from PIL import Image
@@ -35,6 +36,11 @@ class Params:
     pad_thread: str = "M8"        # M4, M6, M8 or M10
     pad_height_mm: float = 6.0    # how far the pad rises above the plate
     thread_clearance_mm: float = 0.2  # radial clearance added to the thread void so printed threads mate
+    tile_max_x_mm: float = 0.0    # >0: split into equal tiles at most this wide (x) ...
+    tile_max_y_mm: float = 0.0    # ... and this tall (y); 0 = no limit on that axis
+    connector_diameter_mm: float = 0.0   # 0 = plain cut; else 2.5, 3, 4, 5 or 6: blind holes in the seams for glued rods (plate > 4 mm)
+    connector_shape: str = "hex"  # "hex" or "round"
+    connector_clearance_mm: float = 0.2  # radial clearance of the hole around the rod
 
 
 def load_image(data: bytes, filename: str = "") -> Image.Image:
@@ -458,7 +464,7 @@ def thread_void(thread: str, clearance: float, z0: float, z1: float):
     return body.translate((0.0, 0.0, z0))
 
 
-def add_pads(solid, p: Params, W: float, H: float, margin: float, T: float, lh: float):
+def add_pads(solid, p: Params, W: float, H: float, margin: float, T: float, lh: float, centers=None):
     """Raised pads with a threaded hole on the print-top face (so they never need support). Returns (solid, centres, pad diameter)."""
     import manifold3d as m3d
     if p.pad_thread not in THREADS:
@@ -471,7 +477,7 @@ def add_pads(solid, p: Params, W: float, H: float, margin: float, T: float, lh: 
     if not p.flip and (h < lh or T + h < 4 * pitch):
         raise ValueError(f"pad height too small for an {p.pad_thread} thread: plate + pad must be at least {4 * pitch:g} mm (pad height at least {max(lh, 4 * pitch - T):.1f} mm)")
     r = min(dia / 2, margin / 2)
-    cs = pad_centers(int(p.pad_count), W, H, margin)
+    cs = centers if centers is not None else pad_centers(int(p.pad_count), W, H, margin)
     for i in range(len(cs)):
         for j in range(i):
             if np.hypot(cs[i][0] - cs[j][0], cs[i][1] - cs[j][1]) < 2 * r - 1e-6:
@@ -506,6 +512,12 @@ def make_stencil(data: bytes, filename: str = "", params: Params | None = None, 
         masks = [_fix_diagonals(matb)] * base_layers
     n_layers = base_layers + extra
     T = n_layers * lh
+    from . import tiling
+    W, H = mat0.shape[1] * px, mat0.shape[0] * px
+    xs, ys = tiling.grid(W, H, p.tile_max_x_mm, p.tile_max_y_mm)
+    tiled = len(xs) > 2 or len(ys) > 2
+    if tiled and p.connector_diameter_mm > 0:
+        tiling.check_connector(p.connector_shape, p.connector_diameter_mm, T)
     sigma = p.smooth_mm / px
     factors = (1.0, 0.5, 0.25, 0.0) if sigma > 0 else (0.0,)
     solid = None
@@ -520,29 +532,46 @@ def make_stencil(data: bytes, filename: str = "", params: Params | None = None, 
         if len(solid.decompose()) == 1:       # smoothing must never split the part
             break
     trace = trace_svg(solid.slice(lh / 2), mat0.shape[1] * px, mat0.shape[0] * px)
+    if tiled and p.connector_diameter_mm > 0:
+        xs, ys = tiling.optimize_grid(solid.slice(T / 2), W, H, xs, ys, p.tile_max_x_mm, p.tile_max_y_mm)
     plate = solid                               # overhangs are measured on the plate alone; thread flanks are not counted
     pads_info = []
     if int(p.pad_count) > 0:
         report(0.9, "Adding threaded pads")
-        W, H = mat0.shape[1] * px, mat0.shape[0] * px
-        solid, pcs, pdia = add_pads(solid, p, W, H, stats["pad_px"] * px, T, lh)
+        mg = stats["pad_px"] * px
+        centers = None
+        if tiled:
+            centers = tiling.avoid_seams(pad_centers(int(p.pad_count), W, H, mg), min(pad_diameter(p.pad_thread) / 2, mg / 2), W, xs, ys)
+        solid, pcs, pdia = add_pads(solid, p, W, H, mg, T, lh, centers)
         pads_info = [[round(x, 2), round(y, 2)] for x, y in pcs]
     if p.flip:
         # turn the part over (180 deg about the y axis, not a mirror): the printed object is the real stencil seen from behind
         def turn(m):
             return m.rotate((0.0, 180.0, 0.0)).translate((float(mat0.shape[1] * px), 0.0, float(T)))
         solid, plate = turn(solid), turn(plate)
+        xs = [W - x for x in reversed(xs)]
     overhang = round(overhang_area(plate, lh, n_layers, p.max_overhang_deg or 45.0), 2)
+    conn = None
+    pieces = len(solid.decompose())              # counted before drilling: closed hole cavities would count as extra shells
+    if tiled:
+        report(0.91, "Drilling connector holes")
+        if p.connector_diameter_mm > 0:
+            solid, conn = tiling.drill_connectors(solid, p.connector_shape, p.connector_diameter_mm, p.connector_clearance_mm, T, xs, ys)
     report(0.92, "Checking mesh")
-    pieces = len(solid.decompose())
     mesh = solid.to_mesh()
+    watertight = bool(solid.status().name == "NoError" and check_watertight(mesh.tri_verts))
+    tile_parts = None
+    if tiled:
+        report(0.94, "Cutting tiles")
+        tile_parts = tiling.split_tiles(solid, xs, ys)
+        mesh = tiling.exploded(tile_parts, xs, ys).to_mesh()     # the STL preview shows the tiles apart so the holes are visible
     tris = mesh.vert_properties[:, :3][mesh.tri_verts].astype(np.float32)
     stats.update(
         overhang_area_mm2=overhang,
         flipped=bool(p.flip),
         islands_remaining=int(pieces - 1),
         triangles=int(len(tris)),
-        watertight=bool(solid.status().name == "NoError" and check_watertight(mesh.tri_verts)),
+        watertight=watertight,
         layers=int(n_layers),
         extra_top_layers=extra,
         z_bridging=p.z_bridging if p.raised_bridges else None,
@@ -562,6 +591,14 @@ def make_stencil(data: bytes, filename: str = "", params: Params | None = None, 
     buf = io.BytesIO()
     Image.fromarray(ov, "RGBA").save(buf, "PNG")
     stats["overlay_png"] = buf.getvalue()      # bridges (red) and deleted islands (blue), one pixel per grid cell
+    if tiled:
+        report(0.96, "Writing tiles")
+        rod = (tiling.rod_name(p.connector_shape, p.connector_diameter_mm), tiling.rod_stl(p.connector_shape, p.connector_diameter_mm)) if conn else None
+        stem = Path(filename).stem or "stencil"
+        stats["tiles_zip"], tinfo = tiling.tiles_zip(stem, tile_parts, rod)
+        stats["tiles"] = tinfo
+        stats["connectors"] = conn
+        stats["tile_grid"] = [len(xs) - 1, len(ys) - 1]
     report(0.97, "Writing STL")
     out = triangles_to_stl(tris)
     report(1.0, "Done")
