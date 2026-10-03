@@ -50,6 +50,7 @@ def stencil():
     try:
         stl, stats = make_stencil(f.read(), f.filename or "", parse_params(request.form))
         stats.pop("first_layer_svg", None)
+        stats.pop("trace_svg", None)
         stats.pop("overlay_png", None)
     except Exception as e:  # bad image / params
         return {"error": str(e)}, 400
@@ -77,6 +78,7 @@ def _run(job, data, name, p):
     try:
         job["stl"], job["stats"] = make_stencil(data, name, p, progress)
         job["layer_svg"] = job["stats"].pop("first_layer_svg", "")
+        job["trace_svg"] = job["stats"].pop("trace_svg", "")
         job["overlay"] = job["stats"].pop("overlay_png", b"")
     except Exception as e:
         job["error"] = str(e)
@@ -128,6 +130,14 @@ def job_layer(jid):
     if job is None or not job.get("layer_svg"):
         return {"error": "not ready"}, 404
     return Response(job["layer_svg"], mimetype="image/svg+xml")
+
+
+@app.get("/api/jobs/<jid>/trace.svg")
+def job_trace(jid):
+    job = JOBS.get(jid)
+    if job is None or not job.get("trace_svg"):
+        return {"error": "not ready"}, 404
+    return Response(job["trace_svg"], mimetype="image/svg+xml")
 
 
 @app.get("/api/jobs/<jid>/overlay.png")

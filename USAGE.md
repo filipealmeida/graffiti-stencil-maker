@@ -42,6 +42,7 @@ If `-o` is omitted, the output is the input name with `.stl`.
 | `--min-island MM2` | 0 (off) | Delete islands (pieces not touching the frame) smaller than this area; they become paint instead of getting a bridge |
 | `--max-overhang DEG` | 0 (off) | With raised bridges: each layer may stick out at most layer height × tan(DEG) past the layer below (DEG measured from vertical; 45 = one layer height). Bridges too long for this finish with a flat span in the top layer; the longest is reported as *Longest flat top span* |
 | `--flip` | off | Print upside down: the part is rotated 180° about the Y axis (like turning a page), so the layers (and the layer slider, first-layer preview and viewer) follow the printed orientation. Every layer then sits on the one below, so there are no overhangs. The first printed layer appears horizontally mirrored relative to the art |
+| `--svg [FILE]` | off | Also write the traced artwork as an SVG in mm (the first layer, in the art's own orientation even with `--flip`; black material, holes cut out). Default name: input name + `.svg` |
 | `--extra-top-layers N` | 1 | Extra copies of the final layer stacked on top (adds N × layer height to the thickness) to make the part stronger |
 | `--resolution PX` | 250 | Pixels along the longest side (higher = finer, bigger file) |
 
@@ -90,6 +91,7 @@ In `ramp`/`stepramp` the first layer is identical to the `steps` first layer; br
 
 - *Controls* are grouped (Input, Size, Bridges, Cleanup & printing) and collapsible. Options that need raised bridges (Z bridging, max overhang) are greyed out until it is on. *Presets* (Simple, Printable without overhangs, Smooth curves) and *Reset* set many options at once. Settings are remembered in the browser.
 - *Auto-update* regenerates after each change (the delay grows with the last generation time, and a running job is cancelled when a newer one starts). Turn it off to use the *Generate* button, which turns orange when settings changed.
+- *SVG button* (next to Download STL): downloads the traced artwork as a vector file in mm.
 - *Results card* (bottom left): Island-free / Watertight / Overhang pills. When there are overhangs, **Fix: print upside down** flips the export.
 - *Validation*: out-of-range fields (e.g. margin ≥ half the width) turn red with a message and nothing is sent until fixed; invalid stored settings are reset on load.
 - *Loading images*: drop, click, paste (Ctrl+V), pick an example, or load from a URL (the remote site must allow cross-origin requests).
@@ -146,7 +148,7 @@ the mesh is watertight.
 
 The web page uses an asynchronous job API so it can show progress: `POST /api/jobs` (same form fields)
 returns `{"id": ...}`; poll `GET /api/jobs/<id>` for `{progress (0-1), stage, done, error}`; then fetch
-`GET /api/jobs/<id>/stl` (and `GET /api/jobs/<id>/layer.svg` for the first layer). When `done`, the status also contains `total_ms`; `events` lists stages as they finish (`since=N` returns only events after the first N). The synchronous endpoint is described below.
+`GET /api/jobs/<id>/stl` (and `/layer.svg` for the first-layer preview, `/trace.svg` for the downloadable traced artwork). When `done`, the status also contains `total_ms`; `events` lists stages as they finish (`since=N` returns only events after the first N). The synchronous endpoint is described below.
 
 
 `POST /api/stencil` (multipart form) with field `image` plus optional `width`,

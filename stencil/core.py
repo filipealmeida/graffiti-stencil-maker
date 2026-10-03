@@ -400,6 +400,13 @@ def layer_svg(section, w: float, h: float) -> str:
             f'<path fill="#d9dde3" fill-rule="evenodd" d="{d}"/></svg>')
 
 
+def trace_svg(section, w: float, h: float) -> str:
+    """Standalone vector artwork in mm: black material, holes cut out (even-odd), y up as in the source image."""
+    d = "".join("M" + "L".join(f"{x:.3f} {h - y:.3f}" for x, y in P) + "Z" for P in section.to_polygons())
+    return (f'<?xml version="1.0" encoding="UTF-8"?>\n<svg xmlns="http://www.w3.org/2000/svg" width="{w:.2f}mm" height="{h:.2f}mm" '
+            f'viewBox="0 0 {w:.2f} {h:.2f}"><path fill="#000" fill-rule="evenodd" d="{d}"/></svg>\n')
+
+
 def make_stencil(data: bytes, filename: str = "", params: Params | None = None, progress=None):
     """Return (stl_bytes, stats). `progress(fraction, stage)` is called as work advances."""
     p = params or Params()
@@ -435,6 +442,7 @@ def make_stencil(data: bytes, filename: str = "", params: Params | None = None, 
             solid = build_solid(masks + [masks[-1]] * extra, px, lh, sigma * factor, tick)
         if len(solid.decompose()) == 1:       # smoothing must never split the part
             break
+    trace = trace_svg(solid.slice(lh / 2), mat0.shape[1] * px, mat0.shape[0] * px)
     if p.flip:
         # turn the part over (180 deg about the x axis, not a mirror): the printed object is the real stencil seen from behind
         solid = solid.rotate((0.0, 180.0, 0.0)).translate((float(mat0.shape[1] * px), 0.0, float(T)))
@@ -457,6 +465,7 @@ def make_stencil(data: bytes, filename: str = "", params: Params | None = None, 
         params=asdict(p),
     )
     report(0.95, "Rendering first layer")
+    stats["trace_svg"] = trace
     stats["first_layer_svg"] = layer_svg(solid.slice(lh / 2), mat0.shape[1] * px, mat0.shape[0] * px)
     ov = np.zeros(mat0.shape + (4,), np.uint8)
     ov[deleted_mask] = (80, 160, 255, 255)

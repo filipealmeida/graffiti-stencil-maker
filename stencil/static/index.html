@@ -31,7 +31,7 @@ select,input[type=number]{width:100%;padding:4px;background:#14161a;color:#ddd;b
 .btn{display:block;width:100%;margin:0;padding:9px;background:var(--acc);color:#fff;border:0;border-radius:6px;text-align:center;text-decoration:none;cursor:pointer}
 .btn.sec{background:#3a3f48}
 a.btn.off,button:disabled{background:#444;pointer-events:none;opacity:.7}
-#actions{display:flex;gap:6px;margin-bottom:6px}#actions>*{flex:1}
+#actions{display:flex;gap:6px;margin-bottom:6px}#actions>*{flex:1}#dlsvg{flex:0 0 auto;width:auto;padding:9px 12px}
 #gen.dirty{background:#e08a00;animation:pulse 1.2s infinite}@keyframes pulse{50%{opacity:.7}}
 #autolbl{margin:6px 0 8px;font-size:12.5px;color:var(--mut)}
 #pills{display:flex;flex-wrap:wrap;gap:5px;margin:6px 0 0}
@@ -129,7 +129,7 @@ main{flex:1;position:relative;min-height:0}#view{position:absolute;inset:0}
 <details class="grp" id="statsd"><summary>Details</summary><div id="stats"><span class="mut">Nothing generated yet</span></div></details>
 </div>
 <div id="ctlfoot">
- <div id="actions"><button class="btn sec" id="gen" disabled>Generate</button><a id="dl" class="btn off" download="stencil.stl" role="button">Download STL</a></div>
+ <div id="actions"><button class="btn sec" id="gen" disabled>Generate</button><a id="dl" class="btn off" download="stencil.stl" role="button">Download STL</a><a id="dlsvg" class="btn sec off" download="stencil.svg" role="button" title="Traced artwork as a vector file (first layer, in mm)">SVG</a></div>
  <label id="autolbl" class="chk"><input id="auto" type="checkbox" checked> Auto-update when settings change</label>
  <div id="fielderr" role="alert"></div>
  <div id="pills" aria-live="polite"></div>
@@ -490,6 +490,7 @@ async function run(){
     if(url)URL.revokeObjectURL(url);
     url=URL.createObjectURL(new Blob([buf],{type:'model/stl'}));
     $('dl').href=url;$('dl').download=file.name.replace(/\.[^.]+$/,'')+'.stl';$('dl').classList.remove('off');
+    $('dlsvg').href='/api/jobs/'+j.id+'/trace.svg';$('dlsvg').download=file.name.replace(/\.[^.]+$/,'')+'.svg';$('dlsvg').classList.remove('off');
     const good=s.islands_remaining===0&&s.watertight;
     $('bar').style.opacity=0;
     $('msg').innerHTML=good?'<span style="color:#6d6">Island-free ✔</span>'+(noGL?' (3D preview unavailable: no WebGL)':' — drag to rotate, scroll to zoom'):'<span style="color:#f66">Problem detected</span>';

@@ -28,6 +28,7 @@ def main(argv=None):
                     help="with --raised-bridges: 'steps' grows the island layer by layer; 'ramp' makes one continuous diagonal slope from the island-bearing first layer to the island-free top layer; 'stepramp' uses steps joined by short slopes")
     ap.add_argument("--min-island", type=float, default=d.min_island_mm2, help="delete islands (pieces not touching the frame) smaller than this area in mm2 (default %(default)s = keep all)")
     ap.add_argument("--max-overhang", type=float, default=d.max_overhang_deg, help="with --raised-bridges: limit overhang per layer to layer_height*tan(angle), angle from vertical in degrees (e.g. 45); 0 = unlimited")
+    ap.add_argument("--svg", nargs="?", const="", metavar="FILE", help="also write the traced artwork (first layer, mm) as SVG (default name: input name + .svg)")
     ap.add_argument("--flip", action="store_true", help="export upside down (island side up) so the stencil prints with no overhangs")
     ap.add_argument("--extra-top-layers", type=int, default=d.extra_top_layers, help="extra copies of the last layer on top for strength (default %(default)s)")
     ap.add_argument("--threshold", type=int, default=None, help="0-255 (default: automatic)")
@@ -49,6 +50,10 @@ def main(argv=None):
     stl, stats = make_stencil(src.read_bytes(), src.name, p)
     out = Path(a.output) if a.output else src.with_suffix(".stl")
     out.write_bytes(stl)
+    if a.svg is not None:
+        svg = Path(a.svg) if a.svg else src.with_suffix(".svg")
+        svg.write_text(stats["trace_svg"], encoding="utf-8")
+        print(f"wrote {svg}", file=sys.stderr)
     print(f"wrote {out} ({stats['triangles']} triangles)", file=sys.stderr)
-    print(json.dumps({k: v for k, v in stats.items() if k not in ("params", "first_layer_svg", "overlay_png")}))
+    print(json.dumps({k: v for k, v in stats.items() if k not in ("params", "first_layer_svg", "trace_svg", "overlay_png")}))
     return 0 if stats["islands_remaining"] == 0 and stats["watertight"] else 1
