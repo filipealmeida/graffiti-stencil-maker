@@ -183,11 +183,6 @@ def _bridge_islands(mat: np.ndarray, bridge_px: int, seed: tuple[int, int] = (0,
 def build_mask(img: Image.Image, p: Params):
     """Return (pre-bridge mask, bridged mask, rise map, stats, pixel size in mm, bridge width px)."""
     res = p.resolution
-    if p.raised_bridges and p.z_bridging == "grow":
-        # a pixel must not be wider than the growth allowed per layer, or the flanks would exceed the overhang angle
-        lh_ = p.layer_height_mm if p.layer_height_mm and p.layer_height_mm > 0 else 0.2
-        d_ = lh_ * np.tan(np.radians(min(p.max_overhang_deg or 45.0, 89.0)))
-        res = int(min(1000, max(res, np.ceil((p.width_mm - 2 * p.margin_mm) / d_))))
     scale = res / max(img.size)
     size = (max(1, round(img.width * scale)), max(1, round(img.height * scale)))
     gray = np.asarray(img.convert("L").resize(size, Image.LANCZOS))
@@ -468,20 +463,85 @@ def fillet_bridges(mat0, rise, bridge_px):
     return out
 
 
-def grow_masks(mat0, rise, islands, n_layers, d_px):
-    """Layer masks where islands and bridges widen in X and Y by `d_px` pixels per layer (the overhang angle of the flanks),
-    so each bridge starts thin where it appears and flares out to the top."""
+def build_solid_grow(mat0, rise, islands, px, base_layers, extra, smooth_px, d_px, tick=None):
+    """Islands and bridges widen sideways by `d_px` pixels per layer, so every flank stays within the overhang angle.
+    Instead of stacking layers, the flank is one heightfield surface: its height at a pixel corner is the layer at which
+    the island (or bridge) reaches that corner, min over the seeds of (seed layer + distance / d_px). The first layer is
+    exactly `mat0` and the top layer is the island-free mask. Units: x/y in mm, z in layers."""
+    import manifold3d as m3d
     from scipy.ndimage import distance_transform_edt
+    mat0 = _fix_diagonals(mat0)
+    h, w = mat0.shape
+    top1 = float(base_layers - 1)
     br = ~np.isnan(rise)
-    kmin = np.ceil(np.nan_to_num(rise, nan=0.0) * (n_layers - 1) - 1e-6)
-    reach = np.full(mat0.shape, np.inf)
-    masks = []
-    for k in range(n_layers):
-        seeds = (br & (kmin == k)) | (islands if k == 0 else False)
-        if seeds.any():
-            reach = np.minimum(reach, distance_transform_edt(~seeds) + k * d_px)
-        masks.append(_fix_diagonals(mat0 | (br & (kmin <= k)) | (reach <= k * d_px + 1e-6)))
-    return masks
+
+    # Each pixel is split into n x n cells: a ridge sampled on the pixel grid would be a flat pixel-wide plateau that
+    # closes a gap in a single layer, so the flank surface is sampled finely enough for two flanks to meet within one layer.
+    n = max(1, int(np.ceil(1.0 / (1.6 * d_px))))
+    hf, wf = h * n, w * n
+    up = lambda m: np.repeat(np.repeat(m, n, 0), n, 1)
+
+    def corners(m):
+        out = np.zeros((hf + 1, wf + 1), bool)
+        for dr in (0, 1):
+            for dc in (0, 1):
+                out[dr:dr + hf, dc:dc + wf] |= m
+        return out
+
+    # Lowest underside that keeps every flank within the overhang angle: it climbs from any vertical wall (island or
+    # frame) at `d_px` pixels per layer. Bridges sit at that height; islands start at layer 1 and bridges grow sideways from there.
+    d_f = d_px * n * 0.75     # cells per layer; the margin covers diagonal triangles being steeper than their edges
+    Zw = 1.0 + distance_transform_edt(~corners(up(mat0))) / d_f
+    lvl = np.where(corners(up(br)), np.ceil(np.minimum(Zw, top1) * 2) / 2, np.where(corners(up(islands & mat0)), 1.0, np.inf))
+    Z = np.full((hf + 1, wf + 1), np.inf)
+    for lv in np.unique(lvl[np.isfinite(lvl)]):
+        Z = np.minimum(Z, lv + distance_transform_edt(~(lvl == lv)) / d_f)
+    if tick:
+        tick(0.2)
+    zmax = np.full((h, w), -np.inf)
+    for i in range(n + 1):
+        for j in range(n + 1):
+            zmax = np.maximum(zmax, Z[i::n, j::n][:h, :w])
+    P = _fix_diagonals(mat0 | br | (zmax <= top1 + 1e-6))
+    S = _fix_diagonals(P & ~mat0)       # the flank mesh needs 2-manifold corners on its own
+    Z = np.minimum(Z, top1)
+
+    def extr(mask, z0, n, smooth):
+        loops = trace_loops(mask)
+        if smooth > 0:
+            loops = [q for q in (smooth_loop(L, smooth, 0.5) for L in loops) if q is not None]
+        cs = m3d.CrossSection([L * px for L in loops], m3d.FillRule.NonZero)
+        return m3d.Manifold.extrude(cs, float(n)).translate((0.0, 0.0, float(z0)))
+
+    parts = [extr(mat0, 0, base_layers, smooth_px), extr(P, base_layers - 1, 1 + extra, smooth_px)]
+    if S.any():
+        top = float(base_layers)
+        X = np.arange(wf + 1) * (px / n)
+        Y = (hf - np.arange(hf + 1)) * (px / n)
+        ids = np.arange((hf + 1) * (wf + 1)).reshape(hf + 1, wf + 1)
+        nv = (hf + 1) * (wf + 1)
+        V = np.concatenate([
+            np.stack([np.broadcast_to(X, Z.shape).ravel(), np.broadcast_to(Y[:, None], Z.shape).ravel(), Z.ravel()], 1),
+            np.stack([np.broadcast_to(X, Z.shape).ravel(), np.broadcast_to(Y[:, None], Z.shape).ravel(), np.full(Z.size, top)], 1)])
+        r, c = np.nonzero(up(S))
+        TL, TR, BL, BR = ids[r, c], ids[r, c + 1], ids[r + 1, c], ids[r + 1, c + 1]
+        tris = [np.stack([BL + nv, BR + nv, TR + nv], 1), np.stack([BL + nv, TR + nv, TL + nv], 1),
+                np.stack([BL, TR, BR], 1), np.stack([BL, TL, TR], 1)]
+        Sp = np.pad(up(S), 1)
+        north, south, west, east = ~Sp[r, c + 1], ~Sp[r + 2, c + 1], ~Sp[r + 1, c], ~Sp[r + 1, c + 2]
+        tris += [np.stack([TL, TL + nv, TR + nv], 1)[north], np.stack([TL, TR + nv, TR], 1)[north],
+                 np.stack([BL, BR, BR + nv], 1)[south], np.stack([BL, BR + nv, BL + nv], 1)[south],
+                 np.stack([TL, BL + nv, TL + nv], 1)[west], np.stack([TL, BL, BL + nv], 1)[west],
+                 np.stack([BR, TR, TR + nv], 1)[east], np.stack([BR, TR + nv, BR + nv], 1)[east]]
+        F = np.concatenate(tris).astype(np.uint32)
+        prism = m3d.Manifold(m3d.Mesh(V.astype(np.float32), F))
+        if prism.volume() < 0:
+            prism = m3d.Manifold(m3d.Mesh(V.astype(np.float32), F[:, ::-1].copy()))
+        if prism.status() != m3d.Error.NoError:
+            raise RuntimeError(f"could not build the island flanks: {prism.status()}")
+        # the flank mesh is pixelated: trim it to the smoothed outline
+        parts.append(prism ^ extr(P, 0, base_layers + extra, smooth_px))
+    return m3d.Manifold.batch_boolean(parts, m3d.OpType.Add)
 
 
 def layer_svg(section, w: float, h: float) -> str:
@@ -588,8 +648,10 @@ def make_stencil(data: bytes, filename: str = "", params: Params | None = None, 
     lh = step                                   # layer height is exact; thickness snaps to whole layers
     extra = max(0, int(p.extra_top_layers))
     ramp = p.raised_bridges and p.z_bridging in ("ramp", "stepramp")
-    if p.raised_bridges and p.z_bridging == "grow" and base_layers > 1:
-        masks = grow_masks(mat0, fillet_bridges(mat0, rise, bridge_px), islands_mask, base_layers, grow_px)
+    grow = p.raised_bridges and p.z_bridging == "grow" and base_layers > 2
+    if grow:
+        rise = fillet_bridges(mat0, rise, bridge_px)
+        masks = [_fix_diagonals(matb)] * base_layers
     elif p.raised_bridges and not ramp:
         masks = layer_masks(mat0, matb, rise, base_layers)
     else:
@@ -608,7 +670,9 @@ def make_stencil(data: bytes, filename: str = "", params: Params | None = None, 
     for a, factor in enumerate(factors):
         lo, span = 0.5 + 0.4 * a / len(factors), 0.4 / len(factors)
         tick = lambda f, lo=lo, span=span: report(lo + span * f, "Extruding & merging layers")
-        if ramp:
+        if grow:
+            solid = build_solid_grow(mat0, rise, islands_mask, px, base_layers, extra, sigma * factor, grow_px, tick).scale((1.0, 1.0, lh))
+        elif ramp:
             solid = build_solid_ramp(layer_masks(mat0, matb, rise, max(base_layers, 2))[0], _fix_diagonals(matb), rise, px, base_layers, extra,
                                      sigma * factor, tick, p.z_bridging == "stepramp").scale((1.0, 1.0, lh))
         else:
