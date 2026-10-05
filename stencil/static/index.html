@@ -62,7 +62,11 @@ main{flex:1;position:relative;min-height:0}#view{position:absolute;inset:0}
 #help kbd{background:#333;border-radius:3px;padding:0 5px;font:11px ui-monospace,monospace}
 #layerbar{position:absolute;left:0;right:0;bottom:0;display:flex;gap:8px;align-items:center;padding:6px 12px;background:#000a}
 #layerbar button{background:#3a3f48;color:#fff;border:0;border-radius:5px;padding:3px 9px;cursor:pointer;width:auto;margin:0}
-#layerbar input{flex:1;margin:0}#lyv{min-width:170px;text-align:right;color:var(--mut);font-size:12px}
+#layerbar input{flex:1;margin:0}
+#lrange{position:relative;flex:1;height:20px}#lrange input{position:absolute;left:0;top:0;width:100%;height:20px;pointer-events:none;background:none}
+#lrange input::-webkit-slider-thumb{pointer-events:auto}#lrange input::-moz-range-thumb{pointer-events:auto}
+#lrange input::-webkit-slider-runnable-track{background:#555;height:4px;border-radius:2px}#lrange input#layer{background:none}#lrange input::-moz-range-track{background:#555;height:4px}
+#lrange input#layer::-webkit-slider-runnable-track{background:transparent}#lrange input#layer::-moz-range-track{background:transparent}#lyv{min-width:230px;text-align:right;color:var(--mut);font-size:12px}
 #logpane{height:170px;display:flex;flex-direction:column;background:#0f1114;border-top:1px solid var(--line)}
 #logbar{flex:none;display:flex;gap:8px;align-items:center;padding:3px 10px;font-size:12px;color:var(--mut);border-bottom:1px solid #222}
 #logbar button{background:#2a2e35;color:#ddd;border:0;border-radius:4px;padding:1px 8px;cursor:pointer;font-size:12px}
@@ -169,7 +173,7 @@ main{flex:1;position:relative;min-height:0}#view{position:absolute;inset:0}
 </div>
 <div id="help"><b>Viewer</b><br>Drag: rotate · Right-drag: pan · Wheel: zoom<br><kbd>←</kbd><kbd>→</kbd> layer · <kbd>Space</kbd> play layers<br><kbd>T</kbd> top · <kbd>I</kbd> iso · <kbd>S</kbd> side · <kbd>B</kbd> bottom · <kbd>F</kbd> fit · <kbd>W</kbd> wireframe<br><b>First layer panel</b><br>Wheel: zoom · Drag: pan · Double-click: reset<br><b>Panels</b><br>Drag bars to resize · arrows or Enter collapse</div>
 <div id="layerbar"><button id="lprev" aria-label="Previous layer">◀</button><button id="lplay" aria-label="Play layers">▶</button><button id="lnext" aria-label="Next layer">▶|</button>
- <input id="layer" type="range" min="1" max="1" value="1" disabled aria-label="Layers shown"><span id="lyv">–</span></div>
+ <div id="lrange"><input id="layer0" type="range" min="1" max="1" value="1" disabled aria-label="First layer shown"><input id="layer" type="range" min="1" max="1" value="1" disabled aria-label="Last layer shown"></div><span id="lyv">–</span></div>
 </main>
 <div class="split y" data-t="logpane" data-d="-1" data-name="log"></div>
 <div id="logpane"><div id="logbar"><b>Log</b><button id="logcopy">Copy</button><button id="logclear">Clear</button><label style="margin:0;display:flex;gap:4px;align-items:center"><input type="checkbox" id="logtm"> timings only</label></div><div id="log"></div></div></div>
@@ -246,19 +250,21 @@ const controls=new OrbitControls(camera,renderer.domElement);
 scene.add(new THREE.HemisphereLight(0xffffff,0x334455,1.1));
 const dl=new THREE.DirectionalLight(0xffffff,1.6);dl.position.set(-1,1.5,2);scene.add(dl);
 let mesh=null,cap=null,bed=null,zoff=0,layers=1,lh=1,R=50,geoCur=null,bridgeTex=null,fitted=false;
-const plane=new THREE.Plane(new THREE.Vector3(0,0,-1),1e6);
-function applyLayer(){
-  const k=+$('layer').value;
+const plane=new THREE.Plane(new THREE.Vector3(0,0,-1),1e6),plane0=new THREE.Plane(new THREE.Vector3(0,0,1),1e6);
+function applyLayer(src){
+  let k=+$('layer').value,k0=+$('layer0').value;
+  if(k0>k){if(src===$('layer0')){k=k0;$('layer').value=k}else{k0=k;$('layer0').value=k0}}
   plane.constant=(k>=layers?1e6:k*lh-zoff);   // keep everything with z <= k layers
-  $('lyv').textContent=layers>1?`${k} / ${layers}  (z ≤ ${(k*lh).toFixed(2)} mm)`:'single layer';
+  plane0.constant=(k0<=1?1e6:-((k0-1)*lh-zoff));   // and z >= (k0-1) layers
+  $('lyv').textContent=layers>1?(k0>1?`layers ${k0}–${k} / ${layers}  (z ${((k0-1)*lh).toFixed(2)}–${(k*lh).toFixed(2)} mm)`:`${k} / ${layers}  (z ≤ ${(k*lh).toFixed(2)} mm)`):'single layer';
 }
-$('layer').addEventListener('input',applyLayer);
-const stepLayer=d=>{const s=$('layer');if(s.disabled)return;s.value=Math.min(+s.max,Math.max(1,+s.value+d));applyLayer()};
+$('layer').addEventListener('input',e=>applyLayer(e.target));$('layer0').addEventListener('input',e=>applyLayer(e.target));
+const stepLayer=d=>{const s=$('layer');if(s.disabled)return;s.value=Math.min(+s.max,Math.max(+$('layer0').value,+s.value+d));applyLayer()};
 $('lprev').onclick=()=>stepLayer(-1);$('lnext').onclick=()=>stepLayer(1);
 let playT=null;
 function stopPlay(){clearInterval(playT);playT=null;$('lplay').textContent='▶'}
 function togglePlay(){if(playT){stopPlay();return}const s=$('layer');if(s.disabled)return;
-  if(+s.value>=+s.max)s.value=1;$('lplay').textContent='❚❚';applyLayer();
+  if(+s.value>=+s.max)s.value=$('layer0').value;$('lplay').textContent='❚❚';applyLayer();
   playT=setInterval(()=>{if(+s.value>=+s.max){stopPlay();return}stepLayer(1)},160)}
 $('lplay').onclick=togglePlay;
 
@@ -321,7 +327,7 @@ function show(buf,stats,overlayImg){
       dst.data.set(br?[255,120,40,255]:[255,255,255,255],i)}
     x.putImageData(dst,0,0);bridgeTex=new THREE.CanvasTexture(c);bridgeTex.magFilter=bridgeTex.minFilter=THREE.NearestFilter;bridgeTex.generateMipmaps=false;
   }
-  const clip=[plane];
+  const clip=[plane,plane0];
   mesh=new THREE.Mesh(geo,new THREE.MeshStandardMaterial({color:0xffffff,roughness:.6,metalness:.1,clippingPlanes:clip}));
   cap=new THREE.Mesh(geo,new THREE.MeshBasicMaterial({color:0xff8a1f,side:THREE.BackSide,clippingPlanes:clip}));
   scene.add(mesh,cap);geoCur=geo;
@@ -330,7 +336,7 @@ function show(buf,stats,overlayImg){
   const bw=Math.max(stats.size_mm[0],stats.size_mm[1])*1.25;
   const g=new THREE.GridHelper(bw,Math.round(bw/10),0x4a5360,0x2c323a);g.rotateX(Math.PI/2);g.position.z=-zoff-0.02;bed=g;scene.add(bed);
   layers=stats.layers;lh=stats.layer_height_mm;
-  const sl=$('layer');sl.max=layers;sl.value=layers;sl.disabled=layers<=1;applyLayer();stopPlay();
+  const sl=$('layer'),s0=$('layer0');sl.max=s0.max=layers;sl.value=layers;s0.value=1;sl.disabled=s0.disabled=layers<=1;applyLayer();stopPlay();
   $('dims').style.display='block';$('dims').textContent=`${stats.size_mm[0]} × ${stats.size_mm[1]} × ${stats.size_mm[2]} mm`+(stats.flipped?' · upside down':'');
   $('wire').setAttribute('aria-pressed','false');
   applyMode();

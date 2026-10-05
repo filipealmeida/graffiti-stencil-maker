@@ -139,8 +139,8 @@ Open <http://127.0.0.1:5000>.
 2. Adjust threshold, invert, smoothing, raised bridges, width, thickness, margin, bridge width and resolution;
    the stencil regenerates automatically.
 3. Explore the 3D model: drag to rotate, scroll to zoom, right-drag to pan.
-   (Requires a browser with WebGL.) The **Layers shown** slider hides everything above layer *n*
-   (one layer = one layer height, wall side first) so you can watch the islands grow into the bridges.
+   (Requires a browser with WebGL.) The **Layers shown** range slider has two handles: the left one is the first layer shown (default 1) and the right one the last (default: top), so you can show any range, e.g. only the mid layers
+   (one layer = one layer height, wall side first) and watch the islands grow into the bridges. ◀ ▶ ▶| and play move the right handle.
 4. Click **Download STL**.
 
 The page has three extra areas:
