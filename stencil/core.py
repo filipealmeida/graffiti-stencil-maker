@@ -101,7 +101,18 @@ def _fix_diagonals(m: np.ndarray) -> np.ndarray:
         m[:-1, :-1] |= p2
 
 
-def _connect_islands(mat: np.ndarray, bridge_px: int, seed: tuple[int, int] = (0, 0)):
+def _island_center(mask: np.ndarray) -> tuple[int, int]:
+    """Centre of an island: its centroid, or the deepest pixel when the centroid falls outside (C or ring shapes)."""
+    rr, cc = np.nonzero(mask)
+    r0, r1, c0, c1 = rr.min(), rr.max() + 1, cc.min(), cc.max() + 1
+    sub = mask[r0:r1, c0:c1]
+    cr, ccn = int(round(rr.mean())) - r0, int(round(cc.mean())) - c0
+    if not sub[cr, ccn]:
+        cr, ccn = np.unravel_index(int(np.argmax(ndi.distance_transform_edt(np.pad(sub, 1))[1:-1, 1:-1])), sub.shape)
+    return int(cr + r0), int(ccn + c0)
+
+
+def _connect_islands(mat: np.ndarray, bridge_px: int, seed: tuple[int, int] = (0, 0), center: bool = False):
     """Connect every material component to the main component (the one containing `seed`, the frame by default) through hole pixels.
 
     Returns (mat, bridges, rise, blen); blen is the bridge path length in pixels on bridge pixels. `rise` is NaN except on bridge pixels, where it goes from 0 (next to
@@ -140,7 +151,7 @@ def _connect_islands(mat: np.ndarray, bridge_px: int, seed: tuple[int, int] = (0
                 is_hole = flat_hole[idx]
                 nxt.append(idx[is_hole])
                 for o, s_ in zip(idx[~is_hole], src[~is_hole]):
-                    hits.setdefault(int(flat_lab[o]), int(s_))
+                    hits.setdefault(int(flat_lab[o]), (int(s_), int(o)))
             if nxt:
                 nxt = np.unique(np.concatenate(nxt))
                 flat_dist[nxt] = layer
@@ -149,7 +160,11 @@ def _connect_islands(mat: np.ndarray, bridge_px: int, seed: tuple[int, int] = (0
             mat &= main        # unreachable (cannot happen with a frame)
             return mat, bridges, rise, blen
         before = mat.copy()
-        for s0 in hits.values():
+        for s0, o0 in hits.values():
+            off = 0.0
+            if center:      # the bridge starts at the island's centre: its rise counts from there
+                cr, cc_ = _island_center(lab == flat_lab[o0])
+                off = float(np.hypot(cr - o0 // w, cc_ - o0 % w))
             cur, path = s0, []
             while flat_dist[cur] > 0:
                 path.append(cur)
@@ -163,7 +178,7 @@ def _connect_islands(mat: np.ndarray, bridge_px: int, seed: tuple[int, int] = (0
             pr, pc = np.divmod(np.array(path), w)
             d = flat_dist[np.array(path)].astype(np.float32)
             dk = d.max()
-            f = (dk - d) / (dk - 1) if dk > 1 else np.ones_like(d)
+            f = (off + dk - d) / (off + dk - 1) if dk > 1 else np.ones_like(d)
             b = bridge_px + 1
             r0, r1 = max(0, pr.min() - b), min(h, pr.max() + b + 1)
             c0, c1 = max(0, pc.min() - b), min(w, pc.max() + b + 1)
@@ -177,17 +192,17 @@ def _connect_islands(mat: np.ndarray, bridge_px: int, seed: tuple[int, int] = (0
             cur_r = rise[r0:r1, c0:c1]
             upd = region & (np.isnan(cur_r) | (fn < cur_r))
             cur_r[upd] = fn[upd]
-            blen[r0:r1, c0:c1][upd] = dk
+            blen[r0:r1, c0:c1][upd] = dk + off
         mat |= ~np.isnan(rise)
 
 
-def _paint_extra(mat, rise, blen, path, fdist, w, bridge_px):
+def _paint_extra(mat, rise, blen, path, fdist, w, bridge_px, off=0.0):
     """Write one bridge along `path` (pixel indices from the island outwards; `fdist` counts steps from the island, 1 = first hole)."""
     h = mat.shape[0]
     pr, pc = np.divmod(np.array(path), w)
     d = fdist[np.array(path)].astype(np.float32)
     dk = d.max()
-    f = (d - 1) / (dk - 1) if dk > 1 else np.zeros_like(d)
+    f = (off + d - 1) / (off + dk - 1) if dk > 1 else np.zeros_like(d)
     b = bridge_px + 1
     r0, r1 = max(0, pr.min() - b), min(h, pr.max() + b + 1)
     c0, c1 = max(0, pc.min() - b), min(w, pc.max() + b + 1)
@@ -200,15 +215,15 @@ def _paint_extra(mat, rise, blen, path, fdist, w, bridge_px):
     cur = rise[r0:r1, c0:c1]
     upd = region & np.isnan(cur)
     cur[upd] = fv[ir, ic][upd]
-    blen[r0:r1, c0:c1][upd] = dk
+    blen[r0:r1, c0:c1][upd] = dk + off
     return int(dk)
 
 
-def _bridge_islands(mat: np.ndarray, bridge_px: int, seed: tuple[int, int] = (0, 0), per_island: int = 1):
+def _bridge_islands(mat: np.ndarray, bridge_px: int, seed: tuple[int, int] = (0, 0), per_island: int = 1, center: bool = False):
     """Connect every island to the main component, with `per_island` (1-6) separate bridges for each island.
     Returns (mat, bridges, rise, blen) like `_connect_islands`."""
     lab0, n0 = label4(mat)
-    mat, bridges, rise, blen = _connect_islands(mat, bridge_px, seed)
+    mat, bridges, rise, blen = _connect_islands(mat, bridge_px, seed, center)
     per_island = max(1, min(6, int(per_island)))
     if per_island == 1 or n0 <= 1:
         return mat, bridges, rise, blen
@@ -261,11 +276,20 @@ def _bridge_islands(mat: np.ndarray, bridge_px: int, seed: tuple[int, int] = (0,
                         cur = rr * w + cc
                         break
             before = ~np.isnan(rise)
-            _paint_extra(mat, rise, blen, path, fd, w, bridge_px)
+            off = 0.0
+            if center:
+                cr, cc_ = _island_center(src)
+                off = float(np.hypot(cr - path[-1] // w, cc_ - path[-1] % w))
+            _paint_extra(mat, rise, blen, path, fd, w, bridge_px, off)
             own |= ~np.isnan(rise) & ~before
             bridges += 1
     mat = mat | ~np.isnan(rise)
     return mat, bridges, rise, blen
+
+
+def flare_layers(bridge_px: float, d_px: float, base_layers: int) -> int:
+    """Layers an Island-bridge bridge needs at its top end to widen by one bridge width on each side at the overhang angle."""
+    return int(min(max(base_layers - 3, 0), np.ceil(bridge_px / (0.75 * d_px)))) if d_px > 0 else 0
 
 
 def build_mask(img: Image.Image, p: Params):
@@ -326,14 +350,14 @@ def build_mask(img: Image.Image, p: Params):
                 sizes = np.bincount(lab.ravel())
                 sizes[0] = 0
                 seed = np.unravel_index(int(np.argmax(lab == int(np.argmax(sizes)))), sub.shape)
-                m, b, ri, bl = _bridge_islands(sub, bridge_px, (int(seed[0]), int(seed[1])), p.bridges_per_island)
+                m, b, ri, bl = _bridge_islands(sub, bridge_px, (int(seed[0]), int(seed[1])), p.bridges_per_island, p.z_bridging == "island")
                 matb[r0:r1, c0:c1], rise[r0:r1, c0:c1], blen[r0:r1, c0:c1] = m, ri, bl
                 isl_mask[r0:r1, c0:c1] = (lab > 0) & (lab != lab[seed])
                 islands += n - 1
                 bridges += b
     else:
         islands = label4(mat0)[1] - 1
-        matb, bridges, rise, blen = _bridge_islands(mat0, bridge_px, (0, 0), p.bridges_per_island)
+        matb, bridges, rise, blen = _bridge_islands(mat0, bridge_px, (0, 0), p.bridges_per_island, p.z_bridging == "island")
         lab0 = label4(mat0)[0]
         isl_mask = (lab0 > 0) & (lab0 != lab0[0, 0])
     grow = p.z_bridging in ("grow", "island")
@@ -345,6 +369,8 @@ def build_mask(img: Image.Image, p: Params):
         base = max(1, round(p.thickness_mm / lh))
         n_steps = max(1, base - 1 if p.z_bridging == "steps" else base - 2)
         d_mm = lh * np.tan(np.radians(min(ang, 89.0)))
+        if p.z_bridging == "island":
+            n_steps = max(1, n_steps - flare_layers(bridge_px, d_mm / px_mm, base))
         length = blen * px_mm
         # bridges longer than d*n_steps climb at the steepest allowed slope and finish with a flat span
         rise = np.minimum(1.0, rise * np.maximum(1.0, length / (d_mm * n_steps))).astype(np.float32)
@@ -593,7 +619,7 @@ def build_solid_grow(mat0, rise, islands, px, base_layers, extra, smooth_px, d_p
                 for dc in (0, 1):
                     sm[dr:dr + cb.shape[0], dc:dc + cb.shape[1]] += rv
                     cnt[dr:dr + cb.shape[0], dc:dc + cb.shape[1]] += cb
-            u = sm / np.maximum(cnt, 1) * max(base_layers - 2, 0)
+            u = sm / np.maximum(cnt, 1) * max(base_layers - 2 - flare_layers(bridge_px, d_px, base_layers), 0)
             fl = np.floor(u + 1e-9)
             u = fl + np.clip(2 * (u - fl) - 1, 0, 1)
             seed = cnt > 0
