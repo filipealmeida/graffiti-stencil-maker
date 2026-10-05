@@ -38,6 +38,7 @@ If `-o` is omitted, the output is the input name with `.stl`.
 | `--smooth MM` | 0 (off) | Smooth the outline vertices into curves instead of pixel steps; sigma in mm along the contour (try 0.3–1) |
 | `--raised-bridges` | off | Bridges only occupy the top layers; see below |
 | `--layer-height MM` (alias `--bridge-height`) | 0.2 | Layer height, which is also the bridge height: with raised bridges the island grows one step per layer. The web layer slider uses it too |
+| `--bridges N` | 1 | Number of bridges (1–6) from every island to the rest of the stencil. The extra bridges take the shortest free path that stays clear of the other bridges, so they leave in different directions. An island with no room (very small, or enclosed) gets as many as fit; the result card's *Bridges added* shows the total. Works with every Z bridging strategy and with tiles |
 | `--z-bridging steps\|ramp\|stepramp\|grow` | steps | With raised bridges: `steps` grows the island layer by layer; `ramp` is one continuous diagonal slope; `stepramp` is steps joined by short slopes; `grow` widens islands and bridges in X and Y (see below) |
 | `--min-island MM2` | 0 (off) | Delete islands (pieces not touching the frame) smaller than this area; they become paint instead of getting a bridge |
 | `--max-overhang DEG` | 0 (off) | With raised bridges: each layer may stick out at most layer height × tan(DEG) past the layer below (DEG measured from vertical; 45 = one layer height). Bridges too long for this finish with a flat span in the top layer; the longest is reported as *Longest flat top span* |
@@ -169,5 +170,5 @@ returns `{"id": ...}`; poll `GET /api/jobs/<id>` for `{progress (0-1), stage, do
 
 
 `POST /api/stencil` (multipart form) with field `image` plus optional `width`,
-`thickness`, `margin`, `bridge`, `resolution`, `threshold`, `invert`, `smooth` (mm), `raised` (1/0), `layer_height` (mm), `z_bridging` (`steps`/`ramp`/`stepramp`/`grow`), `extra_top` (layers), `min_island` (mm²), `max_overhang` (°), `flip` (1/0). Returns the
+`thickness`, `margin`, `bridge`, `bridges` (1-6), `resolution`, `threshold`, `invert`, `smooth` (mm), `raised` (1/0), `layer_height` (mm), `z_bridging` (`steps`/`ramp`/`stepramp`/`grow`), `extra_top` (layers), `min_island` (mm²), `max_overhang` (°), `flip` (1/0). Returns the
 binary STL; statistics are in the `X-Stencil-Stats` response header (JSON).

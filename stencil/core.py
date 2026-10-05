@@ -21,6 +21,7 @@ class Params:
     thickness_mm: float = 2.0
     margin_mm: float = 8.0        # solid frame around the artwork
     bridge_mm: float = 1.6        # width of the bridges that tie islands in
+    bridges_per_island: int = 1   # 1-6 bridges from every island to the rest of the stencil
     threshold: int | None = None  # 0-255; None = automatic (Otsu)
     invert: bool = False          # False: dark areas become holes (paint)
     min_feature_mm: float = 0.8   # specks smaller than this are dropped
@@ -100,7 +101,7 @@ def _fix_diagonals(m: np.ndarray) -> np.ndarray:
         m[:-1, :-1] |= p2
 
 
-def _bridge_islands(mat: np.ndarray, bridge_px: int, seed: tuple[int, int] = (0, 0)):
+def _connect_islands(mat: np.ndarray, bridge_px: int, seed: tuple[int, int] = (0, 0)):
     """Connect every material component to the main component (the one containing `seed`, the frame by default) through hole pixels.
 
     Returns (mat, bridges, rise, blen); blen is the bridge path length in pixels on bridge pixels. `rise` is NaN except on bridge pixels, where it goes from 0 (next to
@@ -180,6 +181,93 @@ def _bridge_islands(mat: np.ndarray, bridge_px: int, seed: tuple[int, int] = (0,
         mat |= ~np.isnan(rise)
 
 
+def _paint_extra(mat, rise, blen, path, fdist, w, bridge_px):
+    """Write one bridge along `path` (pixel indices from the island outwards; `fdist` counts steps from the island, 1 = first hole)."""
+    h = mat.shape[0]
+    pr, pc = np.divmod(np.array(path), w)
+    d = fdist[np.array(path)].astype(np.float32)
+    dk = d.max()
+    f = (d - 1) / (dk - 1) if dk > 1 else np.zeros_like(d)
+    b = bridge_px + 1
+    r0, r1 = max(0, pr.min() - b), min(h, pr.max() + b + 1)
+    c0, c1 = max(0, pc.min() - b), min(w, pc.max() + b + 1)
+    pm = np.zeros((r1 - r0, c1 - c0), bool)
+    pm[pr - r0, pc - c0] = True
+    fv = np.zeros(pm.shape, np.float32)
+    fv[pr - r0, pc - c0] = f
+    _, (ir, ic) = ndi.distance_transform_edt(~pm, return_indices=True)
+    region = ndi.binary_dilation(pm, structure=np.ones((bridge_px, bridge_px), bool)) & ~mat[r0:r1, c0:c1]
+    cur = rise[r0:r1, c0:c1]
+    upd = region & np.isnan(cur)
+    cur[upd] = fv[ir, ic][upd]
+    blen[r0:r1, c0:c1][upd] = dk
+    return int(dk)
+
+
+def _bridge_islands(mat: np.ndarray, bridge_px: int, seed: tuple[int, int] = (0, 0), per_island: int = 1):
+    """Connect every island to the main component, with `per_island` (1-6) separate bridges for each island.
+    Returns (mat, bridges, rise, blen) like `_connect_islands`."""
+    lab0, n0 = label4(mat)
+    mat, bridges, rise, blen = _connect_islands(mat, bridge_px, seed)
+    per_island = max(1, min(6, int(per_island)))
+    if per_island == 1 or n0 <= 1:
+        return mat, bridges, rise, blen
+    h, w = mat.shape
+    keep_own = bridge_px + 2
+    se_other = np.ones((2 * bridge_px + 1,) * 2, bool)
+    # extra bridges: each is the shortest path from the island that stays clear of every other bridge
+    # (and well away from this island's own bridges, so they leave in different directions)
+    for isl in range(1, n0 + 1):
+        if isl == lab0[seed]:
+            continue
+        src = lab0 == isl
+        sizes0 = [int(np.nanmin(blen[ndi.binary_dilation(src, iterations=2)])) if np.isfinite(blen[ndi.binary_dilation(src, iterations=2)]).any() else 0]
+        limit = 4 * max(sizes0[0], bridge_px) + 4 * bridge_px
+        own = ndi.binary_dilation(src, iterations=bridge_px + 2) & ~np.isnan(rise)
+        for _ in range(per_island - 1):
+            br = ~np.isnan(rise)
+            blocked = ndi.binary_dilation(br, structure=se_other) | ndi.binary_dilation(own, iterations=keep_own)
+            dist = np.full(mat.shape, -1, np.int32)
+            dist[src] = 0
+            fd = dist.ravel()
+            hole = (~mat & ~blocked).ravel()
+            solid = (mat & ~src & ~br).ravel()
+            frontier = np.flatnonzero(src.ravel())
+            hit, layer = -1, 0
+            while frontier.size and hit < 0 and layer < limit:
+                layer += 1
+                r, c = np.divmod(frontier, w)
+                nxt = []
+                for dr, dc in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+                    rr, cc = r + dr, c + dc
+                    ok = (rr >= 0) & (rr < h) & (cc >= 0) & (cc < w)
+                    idx = rr[ok] * w + cc[ok]
+                    fresh = fd[idx] < 0
+                    idx = idx[fresh]
+                    if hit < 0 and solid[idx].any():
+                        hit = int(frontier[ok][fresh][np.argmax(solid[idx])])
+                    nxt.append(idx[hole[idx]])
+                frontier = np.unique(np.concatenate(nxt)) if nxt else np.empty(0, np.int64)
+                fd[frontier] = layer
+            if hit < 0 or fd[hit] < 1:
+                break
+            path, cur = [], hit
+            while fd[cur] > 0:
+                path.append(cur)
+                r0, c0 = divmod(cur, w)
+                for dr, dc in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+                    rr, cc = r0 + dr, c0 + dc
+                    if 0 <= rr < h and 0 <= cc < w and fd[rr * w + cc] == fd[cur] - 1:
+                        cur = rr * w + cc
+                        break
+            before = ~np.isnan(rise)
+            _paint_extra(mat, rise, blen, path, fd, w, bridge_px)
+            own |= ~np.isnan(rise) & ~before
+            bridges += 1
+    mat = mat | ~np.isnan(rise)
+    return mat, bridges, rise, blen
+
+
 def build_mask(img: Image.Image, p: Params):
     """Return (pre-bridge mask, bridged mask, rise map, stats, pixel size in mm, bridge width px)."""
     res = p.resolution
@@ -238,14 +326,14 @@ def build_mask(img: Image.Image, p: Params):
                 sizes = np.bincount(lab.ravel())
                 sizes[0] = 0
                 seed = np.unravel_index(int(np.argmax(lab == int(np.argmax(sizes)))), sub.shape)
-                m, b, ri, bl = _bridge_islands(sub, bridge_px, (int(seed[0]), int(seed[1])))
+                m, b, ri, bl = _bridge_islands(sub, bridge_px, (int(seed[0]), int(seed[1])), p.bridges_per_island)
                 matb[r0:r1, c0:c1], rise[r0:r1, c0:c1], blen[r0:r1, c0:c1] = m, ri, bl
                 isl_mask[r0:r1, c0:c1] = (lab > 0) & (lab != lab[seed])
                 islands += n - 1
                 bridges += b
     else:
         islands = label4(mat0)[1] - 1
-        matb, bridges, rise, blen = _bridge_islands(mat0, bridge_px)
+        matb, bridges, rise, blen = _bridge_islands(mat0, bridge_px, (0, 0), p.bridges_per_island)
         lab0 = label4(mat0)[0]
         isl_mask = (lab0 > 0) & (lab0 != lab0[0, 0])
     grow = p.z_bridging == "grow"
@@ -463,7 +551,7 @@ def fillet_bridges(mat0, rise, bridge_px):
     return out
 
 
-def build_solid_grow(mat0, rise, islands, px, base_layers, extra, smooth_px, d_px, tick=None):
+def build_solid_grow(mat0, rise, islands, px, base_layers, extra, smooth_px, d_px, tick=None, cuts=None):
     """Islands and bridges widen sideways by `d_px` pixels per layer, so every flank stays within the overhang angle.
     Instead of stacking layers, the flank is one heightfield surface: its height at a pixel corner is the layer at which
     the island (or bridge) reaches that corner, min over the seeds of (seed layer + distance / d_px). The first layer is
@@ -481,21 +569,28 @@ def build_solid_grow(mat0, rise, islands, px, base_layers, extra, smooth_px, d_p
     hf, wf = h * n, w * n
     up = lambda m: np.repeat(np.repeat(m, n, 0), n, 1)
 
-    def corners(m):
-        out = np.zeros((hf + 1, wf + 1), bool)
-        for dr in (0, 1):
-            for dc in (0, 1):
-                out[dr:dr + hf, dc:dc + wf] |= m
-        return out
-
     # Lowest underside that keeps every flank within the overhang angle: it climbs from any vertical wall (island or
     # frame) at `d_px` pixels per layer. Bridges sit at that height; islands start at layer 1 and bridges grow sideways from there.
     d_f = d_px * n * 0.75     # cells per layer; the margin covers diagonal triangles being steeper than their edges
-    Zw = 1.0 + distance_transform_edt(~corners(up(mat0))) / d_f
-    lvl = np.where(corners(up(br)), np.ceil(np.minimum(Zw, top1) * 2) / 2, np.where(corners(up(islands & mat0)), 1.0, np.inf))
+    M, B, I = up(mat0), up(br), up(islands & mat0)
     Z = np.full((hf + 1, wf + 1), np.inf)
-    for lv in np.unique(lvl[np.isfinite(lvl)]):
-        Z = np.minimum(Z, lv + distance_transform_edt(~(lvl == lv)) / d_f)
+    # every tile is its own part: growth never crosses a seam
+    for r0, r1, c0, c1 in (cuts or [(0, h, 0, w)]):
+        sl = (slice(r0 * n, r1 * n), slice(c0 * n, c1 * n))
+        cm, cb, ci = M[sl], B[sl], I[sl]
+        def cor(m):
+            out = np.zeros((m.shape[0] + 1, m.shape[1] + 1), bool)
+            for dr in (0, 1):
+                for dc in (0, 1):
+                    out[dr:dr + m.shape[0], dc:dc + m.shape[1]] |= m
+            return out
+        Zw = 1.0 + distance_transform_edt(~cor(cm)) / d_f
+        lvl = np.where(cor(cb), np.ceil(np.minimum(Zw, top1) * 2) / 2, np.where(cor(ci), 1.0, np.inf))
+        Zt = np.full(lvl.shape, np.inf)
+        for lv in np.unique(lvl[np.isfinite(lvl)]):
+            Zt = np.minimum(Zt, lv + distance_transform_edt(~(lvl == lv)) / d_f)
+        win = Z[r0 * n:r1 * n + 1, c0 * n:c1 * n + 1]
+        np.minimum(win, Zt, out=win)
     if tick:
         tick(0.2)
     zmax = np.full((h, w), -np.inf)
@@ -662,6 +757,11 @@ def make_stencil(data: bytes, filename: str = "", params: Params | None = None, 
     W, H = mat0.shape[1] * px, mat0.shape[0] * px
     xs, ys = stats.pop("_grid")
     tiled = len(xs) > 2 or len(ys) > 2
+    tile_cuts = None
+    if tiled:
+        cc = [round(x / px) for x in xs]
+        rr = [mat0.shape[0] - round(y / px) for y in reversed(ys)]
+        tile_cuts = [(a, b, c, d) for a, b in zip(rr, rr[1:]) for c, d in zip(cc, cc[1:])]
     if tiled and p.connector_diameter_mm > 0:
         tiling.check_connector(p.connector_shape, p.connector_diameter_mm, T)
     sigma = p.smooth_mm / px
@@ -671,7 +771,7 @@ def make_stencil(data: bytes, filename: str = "", params: Params | None = None, 
         lo, span = 0.5 + 0.4 * a / len(factors), 0.4 / len(factors)
         tick = lambda f, lo=lo, span=span: report(lo + span * f, "Extruding & merging layers")
         if grow:
-            solid = build_solid_grow(mat0, rise, islands_mask, px, base_layers, extra, sigma * factor, grow_px, tick).scale((1.0, 1.0, lh))
+            solid = build_solid_grow(mat0, rise, islands_mask, px, base_layers, extra, sigma * factor, grow_px, tick, tile_cuts).scale((1.0, 1.0, lh))
         elif ramp:
             solid = build_solid_ramp(layer_masks(mat0, matb, rise, max(base_layers, 2))[0], _fix_diagonals(matb), rise, px, base_layers, extra,
                                      sigma * factor, tick, p.z_bridging == "stepramp").scale((1.0, 1.0, lh))

@@ -112,6 +112,7 @@ main{flex:1;position:relative;min-height:0}#view{position:absolute;inset:0}
 
 <details class="grp" open data-g="bridges"><summary>Bridges</summary><div>
 <label for="bridge">Bridge width (mm)</label><input id="bridge" type="number" value="1.6" step="0.2" min="0.6">
+<label for="bridges">Bridges per island</label><input id="bridges" type="number" value="1" step="1" min="1" max="6">
 <label class="chk" title="Islands grow layer by layer toward the frame; paint flows under"><input id="raised" type="checkbox"> Raised bridges</label>
 <small class="hint">Islands grow upward toward the frame so the top layer has no islands and paint can flow underneath.</small>
 <div class="dep" id="dep_z"><label for="z_bridging">Z bridging</label><select id="z_bridging"><option value="steps">Steps — island grows layer by layer</option><option value="ramp">Ramp — continuous diagonal</option><option value="stepramp">Steps + ramp — steps joined by slopes</option><option value="grow">Grow — islands &amp; bridges widen in X and Y</option></select></div>
@@ -340,12 +341,12 @@ addEventListener('resize',resize);new ResizeObserver(resize).observe(view);resiz
 (function loop(){requestAnimationFrame(loop);controls.update();renderer.render(scene,camera)})();
 
 // ---- settings --------------------------------------------------------------------------------
-const DEFAULTS={threshold:256,invert:false,width:100,thickness:2,margin:8,bridge:1.6,smooth:0,raised:false,z_bridging:'steps',layer_height:0.2,min_island:0,max_overhang:0,flip:false,extra_top:1,resolution:250,pads:0,pad_thread:'M8',pad_height:6,tile_x:0,tile_y:0,connector_diameter:0,connector_shape:'hex',connector_clearance:0.2};
+const DEFAULTS={threshold:256,invert:false,width:100,thickness:2,margin:8,bridge:1.6,bridges:1,smooth:0,raised:false,z_bridging:'steps',layer_height:0.2,min_island:0,max_overhang:0,flip:false,extra_top:1,resolution:250,pads:0,pad_thread:'M8',pad_height:6,tile_x:0,tile_y:0,connector_diameter:0,connector_shape:'hex',connector_clearance:0.2};
 const PRESETS={simple:{raised:false,flip:false,smooth:0,min_island:0,max_overhang:0},
   printable:{raised:true,z_bridging:'steps',flip:true,min_island:3,max_overhang:0},
   smooth:{smooth:0.5}};
 const ids=Object.keys(DEFAULTS);
-const LIMITS={width:[20,2000],thickness:[0.2,100],margin:[1,500],bridge:[0.6,50],layer_height:[0.05,5],extra_top:[0,50],min_island:[0,1e6],max_overhang:[0,89],pad_height:[1,50],tile_x:[0,5000],tile_y:[0,5000],connector_clearance:[0,1]};
+const LIMITS={width:[20,2000],thickness:[0.2,100],margin:[1,500],bridge:[0.6,50],bridges:[1,6],layer_height:[0.05,5],extra_top:[0,50],min_island:[0,1e6],max_overhang:[0,89],pad_height:[1,50],tile_x:[0,5000],tile_y:[0,5000],connector_clearance:[0,1]};
 const PADD={M4:8,M6:10,M8:12,M10:14};   // pad diameter = thread + 4 mm; must fit inside the margin
 // Returns a list of problems for the current form (empty = ok); invalid fields are marked and never sent or saved.
 function validate(){
@@ -423,10 +424,10 @@ function log(text,cls='',kind=''){
 // Command line equivalent of a finished run, built from the parameters the server actually used.
 function cliCommand(name,p){
   const q=v=>/^[\w.\/+-]+$/.test(v)?v:`'${String(v).replace(/'/g,"'\\''")}'`;
-  const D={width_mm:100,resolution:250,thickness_mm:2,margin_mm:8,bridge_mm:1.6,smooth_mm:0,extra_top_layers:1,layer_height_mm:0.2,min_island_mm2:0,max_overhang_deg:0,pad_thread:'M8',pad_height_mm:6,thread_clearance_mm:0.2,z_bridging:'steps',connector_shape:'hex',connector_clearance_mm:0.2};
+  const D={width_mm:100,resolution:250,thickness_mm:2,margin_mm:8,bridge_mm:1.6,bridges_per_island:1,smooth_mm:0,extra_top_layers:1,layer_height_mm:0.2,min_island_mm2:0,max_overhang_deg:0,pad_thread:'M8',pad_height_mm:6,thread_clearance_mm:0.2,z_bridging:'steps',connector_shape:'hex',connector_clearance_mm:0.2};
   const a=['.venv/bin/python -m stencil',q(name),'-o',q(name.replace(/\.[^.]+$/,'')+'.stl')];
   const num=(k,f)=>{if(p[k]!==undefined&&p[k]!==null&&p[k]!==D[k])a.push(f,p[k])};
-  num('width_mm','--width');num('resolution','--resolution');num('thickness_mm','--thickness');num('margin_mm','--margin');num('bridge_mm','--bridge');
+  num('width_mm','--width');num('resolution','--resolution');num('thickness_mm','--thickness');num('margin_mm','--margin');num('bridge_mm','--bridge');num('bridges_per_island','--bridges');
   if(p.threshold!==null&&p.threshold!==undefined)a.push('--threshold',p.threshold);
   if(p.invert)a.push('--invert');
   num('smooth_mm','--smooth');
@@ -528,7 +529,7 @@ async function run(){
   const T0=performance.now();
   log(`${file.name} — ${new Date().toLocaleString()} — generation started`,'h','hd');
   const n=k=>parseFloat($(k).value)||0;
-  logCmd(cliCommand(file.name,{width_mm:n('width'),resolution:n('resolution'),thickness_mm:n('thickness'),margin_mm:n('margin'),bridge_mm:n('bridge'),
+  logCmd(cliCommand(file.name,{width_mm:n('width'),resolution:n('resolution'),thickness_mm:n('thickness'),margin_mm:n('margin'),bridge_mm:n('bridge'),bridges_per_island:n('bridges'),
     threshold:$('threshold').value==256?null:+$('threshold').value,invert:$('invert').checked,smooth_mm:n('smooth'),raised_bridges:$('raised').checked,
     z_bridging:$('z_bridging').value,layer_height_mm:n('layer_height'),extra_top_layers:n('extra_top'),min_island_mm2:n('min_island'),max_overhang_deg:n('max_overhang'),
     flip:$('flip').checked,pad_count:+$('pads').value,pad_thread:$('pad_thread').value,pad_height_mm:n('pad_height'),thread_clearance_mm:0.2,
@@ -539,7 +540,7 @@ async function run(){
   fd.append('raised',$('raised').checked?'1':'0');
   fd.append('flip',$('flip').checked?'1':'0');
   fd.append('pads',$('pads').value);fd.append('pad_thread',$('pad_thread').value);fd.append('pad_height',$('pad_height').value);
-  for(const k of ['smooth','min_island','max_overhang','z_bridging','layer_height','extra_top','width','thickness','margin','bridge','resolution','tile_x','tile_y','connector_diameter','connector_shape','connector_clearance'])fd.append(k,$(k).value);
+  for(const k of ['smooth','min_island','max_overhang','z_bridging','layer_height','extra_top','width','thickness','margin','bridge','bridges','resolution','tile_x','tile_y','connector_diameter','connector_shape','connector_clearance'])fd.append(k,$(k).value);
   try{
     const up=await upload(fd),j=up.body;
     if(j.error)throw new Error(j.error);

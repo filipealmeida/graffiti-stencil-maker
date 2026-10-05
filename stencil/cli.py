@@ -19,6 +19,7 @@ def main(argv=None):
     ap.add_argument("--thickness", type=float, default=d.thickness_mm, help="plate thickness in mm")
     ap.add_argument("--margin", type=float, default=d.margin_mm, help="solid frame width in mm")
     ap.add_argument("--bridge", type=float, default=d.bridge_mm, help="bridge width in mm")
+    ap.add_argument("--bridges", type=int, default=1, choices=range(1, 7), metavar="1-6", help="number of bridges from every island to the rest of the stencil (default 1)")
     ap.add_argument("--min-feature", type=float, default=d.min_feature_mm, help="drop specks smaller than this (mm)")
     ap.add_argument("--smooth", type=float, default=0.0, help="smooth the outline polygon (sigma in mm along the contour, try 0.4)")
     ap.add_argument("--raised-bridges", action="store_true", help="islands grow toward the frame layer by layer (diagonal ramp); free on the wall side so paint flows under")
@@ -57,7 +58,7 @@ def main(argv=None):
         except ValueError:
             ap.error("--tile-max must look like 200 or 200x150")
     src = Path(a.input)
-    p = Params(width_mm=a.width, resolution=a.resolution, thickness_mm=a.thickness, margin_mm=a.margin, bridge_mm=a.bridge,
+    p = Params(width_mm=a.width, resolution=a.resolution, thickness_mm=a.thickness, margin_mm=a.margin, bridge_mm=a.bridge, bridges_per_island=a.bridges,
                threshold=a.threshold, invert=a.invert, min_feature_mm=a.min_feature, smooth_mm=a.smooth,
                raised_bridges=a.raised_bridges, layer_height_mm=a.layer_height, z_bridging=a.z_bridging,
                extra_top_layers=max(0, a.extra_top_layers), min_island_mm2=max(0.0, a.min_island),

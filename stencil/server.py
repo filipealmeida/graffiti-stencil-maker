@@ -30,6 +30,7 @@ def parse_params(form) -> Params:
         thickness_mm=float(form.get("thickness", 2)),
         margin_mm=float(form.get("margin", 8)),
         bridge_mm=float(form.get("bridge", 1.6)),
+        bridges_per_island=min(6, max(1, round(float(form.get("bridges", 1))))),
         threshold=int(thr) if thr not in ("", "auto") else None,
         invert=form.get("invert") in ("1", "true", "on"),
         smooth_mm=min(3.0, max(0.0, float(form.get("smooth", 0)))),
