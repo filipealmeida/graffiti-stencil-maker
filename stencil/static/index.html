@@ -114,7 +114,7 @@ main{flex:1;position:relative;min-height:0}#view{position:absolute;inset:0}
 <label for="bridge">Bridge width (mm)</label><input id="bridge" type="number" value="1.6" step="0.2" min="0.6">
 <label class="chk" title="Islands grow layer by layer toward the frame; paint flows under"><input id="raised" type="checkbox"> Raised bridges</label>
 <small class="hint">Islands grow upward toward the frame so the top layer has no islands and paint can flow underneath.</small>
-<div class="dep" id="dep_z"><label for="z_bridging">Z bridging</label><select id="z_bridging"><option value="steps">Steps — island grows layer by layer</option><option value="ramp">Ramp — continuous diagonal</option><option value="stepramp">Steps + ramp — steps joined by slopes</option></select></div>
+<div class="dep" id="dep_z"><label for="z_bridging">Z bridging</label><select id="z_bridging"><option value="steps">Steps — island grows layer by layer</option><option value="ramp">Ramp — continuous diagonal</option><option value="stepramp">Steps + ramp — steps joined by slopes</option><option value="grow">Grow — islands &amp; bridges widen in X and Y</option></select></div>
 <label for="layer_height" title="Layer height, also the bridge height">Layer height = bridge height (mm)</label><input id="layer_height" type="number" value="0.2" step="0.05" min="0.05">
 <label for="extra_top" title="Copies of the last layer stacked on top for strength">Extra top layers</label><input id="extra_top" type="number" value="1" step="1" min="0" max="50">
 </div></details>

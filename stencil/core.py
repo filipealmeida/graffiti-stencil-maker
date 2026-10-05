@@ -182,7 +182,13 @@ def _bridge_islands(mat: np.ndarray, bridge_px: int, seed: tuple[int, int] = (0,
 
 def build_mask(img: Image.Image, p: Params):
     """Return (pre-bridge mask, bridged mask, rise map, stats, pixel size in mm, bridge width px)."""
-    scale = p.resolution / max(img.size)
+    res = p.resolution
+    if p.raised_bridges and p.z_bridging == "grow":
+        # a pixel must not be wider than the growth allowed per layer, or the flanks would exceed the overhang angle
+        lh_ = p.layer_height_mm if p.layer_height_mm and p.layer_height_mm > 0 else 0.2
+        d_ = lh_ * np.tan(np.radians(min(p.max_overhang_deg or 45.0, 89.0)))
+        res = int(min(1000, max(res, np.ceil((p.width_mm - 2 * p.margin_mm) / d_))))
+    scale = res / max(img.size)
     size = (max(1, round(img.width * scale)), max(1, round(img.height * scale)))
     gray = np.asarray(img.convert("L").resize(size, Image.LANCZOS))
     t = otsu(gray) if p.threshold is None else int(p.threshold)
@@ -224,6 +230,7 @@ def build_mask(img: Image.Image, p: Params):
         rise = np.full(mat0.shape, np.nan, np.float32)
         blen = np.full(mat0.shape, np.nan, np.float32)
         islands = bridges = 0
+        isl_mask = np.zeros(mat0.shape, bool)
         hh = mat0.shape[0]
         cols = [round(x / px_mm) for x in xs]
         rows = [hh - round(y / px_mm) for y in reversed(ys)]      # image rows run top-down, seam y runs bottom-up
@@ -238,17 +245,23 @@ def build_mask(img: Image.Image, p: Params):
                 seed = np.unravel_index(int(np.argmax(lab == int(np.argmax(sizes)))), sub.shape)
                 m, b, ri, bl = _bridge_islands(sub, bridge_px, (int(seed[0]), int(seed[1])))
                 matb[r0:r1, c0:c1], rise[r0:r1, c0:c1], blen[r0:r1, c0:c1] = m, ri, bl
+                isl_mask[r0:r1, c0:c1] = (lab > 0) & (lab != lab[seed])
                 islands += n - 1
                 bridges += b
     else:
         islands = label4(mat0)[1] - 1
         matb, bridges, rise, blen = _bridge_islands(mat0, bridge_px)
+        lab0 = label4(mat0)[0]
+        isl_mask = (lab0 > 0) & (lab0 != lab0[0, 0])
+    grow = p.z_bridging == "grow"
     top_span = 0.0
-    if p.raised_bridges and p.max_overhang_deg > 0 and not p.flip and bridges:
+    lh_g = p.layer_height_mm if p.layer_height_mm and p.layer_height_mm > 0 else 0.2
+    ang = p.max_overhang_deg or (45.0 if grow else 0.0)
+    if p.raised_bridges and ang > 0 and not p.flip and bridges:
         lh = p.layer_height_mm if p.layer_height_mm and p.layer_height_mm > 0 else 0.2
         base = max(1, round(p.thickness_mm / lh))
         n_steps = max(1, base - 1 if p.z_bridging == "steps" else base - 2)
-        d_mm = lh * np.tan(np.radians(min(p.max_overhang_deg, 89.0)))
+        d_mm = lh * np.tan(np.radians(min(ang, 89.0)))
         length = blen * px_mm
         # bridges longer than d*n_steps climb at the steepest allowed slope and finish with a flat span
         rise = np.minimum(1.0, rise * np.maximum(1.0, length / (d_mm * n_steps))).astype(np.float32)
@@ -258,6 +271,8 @@ def build_mask(img: Image.Image, p: Params):
         "pad_px": int(pad),
         "_grid": (xs, ys),
         "_deleted": deleted_mask,
+        "_islands": isl_mask,
+        "_grow_px": float(lh_g * np.tan(np.radians(min(ang, 89.0))) / px_mm) if grow else 0.0,
         "max_flat_span_mm": round(top_span, 2),
         "islands_found": int(islands),
         "bridges_added": int(bridges),
@@ -436,6 +451,39 @@ def layer_masks(mat0, matb, rise, n_layers):
     return [_fix_diagonals(mat0 | (br & (kmin <= k))) for k in range(n_layers)]
 
 
+def fillet_bridges(mat0, rise, bridge_px):
+    """Flare each bridge where it meets material: hole pixels near a bridge end are added to the bridge (same rise),
+    by up to half a bridge width at the junction, tapering to nothing over two bridge widths. This gives the
+    attachment a wide, rounded root instead of a sharp corner."""
+    from scipy.ndimage import distance_transform_edt
+    br = ~np.isnan(rise)
+    if not br.any():
+        return rise
+    d_br, idx = distance_transform_edt(~br, return_indices=True)
+    d_mat = distance_transform_edt(~mat0)
+    root = 2.0 * bridge_px
+    add = (~mat0) & (~br) & (d_mat < root) & (d_br <= 0.5 * bridge_px * (1.0 - d_mat / root))
+    out = rise.copy()
+    out[add] = rise[idx[0][add], idx[1][add]]
+    return out
+
+
+def grow_masks(mat0, rise, islands, n_layers, d_px):
+    """Layer masks where islands and bridges widen in X and Y by `d_px` pixels per layer (the overhang angle of the flanks),
+    so each bridge starts thin where it appears and flares out to the top."""
+    from scipy.ndimage import distance_transform_edt
+    br = ~np.isnan(rise)
+    kmin = np.ceil(np.nan_to_num(rise, nan=0.0) * (n_layers - 1) - 1e-6)
+    reach = np.full(mat0.shape, np.inf)
+    masks = []
+    for k in range(n_layers):
+        seeds = (br & (kmin == k)) | (islands if k == 0 else False)
+        if seeds.any():
+            reach = np.minimum(reach, distance_transform_edt(~seeds) + k * d_px)
+        masks.append(_fix_diagonals(mat0 | (br & (kmin <= k)) | (reach <= k * d_px + 1e-6)))
+    return masks
+
+
 def layer_svg(section, w: float, h: float) -> str:
     """SVG of a cross-section (mm, y flipped); material is filled, holes are cut out (even-odd)."""
     d = "".join("M" + "L".join(f"{x:.2f} {h - y:.2f}" for x, y in P) + "Z" for P in section.to_polygons())
@@ -530,8 +578,9 @@ def make_stencil(data: bytes, filename: str = "", params: Params | None = None, 
     report(0.02, "Reading image")
     img = load_image(data, filename)
     report(0.08, "Thresholding & bridging islands")
-    mat0, matb, rise, stats, px, _ = build_mask(img, p)
+    mat0, matb, rise, stats, px, bridge_px = build_mask(img, p)
     deleted_mask = stats.pop("_deleted")
+    islands_mask, grow_px = stats.pop("_islands"), stats.pop("_grow_px")
     report(0.45, "Building layers")
     T = p.thickness_mm
     step = p.layer_height_mm if p.layer_height_mm and p.layer_height_mm > 0 else 0.2
@@ -539,7 +588,9 @@ def make_stencil(data: bytes, filename: str = "", params: Params | None = None, 
     lh = step                                   # layer height is exact; thickness snaps to whole layers
     extra = max(0, int(p.extra_top_layers))
     ramp = p.raised_bridges and p.z_bridging in ("ramp", "stepramp")
-    if p.raised_bridges and not ramp:
+    if p.raised_bridges and p.z_bridging == "grow" and base_layers > 1:
+        masks = grow_masks(mat0, fillet_bridges(mat0, rise, bridge_px), islands_mask, base_layers, grow_px)
+    elif p.raised_bridges and not ramp:
         masks = layer_masks(mat0, matb, rise, base_layers)
     else:
         masks = [_fix_diagonals(matb)] * base_layers

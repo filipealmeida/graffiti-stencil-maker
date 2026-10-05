@@ -38,7 +38,7 @@ If `-o` is omitted, the output is the input name with `.stl`.
 | `--smooth MM` | 0 (off) | Smooth the outline vertices into curves instead of pixel steps; sigma in mm along the contour (try 0.3–1) |
 | `--raised-bridges` | off | Bridges only occupy the top layers; see below |
 | `--layer-height MM` (alias `--bridge-height`) | 0.2 | Layer height, which is also the bridge height: with raised bridges the island grows one step per layer. The web layer slider uses it too |
-| `--z-bridging steps\|ramp\|stepramp` | steps | With raised bridges: `steps` grows the island layer by layer; `ramp` is one continuous diagonal slope; `stepramp` is steps joined by short slopes (see below) |
+| `--z-bridging steps\|ramp\|stepramp\|grow` | steps | With raised bridges: `steps` grows the island layer by layer; `ramp` is one continuous diagonal slope; `stepramp` is steps joined by short slopes; `grow` widens islands and bridges in X and Y (see below) |
 | `--min-island MM2` | 0 (off) | Delete islands (pieces not touching the frame) smaller than this area; they become paint instead of getting a bridge |
 | `--max-overhang DEG` | 0 (off) | With raised bridges: each layer may stick out at most layer height × tan(DEG) past the layer below (DEG measured from vertical; 45 = one layer height). Bridges too long for this finish with a flat span in the top layer; the longest is reported as *Longest flat top span* |
 | `--flip` | off | Print upside down: the part is rotated 180° about the Y axis (like turning a page), so the layers (and the layer slider, first-layer preview and viewer) follow the printed orientation. Every layer then sits on the one below, so there are no overhangs. The first printed layer appears horizontally mirrored relative to the art |
@@ -89,6 +89,8 @@ the sloped bridge. Works together with `--smooth`.
   continuous diagonal surface (no stair steps) rising from the island at the wall side to the island-free
   top layer. Gives smoother, much lighter meshes.
 - `stepramp`: like `ramp`, but the underside rises in layer-high plateaus joined by short diagonal slopes.
+
+- `grow`: like `steps`, but islands and bridges also widen sideways, in both X and Y, by `layer_height × tan(angle)` per layer (45° unless `--max-overhang` is set), so every flank is a chamfer that never overhangs more than that angle and the attachment gets a wide flared root. Bridges also get a rounded, flared root (fillet): near each end, up to half a bridge width is added on both sides, tapering to nothing over two bridge widths, which strengthens the attachment to the islands and the frame. Only islands and bridges grow; the rest of the artwork keeps its vertical walls. The pixel grid is automatically refined (up to 1000 px) so a pixel is never wider than the growth per layer.
 
 In `ramp`/`stepramp` the first layer is identical to the `steps` first layer; bridges only start rising above it.
 
@@ -167,5 +169,5 @@ returns `{"id": ...}`; poll `GET /api/jobs/<id>` for `{progress (0-1), stage, do
 
 
 `POST /api/stencil` (multipart form) with field `image` plus optional `width`,
-`thickness`, `margin`, `bridge`, `resolution`, `threshold`, `invert`, `smooth` (mm), `raised` (1/0), `layer_height` (mm), `z_bridging` (`steps`/`ramp`/`stepramp`), `extra_top` (layers), `min_island` (mm²), `max_overhang` (°), `flip` (1/0). Returns the
+`thickness`, `margin`, `bridge`, `resolution`, `threshold`, `invert`, `smooth` (mm), `raised` (1/0), `layer_height` (mm), `z_bridging` (`steps`/`ramp`/`stepramp`/`grow`), `extra_top` (layers), `min_island` (mm²), `max_overhang` (°), `flip` (1/0). Returns the
 binary STL; statistics are in the `X-Stencil-Stats` response header (JSON).

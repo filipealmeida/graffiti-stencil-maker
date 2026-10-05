@@ -24,8 +24,8 @@ def main(argv=None):
     ap.add_argument("--raised-bridges", action="store_true", help="islands grow toward the frame layer by layer (diagonal ramp); free on the wall side so paint flows under")
     ap.add_argument("--layer-height", "--bridge-height", dest="layer_height", type=float, default=d.layer_height_mm,
                     help="layer height in mm, also the bridge height: with --raised-bridges the island grows one step per layer (default %(default)s)")
-    ap.add_argument("--z-bridging", choices=["steps", "ramp", "stepramp"], default="steps",
-                    help="with --raised-bridges: 'steps' grows the island layer by layer; 'ramp' makes one continuous diagonal slope from the island-bearing first layer to the island-free top layer; 'stepramp' uses steps joined by short slopes")
+    ap.add_argument("--z-bridging", choices=["steps", "ramp", "stepramp", "grow"], default="steps",
+                    help="with --raised-bridges: 'steps' grows the island layer by layer; 'ramp' makes one continuous diagonal slope from the island-bearing first layer to the island-free top layer; 'stepramp' uses steps joined by short slopes; 'grow' makes islands and bridges widen in X and Y at 45 degrees (or --max-overhang) layer by layer")
     ap.add_argument("--min-island", type=float, default=d.min_island_mm2, help="delete islands (pieces not touching the frame) smaller than this area in mm2 (default %(default)s = keep all)")
     ap.add_argument("--max-overhang", type=float, default=d.max_overhang_deg, help="with --raised-bridges: limit overhang per layer to layer_height*tan(angle), angle from vertical in degrees (e.g. 45); 0 = unlimited")
     ap.add_argument("--pads", type=int, default=0, choices=range(0, 5), metavar="0-4", help="raised pads with a threaded hole on the margin: 1 top; 2 top+bottom; 3 top corners+bottom; 4 corners (default: 0)")
