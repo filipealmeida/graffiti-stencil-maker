@@ -178,7 +178,7 @@ main{flex:1;position:relative;min-height:0}#view{position:absolute;inset:0}
 <div class="split y" data-t="sec1" data-d="1" data-name="input image"></div>
 <section id="sec2"><h2>First printed layer <small id="layercap" class="mut" style="font-weight:normal"></small></h2>
  <div id="lopts"><label><input id="ovtoggle" type="checkbox"> Show bridges (red) &amp; deleted islands (blue)</label><label>Input <input id="cmp" type="range" min="0" max="100" value="0" aria-label="Compare with input image"> Stencil</label></div>
- <div id="lv" title="drag to pan, wheel to zoom, double-click to reset"><div id="lvstack"><img id="inimg" alt="" draggable="false"><img id="layerimg" alt="first layer" draggable="false"><img id="ovimg" alt="" draggable="false"></div></div><div id="nolayer" class="mut">Not generated yet</div></section>
+ <div id="lv" title="drag to pan, wheel to zoom, double-click to reset"><div id="lvstack"><img id="inimg" alt="" draggable="false"><img id="layerimg" alt="first layer" draggable="false"><img id="ovimg" alt="" draggable="false"><canvas id="thrprev" style="position:absolute;display:none;image-rendering:pixelated"></canvas></div></div><div id="nolayer" class="mut">Not generated yet</div></section>
 </aside>
 <script>
 // Resizable / collapsible panels with persistence and keyboard support.
@@ -483,7 +483,27 @@ function showResult(s){
 }
 
 // ---- first-layer panel -----------------------------------------------------------------------
-let thumbUrl=null,layerUrl=null,ovUrl=null;
+let thumbUrl=null,layerUrl=null,ovUrl=null,lastStats=null,staleLayer=false;
+// Instant threshold preview: thresholds the input in the browser (same rule as the server) over the artwork area of the first-layer panel
+// until the real generation arrives.
+const otsuJS=g=>{const h=new Float64Array(256);for(const v of g)h[v]++;let tot=g.length,sa=0;for(let i=0;i<256;i++)sa+=i*h[i];
+  let w0=0,s0=0,best=0,bv=-1;for(let t=0;t<256;t++){w0+=h[t];s0+=t*h[t];const w1=tot-w0;if(!w0||!w1)continue;const m=s0/w0-(sa-s0)/w1,v=w0*w1*m*m;if(v>bv){bv=v;best=t}}return best};
+function thrPreview(){
+  const c=$('thrprev'),im=$('inimg');
+  if(!lastStats||!thumbUrl||!im.naturalWidth||$('lv').style.display!=='block'){c.style.display='none';return}
+  const res=Math.min(600,Math.max(20,+$('resolution').value||250)),k=res/Math.max(im.naturalWidth,im.naturalHeight);
+  const w=Math.max(1,Math.round(im.naturalWidth*k)),hh=Math.max(1,Math.round(im.naturalHeight*k));
+  c.width=w;c.height=hh;const x=c.getContext('2d',{willReadFrequently:true});
+  x.fillStyle='#fff';x.fillRect(0,0,w,hh);x.imageSmoothingQuality='high';x.drawImage(im,0,0,w,hh);
+  const d=x.getImageData(0,0,w,hh),g=new Uint8Array(w*hh);
+  for(let i=0;i<g.length;i++)g[i]=Math.round(.299*d.data[4*i]+.587*d.data[4*i+1]+.114*d.data[4*i+2]);
+  const t=$('threshold').value==256?otsuJS(g):+$('threshold').value,inv=$('invert').checked;
+  for(let i=0;i<g.length;i++){const paint=inv?g[i]>t:g[i]<=t;const v=paint?[20,22,26]:[217,221,227];d.data.set([v[0],v[1],v[2],255],4*i)}
+  x.putImageData(d,0,0);
+  Object.assign(c.style,{left:im.style.left,top:im.style.top,width:im.style.width,height:im.style.height,transform:im.style.transform,display:'block'});
+  staleLayer=true;
+}
+['threshold','invert'].forEach(i=>$(i).addEventListener('input',thrPreview));
 const lv={x:0,y:0,k:1};
 function applyLV(){$('lvstack').style.transform=`translate(${lv.x}px,${lv.y}px) scale(${lv.k})`}
 function resetLV(){lv.x=lv.y=0;lv.k=1;applyLV()}
@@ -507,6 +527,12 @@ async function run(){
   setDirty(false);$('err').style.display='none';setProgress(0,'Starting');
   const T0=performance.now();
   log(`${file.name} — ${new Date().toLocaleString()} — generation started`,'h','hd');
+  const n=k=>parseFloat($(k).value)||0;
+  logCmd(cliCommand(file.name,{width_mm:n('width'),resolution:n('resolution'),thickness_mm:n('thickness'),margin_mm:n('margin'),bridge_mm:n('bridge'),
+    threshold:$('threshold').value==256?null:+$('threshold').value,invert:$('invert').checked,smooth_mm:n('smooth'),raised_bridges:$('raised').checked,
+    z_bridging:$('z_bridging').value,layer_height_mm:n('layer_height'),extra_top_layers:n('extra_top'),min_island_mm2:n('min_island'),max_overhang_deg:n('max_overhang'),
+    flip:$('flip').checked,pad_count:+$('pads').value,pad_thread:$('pad_thread').value,pad_height_mm:n('pad_height'),thread_clearance_mm:0.2,
+    tile_max_x_mm:n('tile_x'),tile_max_y_mm:n('tile_y'),connector_diameter_mm:n('connector_diameter'),connector_shape:$('connector_shape').value,connector_clearance_mm:n('connector_clearance')}));
   const fd=new FormData();fd.append('image',file);
   fd.append('threshold',$('threshold').value==256?'':$('threshold').value);
   fd.append('invert',$('invert').checked?'1':'0');
@@ -547,6 +573,7 @@ async function run(){
       if(or.ok){const b=await or.blob();if(ovUrl)URL.revokeObjectURL(ovUrl);ovUrl=URL.createObjectURL(b);ovImg=await loadImg($('ovimg'),ovUrl);applyOv()}
       const [gw,gh]=s.grid,pd=s.pad_px,ii=$('inimg');
       Object.assign(ii.style,{left:pd/gw*100+'%',top:pd/gh*100+'%',width:(gw-2*pd)/gw*100+'%',height:(gh-2*pd)/gh*100+'%'});
+      lastStats=s;$('thrprev').style.display='none';staleLayer=false;
       ii.src=thumbUrl;const fy=s.flipped?'scaleX(-1)':'none';ii.style.transform=fy;$('ovimg').style.transform=fy;applyCmp();
     }catch(_){}
     const t2=performance.now();
@@ -563,14 +590,13 @@ async function run(){
     showResult(s);
     lastGenMs=performance.now()-T0;
     log(`Total time (upload → ready): ${fmtMs(lastGenMs)}${good?'':' — PROBLEM detected'}`,'tot','tm');
-    if(s.params)logCmd(cliCommand(file.name,s.params));
   }catch(e){if(my===seq){$('bar').style.opacity=0;$('msg').textContent='Generation failed';showError(e.message);log(`${file.name}: ${e.message}`,'err')}}
 }
 
 // ---- input image -----------------------------------------------------------------------------
 function showInfo(f){
   if(thumbUrl)URL.revokeObjectURL(thumbUrl);
-  thumbUrl=URL.createObjectURL(f);
+  thumbUrl=URL.createObjectURL(f);lastStats=null;$('thrprev').style.display='none';
   const im=$('thumb');im.style.display='block';$('nometa').style.display='none';im.src=thumbUrl;
   const rows=[['Name',f.name],['Type',f.type||'unknown'],['Size',fmtSize(f.size)+` (${f.size} bytes)`],
     ['Modified',f.lastModified?new Date(f.lastModified).toLocaleString():'n/a'],['Dimensions','…']];

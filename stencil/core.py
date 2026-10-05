@@ -100,8 +100,8 @@ def _fix_diagonals(m: np.ndarray) -> np.ndarray:
         m[:-1, :-1] |= p2
 
 
-def _bridge_islands(mat: np.ndarray, bridge_px: int):
-    """Connect every material component to the frame component through hole pixels.
+def _bridge_islands(mat: np.ndarray, bridge_px: int, seed: tuple[int, int] = (0, 0)):
+    """Connect every material component to the main component (the one containing `seed`, the frame by default) through hole pixels.
 
     Returns (mat, bridges, rise, blen); blen is the bridge path length in pixels on bridge pixels. `rise` is NaN except on bridge pixels, where it goes from 0 (next to
     the island) to 1 (next to the part it connects to): the fraction of the plate height at which the
@@ -116,7 +116,7 @@ def _bridge_islands(mat: np.ndarray, bridge_px: int):
         lab, n = label4(mat)
         if n <= 1:
             return mat, bridges, rise, blen
-        main = lab == lab[0, 0]
+        main = lab == lab[seed]
         dist = np.full(mat.shape, -1, np.int32)
         dist[main] = 0
         frontier = np.flatnonzero(main.ravel())
@@ -209,8 +209,40 @@ def build_mask(img: Image.Image, p: Params):
         deleted = int(drop.sum())
         deleted_mask = drop[lab]
         mat0 = mat0 & ~deleted_mask
-    islands = label4(mat0)[1] - 1
-    matb, bridges, rise, blen = _bridge_islands(mat0, bridge_px)
+    from . import tiling
+    H_mm, W_mm = mat0.shape[0] * px_mm, mat0.shape[1] * px_mm
+    xs, ys = tiling.grid(W_mm, H_mm, p.tile_max_x_mm, p.tile_max_y_mm)
+    tiled = len(xs) > 2 or len(ys) > 2
+    if tiled:
+        if p.connector_diameter_mm > 0:
+            xs, ys = tiling.optimize_grid(mat0, px_mm, xs, ys, p.tile_max_x_mm, p.tile_max_y_mm)
+        # seams sit on pixel boundaries so every tile is exactly a block of the bitmap
+        xs = [0.0] + [round(x / px_mm) * px_mm for x in xs[1:-1]] + [W_mm]
+        ys = [0.0] + [round(y / px_mm) * px_mm for y in ys[1:-1]] + [H_mm]
+        # each tile is its own part: bridges are recomputed inside every tile, towards the tile's largest piece
+        matb = np.zeros_like(mat0)
+        rise = np.full(mat0.shape, np.nan, np.float32)
+        blen = np.full(mat0.shape, np.nan, np.float32)
+        islands = bridges = 0
+        hh = mat0.shape[0]
+        cols = [round(x / px_mm) for x in xs]
+        rows = [hh - round(y / px_mm) for y in reversed(ys)]      # image rows run top-down, seam y runs bottom-up
+        for r0, r1 in zip(rows, rows[1:]):
+            for c0, c1 in zip(cols, cols[1:]):
+                sub = mat0[r0:r1, c0:c1]
+                lab, n = label4(sub)
+                if n == 0:
+                    continue
+                sizes = np.bincount(lab.ravel())
+                sizes[0] = 0
+                seed = np.unravel_index(int(np.argmax(lab == int(np.argmax(sizes)))), sub.shape)
+                m, b, ri, bl = _bridge_islands(sub, bridge_px, (int(seed[0]), int(seed[1])))
+                matb[r0:r1, c0:c1], rise[r0:r1, c0:c1], blen[r0:r1, c0:c1] = m, ri, bl
+                islands += n - 1
+                bridges += b
+    else:
+        islands = label4(mat0)[1] - 1
+        matb, bridges, rise, blen = _bridge_islands(mat0, bridge_px)
     top_span = 0.0
     if p.raised_bridges and p.max_overhang_deg > 0 and not p.flip and bridges:
         lh = p.layer_height_mm if p.layer_height_mm and p.layer_height_mm > 0 else 0.2
@@ -224,6 +256,7 @@ def build_mask(img: Image.Image, p: Params):
     stats = {
         "islands_deleted": deleted,
         "pad_px": int(pad),
+        "_grid": (xs, ys),
         "_deleted": deleted_mask,
         "max_flat_span_mm": round(top_span, 2),
         "islands_found": int(islands),
@@ -514,7 +547,7 @@ def make_stencil(data: bytes, filename: str = "", params: Params | None = None, 
     T = n_layers * lh
     from . import tiling
     W, H = mat0.shape[1] * px, mat0.shape[0] * px
-    xs, ys = tiling.grid(W, H, p.tile_max_x_mm, p.tile_max_y_mm)
+    xs, ys = stats.pop("_grid")
     tiled = len(xs) > 2 or len(ys) > 2
     if tiled and p.connector_diameter_mm > 0:
         tiling.check_connector(p.connector_shape, p.connector_diameter_mm, T)
@@ -532,8 +565,6 @@ def make_stencil(data: bytes, filename: str = "", params: Params | None = None, 
         if len(solid.decompose()) == 1:       # smoothing must never split the part
             break
     trace = trace_svg(solid.slice(lh / 2), mat0.shape[1] * px, mat0.shape[0] * px)
-    if tiled and p.connector_diameter_mm > 0:
-        xs, ys = tiling.optimize_grid(solid.slice(T / 2), W, H, xs, ys, p.tile_max_x_mm, p.tile_max_y_mm)
     plate = solid                               # overhangs are measured on the plate alone; thread flanks are not counted
     pads_info = []
     if int(p.pad_count) > 0:
@@ -552,7 +583,7 @@ def make_stencil(data: bytes, filename: str = "", params: Params | None = None, 
         xs = [W - x for x in reversed(xs)]
     overhang = round(overhang_area(plate, lh, n_layers, p.max_overhang_deg or 45.0), 2)
     conn = None
-    pieces = len(solid.decompose())              # counted before drilling: closed hole cavities would count as extra shells
+    pieces = 1 if tiled else len(solid.decompose())   # counted before drilling: closed hole cavities would count as extra shells
     if tiled:
         report(0.91, "Drilling connector holes")
         if p.connector_diameter_mm > 0:
@@ -564,6 +595,7 @@ def make_stencil(data: bytes, filename: str = "", params: Params | None = None, 
     if tiled:
         report(0.94, "Cutting tiles")
         tile_parts = tiling.split_tiles(solid, xs, ys)
+        pieces = 1 + sum(sum(d.volume() > 1e-3 for d in t.decompose()) - 1 for _, t, _ in tile_parts)    # every tile must be a single piece
         mesh = tiling.exploded(tile_parts, xs, ys).to_mesh()     # the STL preview shows the tiles apart so the holes are visible
     tris = mesh.vert_properties[:, :3][mesh.tri_verts].astype(np.float32)
     stats.update(

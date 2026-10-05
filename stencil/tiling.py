@@ -99,14 +99,19 @@ def row_heights(shape: str, d: float, T: float) -> list[float]:
     return [lo + i * (hi - lo) / (n - 1) for i in range(n)]
 
 
-def optimize_grid(section, W: float, H: float, xs, ys, max_x: float, max_y: float, shift: float = 8.0, step: float = 2.0):
-    """Nudge the seams (within the tile size limit) to where the plate has most material around them, so holes find room."""
-    import manifold3d as m3d
+def optimize_grid(mat, px: float, xs, ys, max_x: float, max_y: float, shift: float = 8.0, step: float = 2.0):
+    """Nudge the seams (within the tile size limit) to where the plate has most material around them, so holes find room.
+    `mat` is the material bitmap (rows run top-down, `px` mm per pixel)."""
+    hh, ww = mat.shape
+    H = hh * px
+    half = POCKET_DEPTH_MM / px
 
     def score(axis, s):
-        w = 2 * POCKET_DEPTH_MM
-        rect = m3d.CrossSection.square((w, H) if axis == "x" else (W, w)).translate((s - w / 2, 0.0) if axis == "x" else (0.0, s - w / 2))
-        return (section ^ rect).area()
+        if axis == "x":
+            c = s / px
+            return int(mat[:, max(0, int(c - half)):max(0, int(c + half))].sum())
+        r = (H - s) / px
+        return int(mat[max(0, int(r - half)):max(0, int(r + half)), :].sum())
 
     def tune(coords, mx, axis):
         n = len(coords) - 1
