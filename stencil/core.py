@@ -336,7 +336,7 @@ def build_mask(img: Image.Image, p: Params):
         matb, bridges, rise, blen = _bridge_islands(mat0, bridge_px, (0, 0), p.bridges_per_island)
         lab0 = label4(mat0)[0]
         isl_mask = (lab0 > 0) & (lab0 != lab0[0, 0])
-    grow = p.z_bridging == "grow"
+    grow = p.z_bridging in ("grow", "island")
     top_span = 0.0
     lh_g = p.layer_height_mm if p.layer_height_mm and p.layer_height_mm > 0 else 0.2
     ang = p.max_overhang_deg or (45.0 if grow else 0.0)
@@ -551,7 +551,7 @@ def fillet_bridges(mat0, rise, bridge_px):
     return out
 
 
-def build_solid_grow(mat0, rise, islands, px, base_layers, extra, smooth_px, d_px, tick=None, cuts=None):
+def build_solid_grow(mat0, rise, islands, px, base_layers, extra, smooth_px, d_px, tick=None, cuts=None, island=False, bridge_px=2):
     """Islands and bridges widen sideways by `d_px` pixels per layer, so every flank stays within the overhang angle.
     Instead of stacking layers, the flank is one heightfield surface: its height at a pixel corner is the layer at which
     the island (or bridge) reaches that corner, min over the seeds of (seed layer + distance / d_px). The first layer is
@@ -573,6 +573,7 @@ def build_solid_grow(mat0, rise, islands, px, base_layers, extra, smooth_px, d_p
     # frame) at `d_px` pixels per layer. Bridges sit at that height; islands start at layer 1 and bridges grow sideways from there.
     d_f = d_px * n * 0.75     # cells per layer; the margin covers diagonal triangles being steeper than their edges
     M, B, I = up(mat0), up(br), up(islands & mat0)
+    RV = up(np.nan_to_num(rise))
     Z = np.full((hf + 1, wf + 1), np.inf)
     # every tile is its own part: growth never crosses a seam
     for r0, r1, c0, c1 in (cuts or [(0, h, 0, w)]):
@@ -584,11 +585,26 @@ def build_solid_grow(mat0, rise, islands, px, base_layers, extra, smooth_px, d_p
                 for dc in (0, 1):
                     out[dr:dr + m.shape[0], dc:dc + m.shape[1]] |= m
             return out
-        Zw = 1.0 + distance_transform_edt(~cor(cm)) / d_f
-        lvl = np.where(cor(cb), np.ceil(np.minimum(Zw, top1) * 2) / 2, np.where(cor(ci), 1.0, np.inf))
-        Zt = np.full(lvl.shape, np.inf)
-        for lv in np.unique(lvl[np.isfinite(lvl)]):
-            Zt = np.minimum(Zt, lv + distance_transform_edt(~(lvl == lv)) / d_f)
+        if island:
+            # underside of each bridge follows steps + ramp along its length; the bridge flares sideways from there
+            rv = np.where(cb, RV[sl], 0.0)
+            sm, cnt = np.zeros((cb.shape[0] + 1, cb.shape[1] + 1)), np.zeros((cb.shape[0] + 1, cb.shape[1] + 1))
+            for dr in (0, 1):
+                for dc in (0, 1):
+                    sm[dr:dr + cb.shape[0], dc:dc + cb.shape[1]] += rv
+                    cnt[dr:dr + cb.shape[0], dc:dc + cb.shape[1]] += cb
+            u = sm / np.maximum(cnt, 1) * max(base_layers - 2, 0)
+            fl = np.floor(u + 1e-9)
+            u = fl + np.clip(2 * (u - fl) - 1, 0, 1)
+            seed = cnt > 0
+            dd, (ir, ic) = distance_transform_edt(~seed, return_indices=True)
+            Zt = np.minimum(1.0 + u[ir, ic] + dd / d_f, np.inf)
+        else:
+            Zw = 1.0 + distance_transform_edt(~cor(cm)) / d_f
+            lvl = np.where(cor(cb), np.ceil(np.minimum(Zw, top1) * 2) / 2, np.where(cor(ci), 1.0, np.inf))
+            Zt = np.full(lvl.shape, np.inf)
+            for lv in np.unique(lvl[np.isfinite(lvl)]):
+                Zt = np.minimum(Zt, lv + distance_transform_edt(~(lvl == lv)) / d_f)
         win = Z[r0 * n:r1 * n + 1, c0 * n:c1 * n + 1]
         np.minimum(win, Zt, out=win)
     if tick:
@@ -597,7 +613,12 @@ def build_solid_grow(mat0, rise, islands, px, base_layers, extra, smooth_px, d_p
     for i in range(n + 1):
         for j in range(n + 1):
             zmax = np.maximum(zmax, Z[i::n, j::n][:h, :w])
-    P = _fix_diagonals(mat0 | br | (zmax <= top1 + 1e-6))
+    reach = True
+    if island:      # a bridge flares to at most 3x its width, and never across a tile seam
+        reach = np.zeros((h, w), bool)
+        for r0, r1, c0, c1 in (cuts or [(0, h, 0, w)]):
+            reach[r0:r1, c0:c1] = distance_transform_edt(~br[r0:r1, c0:c1]) <= bridge_px
+    P = _fix_diagonals(mat0 | br | ((zmax <= top1 + 1e-6) & reach))
     S = _fix_diagonals(P & ~mat0)       # the flank mesh needs 2-manifold corners on its own
     Z = np.minimum(Z, top1)
 
@@ -636,7 +657,11 @@ def build_solid_grow(mat0, rise, islands, px, base_layers, extra, smooth_px, d_p
             raise RuntimeError(f"could not build the island flanks: {prism.status()}")
         # the flank mesh is pixelated: trim it to the smoothed outline
         parts.append(prism ^ extr(P, 0, base_layers + extra, smooth_px))
-    return m3d.Manifold.batch_boolean(parts, m3d.OpType.Add)
+    solid = m3d.Manifold.batch_boolean(parts, m3d.OpType.Add)
+    pieces = solid.decompose()
+    if len(pieces) > 1:     # zero-thickness slivers where a flank meets a wall are not geometry
+        solid = m3d.Manifold.compose([q for q in pieces if q.volume() > 1e-6])
+    return solid
 
 
 def layer_svg(section, w: float, h: float) -> str:
@@ -743,7 +768,7 @@ def make_stencil(data: bytes, filename: str = "", params: Params | None = None, 
     lh = step                                   # layer height is exact; thickness snaps to whole layers
     extra = max(0, int(p.extra_top_layers))
     ramp = p.raised_bridges and p.z_bridging in ("ramp", "stepramp")
-    grow = p.raised_bridges and p.z_bridging == "grow" and base_layers > 2
+    grow = p.raised_bridges and p.z_bridging in ("grow", "island") and base_layers > 2
     if grow:
         rise = fillet_bridges(mat0, rise, bridge_px)
         masks = [_fix_diagonals(matb)] * base_layers
@@ -771,7 +796,7 @@ def make_stencil(data: bytes, filename: str = "", params: Params | None = None, 
         lo, span = 0.5 + 0.4 * a / len(factors), 0.4 / len(factors)
         tick = lambda f, lo=lo, span=span: report(lo + span * f, "Extruding & merging layers")
         if grow:
-            solid = build_solid_grow(mat0, rise, islands_mask, px, base_layers, extra, sigma * factor, grow_px, tick, tile_cuts).scale((1.0, 1.0, lh))
+            solid = build_solid_grow(mat0, rise, islands_mask, px, base_layers, extra, sigma * factor, grow_px, tick, tile_cuts, p.z_bridging == "island", bridge_px).scale((1.0, 1.0, lh))
         elif ramp:
             solid = build_solid_ramp(layer_masks(mat0, matb, rise, max(base_layers, 2))[0], _fix_diagonals(matb), rise, px, base_layers, extra,
                                      sigma * factor, tick, p.z_bridging == "stepramp").scale((1.0, 1.0, lh))
