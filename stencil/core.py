@@ -369,8 +369,6 @@ def build_mask(img: Image.Image, p: Params):
         base = max(1, round(p.thickness_mm / lh))
         n_steps = max(1, base - 1 if p.z_bridging == "steps" else base - 2)
         d_mm = lh * np.tan(np.radians(min(ang, 89.0)))
-        if p.z_bridging == "island":
-            n_steps = max(1, n_steps - flare_layers(bridge_px, d_mm / px_mm, base))
         length = blen * px_mm
         # bridges longer than d*n_steps climb at the steepest allowed slope and finish with a flat span
         rise = np.minimum(1.0, rise * np.maximum(1.0, length / (d_mm * n_steps))).astype(np.float32)
@@ -577,6 +575,9 @@ def fillet_bridges(mat0, rise, bridge_px):
     return out
 
 
+ISLAND_GROW_MM2 = 2.0      # island-bridge: layer area at which an island's bridges start growing
+
+
 def build_solid_grow(mat0, rise, islands, px, base_layers, extra, smooth_px, d_px, tick=None, cuts=None, island=False, bridge_px=2):
     """Islands and bridges widen sideways by `d_px` pixels per layer, so every flank stays within the overhang angle.
     Instead of stacking layers, the flank is one heightfield surface: its height at a pixel corner is the layer at which
@@ -601,6 +602,7 @@ def build_solid_grow(mat0, rise, islands, px, base_layers, extra, smooth_px, d_p
     M, B, I = up(mat0), up(br), up(islands & mat0)
     RV = up(np.nan_to_num(rise))
     Z = np.full((hf + 1, wf + 1), np.inf)
+    Zc_all = np.full((hf + 1, wf + 1), np.inf)
     # every tile is its own part: growth never crosses a seam
     for r0, r1, c0, c1 in (cuts or [(0, h, 0, w)]):
         sl = (slice(r0 * n, r1 * n), slice(c0 * n, c1 * n))
@@ -612,19 +614,66 @@ def build_solid_grow(mat0, rise, islands, px, base_layers, extra, smooth_px, d_p
                     out[dr:dr + m.shape[0], dc:dc + m.shape[1]] |= m
             return out
         if island:
-            # underside of each bridge follows steps + ramp along its length; the bridge flares sideways from there
-            rv = np.where(cb, RV[sl], 0.0)
-            sm, cnt = np.zeros((cb.shape[0] + 1, cb.shape[1] + 1)), np.zeros((cb.shape[0] + 1, cb.shape[1] + 1))
+            # islands grow sideways at the overhang angle until their layer area reaches ISLAND_GROW_MM2; from that layer on only
+            # their bridges keep growing (also sideways), so a bridge reaches the frame no later than the top layer
+            from scipy.ndimage import label as _label
+            lab, nl = _label(ci, structure=[[0, 1, 0], [1, 1, 1], [0, 1, 0]])
+            cc = cor(ci)
+            dd, (ir, ic) = distance_transform_edt(~cc, return_indices=True)
+            Lc = np.zeros(cc.shape, int)
             for dr in (0, 1):
                 for dc in (0, 1):
-                    sm[dr:dr + cb.shape[0], dc:dc + cb.shape[1]] += rv
-                    cnt[dr:dr + cb.shape[0], dc:dc + cb.shape[1]] += cb
-            u = sm / np.maximum(cnt, 1) * max(base_layers - 2 - flare_layers(bridge_px, d_px, base_layers), 0)
-            fl = np.floor(u + 1e-9)
-            u = fl + np.clip(2 * (u - fl) - 1, 0, 1)
-            seed = cnt > 0
-            dd, (ir, ic) = distance_transform_edt(~seed, return_indices=True)
-            Zt = np.minimum(1.0 + u[ir, ic] + dd / d_f, np.inf)
+                    np.maximum(Lc[dr:dr + lab.shape[0], dc:dc + lab.shape[1]], lab, out=Lc[dr:dr + lab.shape[0], dc:dc + lab.shape[1]])
+            near = Lc[ir, ic]
+            cell2 = (px / n) ** 2
+            A0 = np.bincount(lab.ravel(), minlength=nl + 1).astype(float)
+            per = np.zeros(nl + 1)
+            pm = np.pad(lab, 1)
+            for sh in ((0, 1), (0, -1), (1, 0), (-1, 0)):
+                nb = np.roll(pm, sh, (0, 1))[1:-1, 1:-1]
+                per += np.bincount(lab[(lab > 0) & (nb != lab)], minlength=nl + 1)
+            tgt = ISLAND_GROW_MM2 / cell2
+            with np.errstate(invalid="ignore"):
+                rr = (-per + np.sqrt(per ** 2 - 4 * np.pi * (A0 - tgt))) / (2 * np.pi)
+            rr = np.where(A0 >= tgt, 0.0, rr)
+            cap = np.maximum(1, np.ceil(rr / d_f)) * d_f
+            Zi = np.where((dd <= cap[near] + 1e-9) & (near > 0), 1.0 + dd / d_f, np.inf)
+            cbc = cor(cb) & ~cc
+            # every bridge slope is set per connected island+bridge group, so the underside never jumps along a bridge
+            comp, nc = _label(ci | cb, structure=[[0, 1, 0], [1, 1, 1], [0, 1, 0]])
+            Cc = np.zeros(cc.shape, int)
+            for dr in (0, 1):
+                for dc in (0, 1):
+                    np.maximum(Cc[dr:dr + comp.shape[0], dc:dc + comp.shape[1]], comp, out=Cc[dr:dr + comp.shape[0], dc:dc + comp.shape[1]])
+            # distance along the bridge from its island: the underside rises with the bridge's own length, never with the
+            # straight-line distance to some other island that happens to pass nearby
+            from scipy.ndimage import binary_dilation
+            from scipy.sparse import coo_matrix
+            from scipy.sparse.csgraph import dijkstra
+            node = cbc | (cc & binary_dilation(cbc, np.ones((3, 3), bool)))
+            nid = -np.ones(node.shape, int)
+            nid[node] = np.arange(node.sum())
+            ra, ca, wa = [], [], []
+            for dr, dc in ((0, 1), (1, 0), (1, 1), (1, -1)):
+                A_ = node[:node.shape[0] - dr, max(0, -dc):node.shape[1] - max(0, dc)]
+                B_ = node[dr:, max(0, dc):node.shape[1] - max(0, -dc)]
+                ia = nid[:node.shape[0] - dr, max(0, -dc):node.shape[1] - max(0, dc)]
+                ib = nid[dr:, max(0, dc):node.shape[1] - max(0, -dc)]
+                ok = A_ & B_ & ~(cc[:node.shape[0] - dr, max(0, -dc):node.shape[1] - max(0, dc)] & cc[dr:, max(0, dc):node.shape[1] - max(0, -dc)])
+                ra.append(ia[ok]); ca.append(ib[ok]); wa.append(np.full(ok.sum(), np.hypot(dr, dc)))
+            ra, ca, wa = np.concatenate(ra), np.concatenate(ca), np.concatenate(wa)
+            G = coo_matrix((wa, (ra, ca)), shape=(node.sum(),) * 2).tocsr()
+            sd = dijkstra(G, directed=False, indices=nid[cc & node], min_only=True)
+            dd = np.full(node.shape, np.inf)
+            dd[node] = sd
+            dd[~np.isfinite(dd)] = 0.0
+            lmax = np.zeros(nc + 1)
+            np.maximum.at(lmax, Cc[cbc], dd[cbc])
+            dE = np.maximum(d_f, lmax / max(top1 - 2.0, 0.5))
+            Zs = np.where(cbc, 1.0 + dd / dE[Cc], np.inf)
+            d2, (jr, jc) = distance_transform_edt(~cbc, return_indices=True)
+            Zt = np.minimum(Zi, Zs[jr, jc] + d2 / d_f)
+            Zc_all[r0 * n:r1 * n + 1, c0 * n:c1 * n + 1] = Zi
         else:
             Zw = 1.0 + distance_transform_edt(~cor(cm)) / d_f
             lvl = np.where(cor(cb), np.ceil(np.minimum(Zw, top1) * 2) / 2, np.where(cor(ci), 1.0, np.inf))
@@ -644,6 +693,11 @@ def build_solid_grow(mat0, rise, islands, px, base_layers, extra, smooth_px, d_p
         reach = np.zeros((h, w), bool)
         for r0, r1, c0, c1 in (cuts or [(0, h, 0, w)]):
             reach[r0:r1, c0:c1] = distance_transform_edt(~br[r0:r1, c0:c1]) <= bridge_px
+        grown = np.full((h, w), -np.inf)
+        for i in range(n + 1):
+            for j in range(n + 1):
+                grown = np.maximum(grown, Zc_all[i::n, j::n][:h, :w])
+        reach |= np.isfinite(grown)
     P = _fix_diagonals(mat0 | br | ((zmax <= top1 + 1e-6) & reach))
     S = _fix_diagonals(P & ~mat0)       # the flank mesh needs 2-manifold corners on its own
     Z = np.minimum(Z, top1)
