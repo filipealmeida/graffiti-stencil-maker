@@ -40,7 +40,7 @@ def main(argv=None):
     ap.add_argument("--tile-max", metavar="X[xY]", help="split into equal tiles at most X by Y mm (Y defaults to X); written to a zip next to the output")
     ap.add_argument("--connector-diameter", type=float, default=0.0, choices=[0.0, 2.5, 3.0, 4.0, 5.0, 6.0], help="blind holes in the seams for glued rods, diameter in mm (hexagon: across corners; plate must be thicker than 4 mm; 0 = plain cut)")
     ap.add_argument("--connector-shape", choices=["hex", "round"], default="hex", help="hole and rod shape (default %(default)s)")
-    ap.add_argument("--connector-clearance", type=float, default=d.connector_clearance_mm, help="radial clearance of the hole around the rod in mm (default %(default)s)")
+    ap.add_argument("--connector-clearance", type=float, default=d.connector_clearance_mm, help="diametral clearance between rod and hole in mm (default %(default)s)")
     a = ap.parse_args(argv)
 
     if a.serve:

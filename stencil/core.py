@@ -40,7 +40,7 @@ class Params:
     tile_max_y_mm: float = 0.0    # ... and this tall (y); 0 = no limit on that axis
     connector_diameter_mm: float = 0.0   # 0 = plain cut; else 2.5, 3, 4, 5 or 6: blind holes in the seams for glued rods (plate > 4 mm)
     connector_shape: str = "hex"  # "hex" or "round"
-    connector_clearance_mm: float = 0.2  # radial clearance of the hole around the rod
+    connector_clearance_mm: float = 0.2  # diametral clearance between the rod and its hole
 
 
 def load_image(data: bytes, filename: str = "") -> Image.Image:
@@ -556,7 +556,7 @@ def make_stencil(data: bytes, filename: str = "", params: Params | None = None, 
     if tiled:
         report(0.91, "Drilling connector holes")
         if p.connector_diameter_mm > 0:
-            solid, conn = tiling.drill_connectors(solid, p.connector_shape, p.connector_diameter_mm, p.connector_clearance_mm, T, xs, ys)
+            solid, conn = tiling.drill_connectors(solid, p.connector_shape, p.connector_diameter_mm, p.connector_clearance_mm, T, xs, ys, stats["pad_px"] * px)
     report(0.92, "Checking mesh")
     mesh = solid.to_mesh()
     watertight = bool(solid.status().name == "NoError" and check_watertight(mesh.tri_verts))

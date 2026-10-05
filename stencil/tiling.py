@@ -132,15 +132,16 @@ def optimize_grid(section, W: float, H: float, xs, ys, max_x: float, max_y: floa
     return tune(xs, max_x, "x"), tune(ys, max_y, "y")
 
 
-def drill_connectors(solid, shape: str, d: float, clearance: float, T: float, xs, ys):
+def drill_connectors(solid, shape: str, d: float, clearance: float, T: float, xs, ys, margin: float):
     """Subtract blind holes straddling every seam. Returns (solid, info)."""
     import manifold3d as m3d
     check_connector(shape, d, T)
     nx, ny = len(xs) - 1, len(ys) - 1
+    W, H = xs[-1], ys[-1]
     if any(b - a < MIN_TILE_MM - 1e-6 for c in (xs, ys) if len(c) > 2 for a, b in zip(c, c[1:])):
         raise ValueError(f"tiles must be at least {MIN_TILE_MM:g} mm wide to hold connector holes")
-    zs = row_heights(shape, d + 2 * clearance, T)
-    r_hole = d / 2 + clearance
+    zs = row_heights(shape, d + clearance, T)
+    r_hole = (d + clearance) / 2
     wall_r, sep_r = r_hole + WALL_MM, r_hole + ROW_GAP_MM / 2
     seams = [("x", s, ys[j], ys[j + 1]) for s in xs[1:-1] for j in range(ny)]
     seams += [("y", s, xs[i], xs[i + 1]) for s in ys[1:-1] for i in range(nx)]
@@ -151,7 +152,22 @@ def drill_connectors(solid, shape: str, d: float, clearance: float, T: float, xs
     def spot(axis, s, u, z, rad):
         return prism(shape, rad, 2 * POCKET_DEPTH_MM, axis).translate(at(axis, s, u, z))
 
-    holes, guards, missed, worst_gap, fewest, thin = [], [], 0, 0.0, None, 0
+    holes, guards, missed, worst_gap, fewest, thin, margin_holes = [], [], 0, 0.0, None, 0, 0
+    margin_done = set()
+
+    def add_hole(axis, s, u, z, wall):
+        nonlocal thin
+        guard = spot(axis, s, u, z, r_hole + wall)
+        if (guard ^ solid).volume() < guard.volume() * (1 - 1e-4):
+            return False
+        near = spot(axis, s, u, z, sep_r)
+        if any((near ^ g).volume() > 1e-6 for g in guards):
+            return False
+        guards.append(near)
+        holes.append(spot(axis, s, u, z, r_hole))
+        thin += wall < WALL_MM
+        return True
+
     for axis, s, a, b in seams:
         n = max(1, math.ceil((b - a) / SPACING_TARGET_MM - 1e-9))
         cell = (b - a) / n
@@ -169,16 +185,14 @@ def drill_connectors(solid, shape: str, d: float, clearance: float, T: float, xs
                                 continue
                             if any(abs(u - q) < 2 * sep_r for q in placed):
                                 continue
-                            guard = spot(axis, s, u, z, wall_r)
-                            if (guard ^ solid).volume() < guard.volume() * (1 - 1e-4):
+                            if not add_hole(axis, s, u, z, wall):
                                 continue
-                            near = spot(axis, s, u, z, sep_r)
-                            if any((near ^ g).volume() > 1e-6 for g in guards):
-                                continue
-                            guards.append(near)
-                            holes.append(spot(axis, s, u, z, r_hole))
-                            thin += wall < WALL_MM
                             placed.append(u)
+                            on_frame = u <= margin or u >= (H if axis == "x" else W) - margin
+                            seam_key = (axis, s)
+                            if on_frame and seam_key not in margin_done:
+                                margin_done.add(seam_key)
+                                margin_holes += 1
                             done = True
                             break
                         if done:
@@ -191,10 +205,55 @@ def drill_connectors(solid, shape: str, d: float, clearance: float, T: float, xs
             gaps = [2 * (ps[0] - a)] + [q - p for p, q in zip(ps, ps[1:])] + [2 * (b - ps[-1])] if ps else [b - a]
             worst_gap = max(worst_gap, max(gaps))
             fewest = len(ps) if fewest is None else min(fewest, len(ps))
+
+    # Reserve a connector in the outside frame for every continuous internal seam.
+    seam_lines = {}
+    for axis, s, a, b in seams:
+        seam_lines.setdefault((axis, s), []).append((a, b))
+    for (axis, s), segments in seam_lines.items():
+        seam_key = (axis, s)
+        if seam_key in margin_done:
+            continue
+        z = zs[len(zs) // 2]
+        placed_margin = False
+        has_frame_segment = False
+        for a, b in segments:
+            if axis == "x":
+                bands = [(0.0, margin)] if a <= 1e-6 else []
+                if b >= H - 1e-6:
+                    bands.append((H - margin, H))
+            else:
+                bands = [(0.0, margin)] if a <= 1e-6 else []
+                if b >= W - 1e-6:
+                    bands.append((W - margin, W))
+            for band_lo, band_hi in bands:
+                has_frame_segment = True
+                for wall in (WALL_MM, THIN_WALL_MM):
+                    edge = r_hole + wall
+                    lo, hi = max(a + edge, band_lo + edge), min(b - edge, band_hi - edge)
+                    if lo > hi:
+                        continue
+                    candidates = np.arange(lo, hi + 1e-6, 1.0).tolist()
+                    candidates.append((lo + hi) / 2)
+                    candidates.sort(key=lambda q: abs(q - (band_lo + band_hi) / 2))
+                    if any(add_hole(axis, s, u, z, wall) for u in candidates):
+                        placed_margin = True
+                        break
+                if placed_margin:
+                    break
+            if placed_margin:
+                break
+        if placed_margin:
+            margin_done.add(seam_key)
+            margin_holes += 1
+        elif has_frame_segment:
+            raise ValueError(f"could not place a connector hole in the frame margin on the {axis}-axis seam at {s:.1f} mm; increase the frame margin or use a smaller connector diameter")
+
     if holes:
         solid = solid - m3d.Manifold.batch_boolean(holes, m3d.OpType.Add)
     info = {"shape": shape, "diameter_mm": d, "clearance_mm": clearance, "rows": len(zs), "count": len(holes),
             "positions_without_room": missed, "thin_wall_holes": thin, "max_gap_mm": round(worst_gap, 1), "fewest_per_seam_row": fewest or 0,
+            "margin_holes": margin_holes,
             "hole_depth_mm": POCKET_DEPTH_MM, "rod_length_mm": ROD_LENGTH_MM}
     return solid, info
 
