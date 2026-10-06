@@ -35,7 +35,7 @@ def parse_params(form) -> Params:
         invert=form.get("invert") in ("1", "true", "on"),
         smooth_mm=min(3.0, max(0.0, float(form.get("smooth", 0)))),
         raised_bridges=form.get("raised") in ("1", "true", "on"),
-        z_bridging=form.get("z_bridging") if form.get("z_bridging") in ("ramp", "stepramp", "grow", "island") else "steps",
+        z_bridging=form.get("z_bridging") if form.get("z_bridging") in ("ramp", "stepramp", "grow", "island", "easy") else "steps",
         min_island_mm2=max(0.0, float(form.get("min_island", 0) or 0)),
         max_overhang_deg=min(89.0, max(0.0, float(form.get("max_overhang", 0) or 0))),
         flip=form.get("flip") in ("1", "true", "on"),
