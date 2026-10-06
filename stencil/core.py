@@ -558,17 +558,11 @@ def layer_masks(mat0, matb, rise, n_layers):
     return [_fix_diagonals(mat0 | (br & (kmin <= k))) for k in range(n_layers)]
 
 
-def easy_masks(matb, islands, bridge_px, n_layers):
-    """Easy strategy: the wall-side half is the frame plus the bridges, each reaching `2 * bridge_px` into the islands it
-    holds (the anchor); the other half is the full stencil, so every island sits glued on its bridges."""
-    from scipy.ndimage import distance_transform_edt
-    br = matb & ~islands
-    near = distance_transform_edt(~(br & (distance_transform_edt(~islands) <= 1.5))) <= 2 * bridge_px
-    # anchor = island pixels near a bridge pixel that touches the island
-    low = _fix_diagonals((matb & ~islands) | (islands & near))
-    top = _fix_diagonals(matb)
+def easy_masks(mat0, matb, n_layers):
+    """Easy strategy: islands run the full height, bridges only the half away from the wall side, so the bridges hang
+    on the islands' sides and the paint fills under them."""
     half = n_layers // 2
-    return [low] * half + [top] * (n_layers - half)
+    return [_fix_diagonals(mat0)] * half + [_fix_diagonals(matb)] * (n_layers - half)
 
 
 def fillet_bridges(mat0, rise, bridge_px):
@@ -866,7 +860,7 @@ def make_stencil(data: bytes, filename: str = "", params: Params | None = None, 
         rise = fillet_bridges(mat0, rise, bridge_px)
         masks = [_fix_diagonals(matb)] * base_layers
     elif p.raised_bridges and p.z_bridging == "easy" and base_layers >= 2:
-        masks = easy_masks(matb, islands_mask, bridge_px, base_layers)
+        masks = easy_masks(mat0, matb, base_layers)
     elif p.raised_bridges and not ramp:
         masks = layer_masks(mat0, matb, rise, base_layers)
     else:
