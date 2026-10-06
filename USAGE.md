@@ -35,7 +35,7 @@ If `-o` is omitted, the output is the input name with `.stl`.
 | `--min-feature MM` | 0.8 | Specks smaller than this are dropped |
 | `--threshold 0-255` | auto (Otsu) | Brightness cut-off between paint and stencil |
 | `--invert` | off | Light areas become holes instead of dark ones |
-| `--smooth MM` | 0 (off) | Smooth the outline vertices into curves instead of pixel steps; sigma in mm along the contour (try 0.3–1) |
+| `--smooth MM` | 0 (off) | Smooth the outline vertices into curves instead of pixel steps; sigma in mm along the contour (try 0.3–1; up to 10) |
 | `--raised-bridges` | off | Bridges only occupy the top layers; see below |
 | `--layer-height MM` (alias `--bridge-height`) | 0.2 | Layer height, which is also the bridge height: with raised bridges the island grows one step per layer. The web layer slider uses it too |
 | `--bridges N` | 1 | Number of bridges (1–6) from every island to the rest of the stencil. The extra bridges take the shortest free path that stays clear of the other bridges, so they leave in different directions. An island with no room (very small, or enclosed) gets as many as fit; the result card's *Bridges added* shows the total. Works with every Z bridging strategy and with tiles |

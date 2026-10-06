@@ -33,7 +33,7 @@ def parse_params(form) -> Params:
         bridges_per_island=min(6, max(1, round(float(form.get("bridges", 1))))),
         threshold=int(thr) if thr not in ("", "auto") else None,
         invert=form.get("invert") in ("1", "true", "on"),
-        smooth_mm=min(3.0, max(0.0, float(form.get("smooth", 0)))),
+        smooth_mm=min(10.0, max(0.0, float(form.get("smooth", 0)))),
         raised_bridges=form.get("raised") in ("1", "true", "on"),
         z_bridging=form.get("z_bridging") if form.get("z_bridging") in ("ramp", "stepramp", "grow", "island", "easy") else "steps",
         min_island_mm2=max(0.0, float(form.get("min_island", 0) or 0)),
