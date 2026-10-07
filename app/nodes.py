@@ -200,6 +200,7 @@ def n_stencil(i, p, ctx):
        num("tile_max_y_mm", "Tile height (mm, 0 = none)", 0, 0, 5000, 10, "Tiles"),
        num("connector_diameter_mm", "Connector rod (mm, 0 = none)", 0, 0, 6, 0.5, "Tiles"),
        choice("connector_shape", "Connector shape", "hex", ["hex", "round"], "Tiles"),
+       num("connector_clearance_mm", "Connector fit (mm, hole larger than rod)", 0.2, 0, 1, 0.1, "Tiles"),
        choice("mount_screw", "Mounting holes (screw)", "none", ["none", "M3", "M4", "M5"], "Mounting holes"),
        num("mount_offset_mm", "Hole distance from seam (mm)", 10, 4, 100, 1, "Mounting holes"),
        num("mount_clearance_mm", "Hole clearance (mm, diametral)", 0.3, 0, 2, 0.1, "Mounting holes"),
@@ -208,13 +209,13 @@ def n_stencil(i, p, ctx):
        num("pad_count", "Mounting pads", 0, 0, 4, 1, "Pads", integer=True),
        choice("pad_thread", "Pad thread", "M8", ["M4", "M6", "M8", "M10"], "Pads"),
        num("pad_height_mm", "Pad height (mm)", 6, 1, 50, 1, "Pads")],
-      "Cuts the plate into tiles (bridges are recomputed per tile so each one is a single piece), adds threaded pads and "
+      "Cuts the plate into tiles (connector holes get the fit clearance you set; a calibration strip with holes of 0-0.5 mm clearance is exported to test it; bridges are recomputed per tile so each one is a single piece), adds threaded pads and "
       "screw holes in the frame of tiles that have one, and writes joiner (2-hole) and extender (4-hole) plates that screw "
       "over the holes on both sides of a seam. Nothing set: the plate is passed through.")
 def n_export(i, p, ctx):
     from stencil import tiling
     s = i["solid"]
-    post = {k: p[k] for k in ("tile_max_x_mm", "tile_max_y_mm", "connector_diameter_mm", "connector_shape", "mount_screw", "mount_offset_mm",
+    post = {k: p[k] for k in ("tile_max_x_mm", "tile_max_y_mm", "connector_diameter_mm", "connector_shape", "connector_clearance_mm", "mount_screw", "mount_offset_mm",
                               "mount_clearance_mm", "mount_plate_mm", "mount_extend_mm", "pad_count", "pad_thread", "pad_height_mm")}
     if not (p["tile_max_x_mm"] or p["tile_max_y_mm"] or p["mount_screw"] != "none" or p["pad_count"]):
         return {"parts": {"files": {"stencil.stl": s["stl"]}}, "solid": s}
@@ -234,6 +235,10 @@ def n_export(i, p, ctx):
         files = {n: z.read(n) for n in z.namelist()}
     else:
         files["stencil.stl"] = stl
+    if tiles and p["connector_diameter_mm"] > 0:
+        d = p["connector_diameter_mm"]
+        files[f"connector_fit_test_{p['connector_shape']}_d{d:g}mm.stl"] = tiling.stl_bytes(tiling.fit_test(p["connector_shape"], d))[0]
+        ctx.progress(0.985, f"connector fit test: holes 1-{len(tiling.FIT_STEPS)} (dimples) have {tiling.FIT_STEPS[0]:g}-{tiling.FIT_STEPS[-1]:g} mm clearance; current setting {p['connector_clearance_mm']:g} mm")
     mount = stats.get("mount")
     if mount and mount.get("pairs"):
         d = tiling.hole_diameter(p["mount_screw"], p["mount_clearance_mm"])

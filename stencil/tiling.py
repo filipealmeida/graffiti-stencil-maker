@@ -310,6 +310,26 @@ def rod_stl(shape: str, d: float) -> bytes:
     return stl_bytes(prism(shape, d / 2, ROD_LENGTH_MM).translate((0.0, 0.0, ROD_LENGTH_MM / 2)))[0]
 
 
+FIT_STEPS = (0.0, 0.1, 0.2, 0.3, 0.4, 0.5)   # diametral clearances on the calibration strip
+
+
+def fit_test(shape: str, d: float, steps=FIT_STEPS):
+    """Print-in-place-free calibration strip: through holes (axis along y, printed flat like the seam holes) with growing
+    clearance. Hole i (0-based) has i + 1 dimples on top and clearance steps[i]; try the rod in each and keep the snuggest."""
+    import manifold3d as m3d
+    pitch = d + 2 * WALL_MM + 5.0
+    h = z_extent(shape, d + max(steps)) + 2 * WALL_MM + 1.0
+    L = pitch * len(steps) + 4.0
+    block = m3d.Manifold.cube((L, 12.0, h)).translate((0.0, -6.0, 0.0))
+    cuts = []
+    for i, c in enumerate(steps):
+        x = 2.0 + pitch * (i + 0.5)
+        cuts.append(prism(shape, (d + c) / 2, 14.0, "y").translate((x, 0.0, h / 2)))
+        for k in range(i + 1):
+            cuts.append(m3d.Manifold.cylinder(1.4, 0.6, 0.6, 16).translate((x + (k - i / 2) * 2.0, -4.0, h - 0.7)))
+    return block - m3d.Manifold.batch_boolean(cuts, m3d.OpType.Add)
+
+
 def write_connector_stls(folder) -> list[Path]:
     folder = Path(folder)
     folder.mkdir(parents=True, exist_ok=True)

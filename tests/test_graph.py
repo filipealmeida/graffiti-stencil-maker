@@ -127,3 +127,35 @@ def test_mount_holes_mirror_when_flipped():
         pos[flip] = (st["size_mm"][0], sorted((round(x, 1), round(y, 1)) for x, y in st["mount"]["positions"]))
     W = pos[False][0]
     assert pos[True][1] == sorted((round(W - x, 1), y) for x, y in pos[False][1])
+
+
+def test_connector_fit_and_test_strip(tmp_path):
+    c = TestClient(create_app(tmp_path))
+    img = c.post("/api/images", files={"file": ("a.png", picture(), "image/png")}).json()["id"]
+
+    def build(fit):
+        g = {"nodes": [
+            {"id": "src", "type": "source", "params": {"image_id": img, "resolution": 200}},
+            {"id": "thr", "type": "threshold", "params": {}},
+            {"id": "st", "type": "stencil", "params": {"width_mm": 160, "margin_mm": 8, "thickness_mm": 8}},
+            {"id": "ex", "type": "export", "params": {"tile_max_x_mm": 90, "connector_diameter_mm": 3, "connector_clearance_mm": fit}},
+        ], "edges": [
+            {"from": ["src", "image"], "to": ["thr", "image"]},
+            {"from": ["thr", "mask"], "to": ["st", "mask"]},
+            {"from": ["st", "solid"], "to": ["ex", "solid"]},
+        ]}
+        st = run(c, g)
+        assert st["nodes"]["ex"]["state"] == "done", st["nodes"]["ex"]
+        return st["nodes"]["ex"]["key"]
+
+    k0, k5 = build(0.0), build(0.5)
+    files = c.get(f"/api/info/{k0}/parts").json()["files"]
+    assert "connector_fit_test_hex_d3mm.stl" in files
+    assert c.get(f"/api/info/{k5}/solid").json()["stats"]["connectors"]["clearance_mm"] == 0.5
+    from stencil import tiling
+    m = tiling.fit_test("hex", 3.0)
+    assert len(m.decompose()) == 1 and tiling.stl_bytes(m)[2]
+    top = m.bounding_box()[5]
+    for i, _ in enumerate(tiling.FIT_STEPS):
+        rod = tiling.prism("hex", 1.5, 12, "y").translate((2 + 10 * (i + 0.5), 0, top / 2))
+        assert (m ^ rod).volume() < 1e-6          # the rod goes into every hole, including the 0 mm one
