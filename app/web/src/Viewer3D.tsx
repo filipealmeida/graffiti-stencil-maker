@@ -123,6 +123,22 @@ export default function Viewer3D({ parts }: { parts: Part[] }) {
     })
   }, [wire, explode, clip, ready, hidden])
 
+  // refit the camera so every part stays inside the panel as the spacing changes
+  useEffect(() => {
+    const s = sc.current
+    if (!s) return
+    const b = new THREE.Box3()
+    s.meshes.forEach((m) => { if (m.visible) { m.updateMatrixWorld(true); b.union(new THREE.Box3().setFromObject(m)) } })
+    if (b.isEmpty()) return
+    const c = b.getCenter(new THREE.Vector3()), R = b.getSize(new THREE.Vector3()).length() / 2
+    const dir = s.camera.position.clone().sub(s.controls.target)
+    if (dir.length() < 1e-6) return
+    const d = Math.max(R * 2.8, s.r * 0.5)
+    s.controls.target.copy(c)
+    s.camera.position.copy(c).add(dir.setLength(d))
+    s.controls.update()
+  }, [explode, ready, hidden])
+
   const view = (top: boolean) => {
     const s = sc.current
     if (!s) return
@@ -137,7 +153,7 @@ export default function Viewer3D({ parts }: { parts: Part[] }) {
         <button onClick={() => view(true)}>Top</button>
         <label><input type="checkbox" checked={wire} onChange={(e) => setWire(e.target.checked)} /> wireframe</label>
         <label>layers up to <input type="range" min={0.01} max={1} step={0.01} value={clip} onChange={(e) => setClip(+e.target.value)} /></label>
-        {parts.length > 1 && <label>{tiled ? 'spacing (mm)' : 'explode'} <input type="range" min={0} max={tiled ? 60 : 12} step={tiled ? 1 : 0.25} value={explode} onChange={(e) => setExplode(+e.target.value)} /></label>}
+        {parts.length > 1 && <label>{tiled ? 'spacing (mm)' : 'explode'} <input type="range" min={0} max={tiled ? 100 : 12} step={tiled ? 1 : 0.25} value={explode} onChange={(e) => setExplode(+e.target.value)} /></label>}
         <span className="mut">{parts.length > 1 ? `${parts.length} parts` : ''}</span>
       </div>
       {parts.length > 1 && (
