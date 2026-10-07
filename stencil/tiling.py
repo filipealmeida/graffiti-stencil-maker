@@ -336,3 +336,72 @@ def tiles_zip(stem: str, tiles, rod: tuple[str, bytes] | None):
         if rod:
             z.writestr(f"connector_{rod[0]}", rod[1])
     return buf.getvalue(), info
+
+
+# ---- mounting holes and the plates that use them -----------------------------------------------
+
+SCREW_HOLES = {"M3": 3.0, "M4": 4.0, "M5": 5.0}     # nominal screw diameter in mm
+JOIN_WALL_MM = 3.0                                  # material around a hole in a joiner plate
+
+
+def hole_diameter(screw: str, clearance: float) -> float:
+    return SCREW_HOLES[screw] + clearance
+
+
+def mount_positions(W: float, H: float, margin: float, d: float, off: float, xs, ys, avoid=(), wall: float = 1.5):
+    """Through-hole centres on the middle of the frame band (plate mm, y up).
+
+    Tiles that own a piece of the frame get a hole in each corner they hold, a hole on each side of every seam that crosses
+    the frame (these pairs are what the joiner plates bridge) and one in the middle of each long frame segment.
+    Tiles without frame get none. Returns (centres, seam pairs [(a, b, axis)])."""
+    if margin < d + 2 * wall - 1e-6:
+        return [], []
+    c = margin / 2
+    pts: list[tuple[float, float]] = []
+
+    def free(p, gap):
+        return all(math.hypot(p[0] - q[0], p[1] - q[1]) >= gap for q in pts) and all(
+            math.hypot(p[0] - a[0], p[1] - a[1]) >= a[2] + d / 2 + wall for a in avoid)
+
+    sides = [("x", c, xs, W), ("x", H - c, xs, W), ("y", c, ys, H), ("y", W - c, ys, H)]
+    for axis, fixed, seams, L in sides:
+        for t in (c, L - c):
+            p = (t, fixed) if axis == "x" else (fixed, t)
+            if free(p, 2 * d):
+                pts.append(p)
+    pairs = []
+    for axis, fixed, seams, L in sides:
+        for s in seams[1:-1]:
+            ps = [(s - off, fixed) if axis == "x" else (fixed, s - off), (s + off, fixed) if axis == "x" else (fixed, s + off)]
+            if all(free(q, 1.5 * d) for q in ps) and 0 < s - off and s + off < L:
+                pts.extend(ps)
+                pairs.append((ps[0], ps[1], axis))
+    for axis, fixed, seams, L in sides:
+        for a, b in zip(seams, seams[1:]):
+            t = (a + b) / 2
+            p = (t, fixed) if axis == "x" else (fixed, t)
+            if b - a > 4 * off and free(p, 2 * d):
+                pts.append(p)
+    return pts, pairs
+
+
+def _slot(pts, r):
+    import manifold3d as m3d
+    circles = [m3d.CrossSection.circle(r, 48).translate(p) for p in pts]
+    return m3d.CrossSection.batch_hull(circles)
+
+
+def join_plates(d: float, off: float, ext: float, thickness: float):
+    """(joiner, extender) as Manifolds lying flat on the bed.
+
+    The joiner has two holes 2*off apart, one per tile across a seam. The extender adds a second row of two holes `ext`
+    outward, to screw to extra margin material or to a wall."""
+    import manifold3d as m3d
+    r = d / 2 + JOIN_WALL_MM
+    row = [(-off, 0.0), (off, 0.0)]
+    out = []
+    for pts in (row, row + [(-off, ext), (off, ext)]):
+        body = m3d.Manifold.extrude(_slot(pts, r), thickness)
+        holes = m3d.Manifold.batch_boolean([m3d.Manifold.cylinder(thickness + 2, d / 2, d / 2, 48).translate((x, y, -1.0)) for x, y in pts], m3d.OpType.Add)
+        out.append(body - holes)
+    return out[0], out[1]

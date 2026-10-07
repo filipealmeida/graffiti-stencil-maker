@@ -67,21 +67,28 @@ def test_logs_tiles_and_parts(tmp_path):
     g = {"nodes": [
         {"id": "src", "type": "source", "params": {"image_id": img, "resolution": 200}},
         {"id": "thr", "type": "threshold", "params": {}},
-        {"id": "st", "type": "stencil", "params": {"width_mm": 120, "margin_mm": 6, "tile_max_x_mm": 70, "tile_max_y_mm": 200}},
+        {"id": "st", "type": "stencil", "params": {"width_mm": 120, "margin_mm": 8}},
+        {"id": "ex", "type": "export", "params": {"tile_max_x_mm": 70, "tile_max_y_mm": 200, "mount_screw": "M4"}},
     ], "edges": [
         {"from": ["src", "image"], "to": ["thr", "image"]},
         {"from": ["thr", "mask"], "to": ["st", "mask"]},
+        {"from": ["st", "solid"], "to": ["ex", "solid"]},
     ]}
     st = run(c, g, targets=["thr"])
     assert st["nodes"]["st"]["state"] == "pending"          # only the trace part ran
     assert any(l["node"] == "thr" and "done" in l["msg"] for l in st["log"])
     st = run(c, g)
-    key = st["nodes"]["st"]["key"]
+    assert not c.get(f"/api/info/{st['nodes']['st']['key']}/solid").json()["tiles"]      # the stencil node never tiles
+    key = st["nodes"]["ex"]["key"]
     info = c.get(f"/api/info/{key}/solid").json()
-    assert len(info["tiles"]) >= 2
+    assert len(info["tiles"]) >= 2 and info["stats"]["islands_remaining"] == 0
+    mount = info["stats"]["mount"]
+    assert mount["holes"] >= 4 and mount["pairs"] >= 1
     r = c.get(f"/api/part/{key}/solid/{info['tiles'][0]}")
     assert r.status_code == 200 and len(r.content) > 84
     assert c.get(f"/api/part/{key}/solid/nope.stl").status_code == 404
+    files = c.get(f"/api/info/{key}/parts").json()["files"]
+    assert "joiner_2hole_M4.stl" in files and "extender_4hole_M4.stl" in files
 
 
 def test_reduce_and_tone_patterns(tmp_path):

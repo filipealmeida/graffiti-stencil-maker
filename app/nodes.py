@@ -178,15 +178,8 @@ def n_tone_patterns(i, p, ctx):
        num("max_overhang_deg", "Max overhang (deg, 0 = off)", 0, 0, 89, 1, "Bridges"),
        num("min_island_mm2", "Delete islands under (mm²)", 0, 0, 100000, 1, "Bridges"),
        num("smooth_mm", "Smooth outline (mm)", 0, 0, 10, 0.1, "Shape"),
-       num("min_feature_mm", "Drop specks under (mm)", 0.8, 0, 20, 0.1, "Shape"),
-       num("pad_count", "Mounting pads", 0, 0, 4, 1, "Pads", integer=True),
-       choice("pad_thread", "Pad thread", "M8", ["M4", "M6", "M8", "M10"], "Pads"),
-       num("pad_height_mm", "Pad height (mm)", 6, 1, 50, 1, "Pads"),
-       num("tile_max_x_mm", "Tile width (mm, 0 = none)", 0, 0, 5000, 10, "Tiles"),
-       num("tile_max_y_mm", "Tile height (mm, 0 = none)", 0, 0, 5000, 10, "Tiles"),
-       num("connector_diameter_mm", "Connector rod (mm, 0 = none)", 0, 0, 6, 0.5, "Tiles"),
-       choice("connector_shape", "Connector shape", "hex", ["hex", "round"], "Tiles")],
-      "Turns a mask into a watertight, island-free 3D plate with bridges. Tiling stays here because bridges are recomputed per tile.")
+       num("min_feature_mm", "Drop specks under (mm)", 0.8, 0, 20, 0.1, "Shape")],
+      "Turns a mask into a watertight, island-free 3D plate with bridges. Tiling, pads and mounting holes are done in the Post stage.")
 def n_stencil(i, p, ctx):
     m = i["mask"]
     png = io.BytesIO()
@@ -196,20 +189,58 @@ def n_stencil(i, p, ctx):
     overlay = stats.pop("overlay_png", None)
     tiles = stats.pop("tiles_zip", None)
     stats = {k: v for k, v in stats.items() if isinstance(v, (int, float, str, bool, list, dict, type(None)))}
-    return {"solid": {"stl": stl, "tiles_zip": tiles, "stats": stats},
+    return {"solid": {"stl": stl, "tiles_zip": tiles, "stats": stats, "recipe": {"mask": m, "params": dict(p)}},
             "bridges": Image.open(io.BytesIO(overlay)).convert("RGB") if overlay else None}
 
 
 # ---- post stage -------------------------------------------------------------------------------
 
-@node("export", "Export", "post", [inp("solid", "solid")], [out("parts", "parts")],
-      [choice("what", "Export", "whole plate", ["whole plate", "tiles + connectors"])],
-      "Packages the stencil for download: the single STL, or the tile STLs with connector rods.")
+@node("export", "Tiles & mounting", "post", [inp("solid", "solid")], [out("parts", "parts"), out("solid", "solid")],
+      [num("tile_max_x_mm", "Tile width (mm, 0 = none)", 0, 0, 5000, 10, "Tiles"),
+       num("tile_max_y_mm", "Tile height (mm, 0 = none)", 0, 0, 5000, 10, "Tiles"),
+       num("connector_diameter_mm", "Connector rod (mm, 0 = none)", 0, 0, 6, 0.5, "Tiles"),
+       choice("connector_shape", "Connector shape", "hex", ["hex", "round"], "Tiles"),
+       choice("mount_screw", "Mounting holes (screw)", "none", ["none", "M3", "M4", "M5"], "Mounting holes"),
+       num("mount_offset_mm", "Hole distance from seam (mm)", 10, 4, 100, 1, "Mounting holes"),
+       num("mount_clearance_mm", "Hole clearance (mm, diametral)", 0.3, 0, 2, 0.1, "Mounting holes"),
+       num("mount_plate_mm", "Joiner plate thickness (mm)", 3, 1, 10, 0.5, "Mounting holes"),
+       num("mount_extend_mm", "Extender outer holes (mm outward)", 20, 5, 200, 1, "Mounting holes"),
+       num("pad_count", "Mounting pads", 0, 0, 4, 1, "Pads", integer=True),
+       choice("pad_thread", "Pad thread", "M8", ["M4", "M6", "M8", "M10"], "Pads"),
+       num("pad_height_mm", "Pad height (mm)", 6, 1, 50, 1, "Pads")],
+      "Cuts the plate into tiles (bridges are recomputed per tile so each one is a single piece), adds threaded pads and "
+      "screw holes in the frame of tiles that have one, and writes joiner (2-hole) and extender (4-hole) plates that screw "
+      "over the holes on both sides of a seam. Nothing set: the plate is passed through.")
 def n_export(i, p, ctx):
+    from stencil import tiling
     s = i["solid"]
-    if p["what"] == "tiles + connectors":
-        if not s["tiles_zip"]:
-            raise ValueError("no tiles: set a tile size on the Stencil node")
-        z = zipfile.ZipFile(io.BytesIO(s["tiles_zip"]))
-        return {"parts": {"files": {n: z.read(n) for n in z.namelist()}}}
-    return {"parts": {"files": {"stencil.stl": s["stl"]}}}
+    post = {k: p[k] for k in ("tile_max_x_mm", "tile_max_y_mm", "connector_diameter_mm", "connector_shape", "mount_screw", "mount_offset_mm",
+                              "mount_clearance_mm", "mount_plate_mm", "mount_extend_mm", "pad_count", "pad_thread", "pad_height_mm")}
+    if not (p["tile_max_x_mm"] or p["tile_max_y_mm"] or p["mount_screw"] != "none" or p["pad_count"]):
+        return {"parts": {"files": {"stencil.stl": s["stl"]}}, "solid": s}
+    r = s["recipe"]
+    m = r["mask"]
+    png = io.BytesIO()
+    Image.fromarray(np.where(m, 0, 255).astype(np.uint8)).save(png, "PNG")
+    q = Params(resolution=max(m.shape), threshold=128, invert=False, **{**r["params"], **post})
+    stl, stats = make_stencil(png.getvalue(), "mask.png", q, ctx.progress)
+    tiles = stats.pop("tiles_zip", None)
+    for k in ("overlay_png", "trace_svg", "first_layer_svg"):
+        stats.pop(k, None)
+    stats = {k: v for k, v in stats.items() if isinstance(v, (int, float, str, bool, list, dict, type(None)))}
+    files = {}
+    if tiles:
+        z = zipfile.ZipFile(io.BytesIO(tiles))
+        files = {n: z.read(n) for n in z.namelist()}
+    else:
+        files["stencil.stl"] = stl
+    mount = stats.get("mount")
+    if mount and mount.get("pairs"):
+        d = tiling.hole_diameter(p["mount_screw"], p["mount_clearance_mm"])
+        joiner, extender = tiling.join_plates(d, p["mount_offset_mm"], p["mount_extend_mm"], p["mount_plate_mm"])
+        files[f"joiner_2hole_{p['mount_screw']}.stl"] = tiling.stl_bytes(joiner)[0]
+        files[f"extender_4hole_{p['mount_screw']}.stl"] = tiling.stl_bytes(extender)[0]
+        ctx.progress(0.99, f"{mount['pairs']} seam joints: print {mount['pairs']} joiners (or extenders); {mount['holes']} holes in total")
+    elif mount and mount.get("note"):
+        ctx.progress(0.99, mount["note"])
+    return {"parts": {"files": files}, "solid": {"stl": stl, "tiles_zip": tiles, "stats": stats}}

@@ -22,7 +22,7 @@ A Blender-style node editor: image → trace nodes (Threshold, Reduce colours, T
 Highlights: drop an image to get a starter graph; add/delete nodes and edges; double-click a node for a live
 workbench (zoom/pan raster, orbit 3D view with layer clipping and exploded tiles, parameters, per-node log);
 trace nodes update almost live; a console and progress bars show runs; the **Colour template** button builds
-Image → Reduce colours (2–10) → Tone patterns → Stencil → Export; projects are saved under `projects/`.
+Image → Reduce colours (2–10) → Tone patterns → Stencil → Tiles & mounting (tiling, pads, frame mounting holes, joiner/extender plates); projects are saved under `projects/`.
 
 Layout: `stencil/` geometry library + CLI, `webui/` legacy single-page UI (`python -m stencil --serve`),
 `app/` studio backend (FastAPI), `app/web/` studio frontend (React + Vite + @xyflow/react + three.js),

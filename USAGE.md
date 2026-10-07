@@ -205,8 +205,8 @@ A full-size preview with the node's parameters and its own log beside it:
 | Threshold | trace | Dark areas become holes (256 = automatic Otsu threshold); **Invert** swaps them. |
 | Reduce colours | trace | k-means in Lab space to 2–10 flat colours (optional pre-blur). |
 | Tone patterns | trace | Turns each colour of a reduced image into a pattern (below). |
-| Stencil | stencil | The stencil engine: plate width/thickness/margin, flip, bridge width and count, raised bridges, Z-bridging strategy (steps, ramp, stepramp, island, grow, easy), layer height, smoothing, tiling and connectors. Outputs the solid and a bridge map. |
-| Export | post | Whole plate STL, or tiles + connectors zip. |
+| Stencil | stencil | The stencil engine: plate width/thickness/margin, flip, bridge width and count, raised bridges, Z-bridging strategy (steps, ramp, stepramp, island, grow, easy), layer height, smoothing. Outputs the whole-plate solid and a bridge map. |
+| Tiles & mounting (id `export`) | post | Tiling, seam connector rods, threaded pads, frame mounting holes, joiner and extender plates (below). Outputs the parts (downloadable) and a solid for the 3D preview. With nothing set it passes the plate through. |
 
 #### Tone patterns
 
@@ -220,6 +220,24 @@ Takes a reduced image with 2–10 colours (one tone per colour) and produces a m
 - Set **Plate width** to the Stencil node's width so spacing in mm is true.
 - Connected patterns (lines) keep the material in one piece; dots, crosshatch and checker leave islands that the
   Stencil node bridges. For prints made upside down use *raised bridges* with the *easy* Z-bridging strategy.
+
+#### Tiles & mounting
+
+Tiling, pads and holes live in the Post stage, so changing them never recomputes the stencil. The node rebuilds the
+plate from the Stencil node's mask and settings, and bridges every tile separately so each tile is one piece.
+- **Tiles:** tile width/height (mm) and optional connector rods, as in the command line `--tile-max` / `--connector-*`.
+- **Pads:** 0–4 threaded pads (M4–M10) in the frame, as `--pads`.
+- **Mounting holes** (M3/M4/M5, diameter plus clearance): through-holes in the middle of the frame band, only on tiles
+  that have frame: one in each plate corner, one on each side of every seam that crosses the frame (distance from
+  the seam is **Hole distance from seam**), and one in the middle of long frame segments. Interior tiles with no frame
+  get none. Holes avoid pads, and the margin must be at least screw + clearance + 3 mm (otherwise the node says so).
+- **Joiner and extender plates:** when a seam has a hole pair, the zip also contains `joiner_2hole_<screw>.stl`
+  (two holes, one screwed into each tile across the seam) and `extender_4hole_<screw>.stl` (the same two holes plus
+  two more **Extender outer holes** mm outward, to attach extra margin, a wall mount or a clamping rod). The node log
+  tells how many joints there are; print one plate per joint.
+- **Cost:** the Stencil node still builds a whole-plate preview, and this node builds the plate again with tiling, so a
+  tiled export costs about one extra build plus a small per-tile overhead (roughly 1.2–2× the build time for a 3×3 split).
+  Holes add little time but more triangles.
 
 ### HTTP API (studio)
 

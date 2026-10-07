@@ -42,6 +42,11 @@ class Params:
     connector_diameter_mm: float = 0.0   # 0 = plain cut; else 2.5, 3, 4, 5 or 6: blind holes in the seams for glued rods (plate > 4 mm)
     connector_shape: str = "hex"  # "hex" or "round"
     connector_clearance_mm: float = 0.2  # diametral clearance between the rod and its hole
+    mount_screw: str = "none"     # "none", "M3", "M4" or "M5": through-holes in the frame of every tile that has one
+    mount_clearance_mm: float = 0.3      # diametral clearance added to the screw diameter
+    mount_offset_mm: float = 10.0        # distance from a seam to the mounting hole on each side of it
+    mount_extend_mm: float = 20.0        # extender plate: distance of its outer hole row
+    mount_plate_mm: float = 3.0          # thickness of the joiner and extender plates
 
 
 def load_image(data: bytes, filename: str = "") -> Image.Image:
@@ -838,6 +843,27 @@ def add_pads(solid, p: Params, W: float, H: float, margin: float, T: float, lh: 
     return solid - m3d.Manifold.batch_boolean(voids, m3d.OpType.Add), cs, dia
 
 
+def _drill_mount_holes(solid, p: Params, W, H, margin, T, xs, ys, pads, flipped):
+    import manifold3d as m3d
+    from . import tiling
+    if p.mount_screw not in tiling.SCREW_HOLES:
+        raise ValueError(f"unknown screw {p.mount_screw!r}; use one of {', '.join(tiling.SCREW_HOLES)}")
+    d = tiling.hole_diameter(p.mount_screw, p.mount_clearance_mm)
+    off = p.mount_offset_mm
+    if len(xs) > 2 or len(ys) > 2:
+        if p.connector_diameter_mm > 0 and off < p.connector_diameter_mm / 2 + d / 2 + 2:
+            raise ValueError(f"mounting holes would hit the seam connectors: use a hole offset of at least {p.connector_diameter_mm / 2 + d / 2 + 2:.1f} mm")
+    avoid = [(x, y, pad_diameter(p.pad_thread) / 2) for x, y in pads]
+    pts, pairs = tiling.mount_positions(W, H, margin, d, off, xs, ys, avoid)
+    if not pts:
+        return solid, {"holes": 0, "pairs": 0, "diameter_mm": round(d, 2),
+                       "note": f"margin of {margin:.1f} mm is too small for {p.mount_screw} holes (needs {d + 3:.1f} mm)"}
+    cx = (lambda x: W - x) if flipped else (lambda x: x)
+    cut = [m3d.Manifold.cylinder(T + p.pad_height_mm + 2, d / 2, d / 2, 48).translate((cx(x), y, -1.0)) for x, y in pts]
+    solid = solid - m3d.Manifold.batch_boolean(cut, m3d.OpType.Add)
+    return solid, {"holes": len(pts), "pairs": len(pairs), "diameter_mm": round(d, 2), "positions": [[round(cx(x), 2), round(y, 2)] for x, y in pts]}
+
+
 def make_stencil(data: bytes, filename: str = "", params: Params | None = None, progress=None):
     """Return (stl_bytes, stats). `progress(fraction, stage)` is called as work advances."""
     p = params or Params()
@@ -917,6 +943,10 @@ def make_stencil(data: bytes, filename: str = "", params: Params | None = None, 
         report(0.91, "Drilling connector holes")
         if p.connector_diameter_mm > 0:
             solid, conn = tiling.drill_connectors(solid, p.connector_shape, p.connector_diameter_mm, p.connector_clearance_mm, T, xs, ys, stats["pad_px"] * px)
+    mount = None
+    if p.mount_screw != "none":
+        report(0.915, "Drilling mounting holes")
+        solid, mount = _drill_mount_holes(solid, p, W, H, stats["pad_px"] * px, T, xs, ys, pads_info, p.flip)
     report(0.92, "Checking mesh")
     mesh = solid.to_mesh()
     watertight = bool(solid.status().name == "NoError" and check_watertight(mesh.tri_verts))
@@ -960,6 +990,7 @@ def make_stencil(data: bytes, filename: str = "", params: Params | None = None, 
         stats["tiles"] = tinfo
         stats["connectors"] = conn
         stats["tile_grid"] = [len(xs) - 1, len(ys) - 1]
+    stats["mount"] = mount
     report(0.97, "Writing STL")
     out = triangles_to_stl(tris)
     report(1.0, "Done")
