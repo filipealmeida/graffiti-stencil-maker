@@ -4,6 +4,8 @@ Converts png/jpg/bmp/svg into a printable stencil STL. Dark areas (or light, wit
 Material pieces that would float free ("islands", e.g. the centre of an O) are detected and tied to the
 frame with narrow bridges, so the stencil is always one connected, watertight piece.
 
+
+**Installing:** see [INSTALL.md](INSTALL.md) (Windows, Linux, macOS). **Using:** see [USAGE.md](USAGE.md).
     python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
     .venv/bin/python -m stencil input.png -o out.stl [--width 100 --thickness 2 --bridge 1.6 --invert --threshold 128 --smooth 0.5 --raised-bridges]
     .venv/bin/python -m stencil --serve      # web UI on http://127.0.0.1:5000 (drag & drop, 3D preview)
