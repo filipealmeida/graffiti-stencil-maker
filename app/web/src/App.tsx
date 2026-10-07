@@ -113,6 +113,10 @@ function Canvas() {
           ))}
         </div>
         <label className="btn">Open image…<input type="file" accept=".png,.jpg,.jpeg,.bmp,.svg" hidden onChange={(e) => e.target.files?.[0] && addFile(e.target.files[0])} /></label>
+        <button title="Rebuild the graph as image → reduce colours → tone patterns → stencil, from the current image" onClick={() => {
+          const src = s.nodes.find((n) => n.data.type === 'source')
+          if (src) s.colourStarter(String(src.data.params.image_id), String(src.data.title ?? 'image'))
+        }}>Colour template</button>
         <span className="spacer" />
         <select value="" onChange={(e) => open(e.target.value)}><option value="">Open project…</option>{names.map((n) => <option key={n}>{n}</option>)}</select>
         <input className="pname" value={pname} onChange={(e) => setPname(e.target.value)} aria-label="Project name" />

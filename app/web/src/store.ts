@@ -43,6 +43,7 @@ interface State {
   removeEdge: (id: string) => void
   load: (nodes: StudioNode[], edges: Edge[]) => void
   starter: (imageId: string, title: string) => void
+  colourStarter: (imageId: string, title: string) => void
   graph: () => GraphJson
   setRuns: (r: Record<string, NodeRun>, busy: boolean, error?: string | null) => void
 }
@@ -94,6 +95,20 @@ export const useStudio = create<State>((set, get) => ({
     connect({ source: thr, sourceHandle: 'mask', target: st, targetHandle: 'mask' })
     connect({ source: st, sourceHandle: 'solid', target: ex, targetHandle: 'solid' })
     set({ selected: st })
+  },
+  colourStarter: (imageId, title) => {
+    const { addNode, connect } = get()
+    set({ nodes: [], edges: [], runs: {}, selected: null })
+    const src = addNode('source', { image_id: imageId, resolution: 600 }, { x: 40, y: 60 }, title)
+    const red = addNode('reduce', { colours: 3 }, { x: 400, y: 60 })
+    const tp = addNode('tone_patterns', {}, { x: 760, y: 60 })
+    const st = addNode('stencil', { width_mm: 100, margin_mm: 6, raised_bridges: true, z_bridging: 'easy', layer_height_mm: 0.2 }, { x: LANE_X.stencil + 30, y: 60 })
+    const ex = addNode('export', {}, { x: LANE_X.post + 30, y: 60 })
+    connect({ source: src, sourceHandle: 'image', target: red, targetHandle: 'image' })
+    connect({ source: red, sourceHandle: 'image', target: tp, targetHandle: 'image' })
+    connect({ source: tp, sourceHandle: 'mask', target: st, targetHandle: 'mask' })
+    connect({ source: st, sourceHandle: 'solid', target: ex, targetHandle: 'solid' })
+    set({ selected: tp })
   },
   graph: () => ({
     nodes: get().nodes.map((n) => ({ id: n.id, type: n.data.type, params: n.data.params })),

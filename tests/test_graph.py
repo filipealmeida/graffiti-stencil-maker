@@ -82,3 +82,28 @@ def test_logs_tiles_and_parts(tmp_path):
     r = c.get(f"/api/part/{key}/solid/{info['tiles'][0]}")
     assert r.status_code == 200 and len(r.content) > 84
     assert c.get(f"/api/part/{key}/solid/nope.stl").status_code == 404
+
+
+def test_reduce_and_tone_patterns(tmp_path):
+    c = TestClient(create_app(tmp_path))
+    img = c.post("/api/images", files={"file": ("a.png", picture(), "image/png")}).json()["id"]
+    g = {"nodes": [
+        {"id": "src", "type": "source", "params": {"image_id": img, "resolution": 200}},
+        {"id": "red", "type": "reduce", "params": {"colours": 3}},
+        {"id": "tp", "type": "tone_patterns", "params": {"plate_width_mm": 100}},
+        {"id": "st", "type": "stencil", "params": {"width_mm": 100, "margin_mm": 6, "raised_bridges": True, "z_bridging": "easy"}},
+    ], "edges": [
+        {"from": ["src", "image"], "to": ["red", "image"]},
+        {"from": ["red", "image"], "to": ["tp", "image"]},
+        {"from": ["tp", "mask"], "to": ["st", "mask"]},
+    ]}
+    st = run(c, g)
+    assert all(n["state"] == "done" for n in st["nodes"].values()), st
+    key = st["nodes"]["tp"]["key"]
+    cov = c.get(f"/api/info/{key}/mask").json()["coverage"]
+    g["nodes"][2]["params"]["invert"] = True
+    st2 = run(c, g)
+    cov2 = c.get(f"/api/info/{st2['nodes']['tp']['key']}/mask").json()["coverage"]
+    assert 0.05 < cov < 0.95 and cov != cov2
+    info = c.get(f"/api/info/{st['nodes']['st']['key']}/solid").json()
+    assert info["stats"]["watertight"] and info["stats"]["islands_remaining"] == 0

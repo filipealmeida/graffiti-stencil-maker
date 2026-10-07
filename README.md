@@ -12,8 +12,7 @@ CLI exits non-zero if islands remain or the mesh isn't watertight.
 
 ## Stencil studio (v2, node graph)
 
-A Blender-style node editor: image → trace nodes (channels, colour reduction, threshold, patterns, halftone,
-mask filter/boolean) → stencil node (the engine above) → export. Multi-stencil sets are just several branches.
+A Blender-style node editor: image → trace nodes (Threshold, Reduce colours, Tone patterns) → stencil node (the engine above) → export. Multi-stencil sets are just several branches.
 
     .venv/bin/pip install -r requirements.txt
     (cd app/web && npm install && npm run build)
@@ -24,6 +23,12 @@ Layout: `stencil/` geometry library + CLI, `webui/` legacy single-page UI (`pyth
 `app/` studio backend (FastAPI), `app/web/` studio frontend (React + Vite + @xyflow/react + three.js),
 `tests/` pytest. Drop an image on the canvas to get a starter graph; mask convention: painted = hole.
 Projects are saved under `projects/`.
+
+Colour workflow (header button **Colour template**): *Reduce colours* (k-means in Lab to N flat colours) →
+*Tone patterns*: colours are ranked by lightness (**Invert** flips it); the darkest is solid paint, the lightest
+stays empty, and the tones between get lines/dots/crosshatch/checker that thin out step by step. Type, spacing
+(mm) and coverage can be overridden per tone; set the node's plate width to the Stencil node's width so mm are
+true. Dot patterns leave islands, which the stencil step bridges.
 
 Double-click any node for its workbench: a full-size live preview (zoom/pan raster with mask-over-source overlay;
 orbit 3D view with wireframe, layer clipping and exploded tiles) beside the node's parameters and its own log.
