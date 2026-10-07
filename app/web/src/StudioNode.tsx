@@ -9,7 +9,7 @@ export default function StudioNodeView({ id, data, selected }: NodeProps<StudioN
   const run = useStudio((s) => s.runs[id])
   const edges = useStudio((s) => s.edges)
   if (!t) return <div className="node">unknown node {data.type}</div>
-  const done = run?.state === 'done'
+  const done = !!run?.key && run.state !== 'error'
   const shown = t.outputs.filter((o) => !done || run?.outputs?.[o.name]?.available || edges.some((e) => e.source === id && e.sourceHandle === o.name))
   return (
     <div className={`node stage-${t.stage}${selected ? ' sel' : ''}`}>
@@ -18,6 +18,7 @@ export default function StudioNodeView({ id, data, selected }: NodeProps<StudioN
         <b>{data.title || t.label}</b>
         {run?.state === 'running' && <span className="pct">{Math.round((run.progress ?? 0) * 100)}%</span>}
       </div>
+      {run?.state === 'running' && <div className="bar"><i style={{ width: `${(run.progress ?? 0) * 100}%` }} /></div>}
       <div className="node-body">
         {t.inputs.map((p) => (
           <div className="port in" key={p.name}>
@@ -29,7 +30,7 @@ export default function StudioNodeView({ id, data, selected }: NodeProps<StudioN
           <div className="port out" key={p.name}>
             <span>{p.name}</span>
             {done && run.key && run.outputs?.[p.name]?.available && (p.type === 'image' || p.type === 'mask') && (
-              <img className={`thumb ${p.type}`} src={artifactUrl(run.key, p.name, 96)} alt="" draggable={false} />
+              <img className={`thumb ${p.type}${run.stale ? ' stale' : ''}`} src={artifactUrl(run.key, p.name, 96)} alt="" draggable={false} />
             )}
             <Handle type="source" position={Position.Right} id={p.name} style={{ background: KIND_COLOR[p.type] }} />
           </div>

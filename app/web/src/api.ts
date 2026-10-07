@@ -28,8 +28,11 @@ export interface NodeRun {
   progress?: number
   message?: string
   error?: string
+  ms?: number
+  stale?: boolean
   outputs?: Record<string, { type: Kind; available: boolean }>
 }
+export interface LogLine { t: number; level: 'info' | 'error'; node: string; type: string; msg: string }
 export interface GraphJson {
   nodes: { id: string; type: string; params: Record<string, unknown> }[]
   edges: { from: [string, string]; to: [string, string] }[]
@@ -49,7 +52,8 @@ export const api = {
   },
   run: (graph: GraphJson, targets?: string[]) =>
     fetch('/api/run', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ graph, targets }) }).then((r) => j<{ job: string }>(r)),
-  job: (id: string) => fetch(`/api/jobs/${id}`).then((r) => j<{ status: string; nodes: Record<string, NodeRun>; error?: string }>(r)),
+  job: (id: string, since = 0) => fetch(`/api/jobs/${id}?since=${since}`).then((r) => j<{ status: string; nodes: Record<string, NodeRun>; error?: string; log: LogLine[]; n: number }>(r)),
+  cancel: (id: string) => fetch(`/api/jobs/${id}/cancel`, { method: 'POST' }),
   info: (key: string, out: string) => fetch(`/api/info/${key}/${out}`).then((r) => j<Record<string, any>>(r)),
   projects: () => fetch('/api/projects').then((r) => j<string[]>(r)),
   loadProject: (n: string) => fetch(`/api/projects/${encodeURIComponent(n)}`).then((r) => j<any>(r)),
@@ -58,3 +62,4 @@ export const api = {
 }
 
 export const artifactUrl = (key: string, out: string, size = 0) => `/api/artifact/${key}/${out}${size ? `?size=${size}` : ''}`
+export const partUrl = (key: string, out: string, name: string) => `/api/part/${key}/${out}/${encodeURIComponent(name)}`

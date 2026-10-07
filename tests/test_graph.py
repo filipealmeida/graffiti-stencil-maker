@@ -23,7 +23,7 @@ def run(c, graph, targets=None):
     jid = c.post("/api/run", json={"graph": graph, "targets": targets}).json()["job"]
     for _ in range(600):
         st = c.get(f"/api/jobs/{jid}").json()
-        if st["status"] == "done":
+        if st["status"] != "running":
             return st
         time.sleep(0.1)
     raise AssertionError("timeout")
@@ -75,3 +75,26 @@ def test_halftone_and_reduce_masks(tmp_path):
     assert m[:, :20].mean() > m[:, -20:].mean()      # darker side has bigger dots
     p = n_pattern({"size": m}, {"kind": "crosshatch", "spacing": 10, "fill": 0.5, "angle": 0, "invert": False}, None)["mask"]
     assert p.shape == m.shape and 0.2 < p.mean() < 0.8
+
+
+def test_logs_tiles_and_parts(tmp_path):
+    c = TestClient(create_app(tmp_path))
+    img = c.post("/api/images", files={"file": ("a.png", picture(), "image/png")}).json()["id"]
+    g = {"nodes": [
+        {"id": "src", "type": "source", "params": {"image_id": img, "resolution": 200}},
+        {"id": "thr", "type": "threshold", "params": {}},
+        {"id": "st", "type": "stencil", "params": {"width_mm": 120, "margin_mm": 6, "tile_max_x_mm": 70, "tile_max_y_mm": 200}},
+    ], "edges": [
+        {"from": ["src", "image"], "to": ["thr", "image"]},
+        {"from": ["thr", "mask"], "to": ["st", "mask"]},
+    ]}
+    st = run(c, g, targets=["thr"])
+    assert st["nodes"]["st"]["state"] == "pending"          # only the trace part ran
+    assert any(l["node"] == "thr" and "done" in l["msg"] for l in st["log"])
+    st = run(c, g)
+    key = st["nodes"]["st"]["key"]
+    info = c.get(f"/api/info/{key}/solid").json()
+    assert len(info["tiles"]) >= 2
+    r = c.get(f"/api/part/{key}/solid/{info['tiles'][0]}")
+    assert r.status_code == 200 and len(r.content) > 84
+    assert c.get(f"/api/part/{key}/solid/nope.stl").status_code == 404

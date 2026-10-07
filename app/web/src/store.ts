@@ -3,7 +3,7 @@ import {
   addEdge, applyEdgeChanges, applyNodeChanges,
   type Connection, type Edge, type EdgeChange, type Node, type NodeChange,
 } from '@xyflow/react'
-import { api, type GraphJson, type NodeRun, type NodeType } from './api'
+import { api, type GraphJson, type LogLine, type NodeRun, type NodeType } from './api'
 
 export interface StudioData extends Record<string, unknown> {
   type: string
@@ -24,6 +24,14 @@ interface State {
   selected: string | null
   busy: boolean
   error: string | null
+  logs: (LogLine & { id: number })[]
+  consoleOpen: boolean
+  bench: string | null
+  progress: { done: number; total: number }
+  addLogs: (l: LogLine[]) => void
+  clearLogs: () => void
+  setConsole: (o: boolean) => void
+  openBench: (id: string | null) => void
   setTypes: (t: NodeType[]) => void
   onNodesChange: (c: NodeChange<StudioNode>[]) => void
   onEdgesChange: (c: EdgeChange[]) => void
@@ -40,6 +48,11 @@ interface State {
 
 export const useStudio = create<State>((set, get) => ({
   types: {}, nodes: [], edges: [], runs: {}, selected: null, busy: false, error: null,
+  logs: [], consoleOpen: false, bench: null, progress: { done: 0, total: 0 },
+  addLogs: (l) => set((s) => ({ logs: [...s.logs, ...l.map((x, i) => ({ ...x, id: s.logs.length + i + Math.random() }))].slice(-500) })),
+  clearLogs: () => set({ logs: [] }),
+  setConsole: (consoleOpen) => set({ consoleOpen }),
+  openBench: (bench) => set({ bench, selected: bench ?? get().selected }),
   setTypes: (t) => set({ types: Object.fromEntries(t.map((x) => [x.id, x])) }),
   onNodesChange: (c) => set((s) => ({ nodes: applyNodeChanges(c, s.nodes) })),
   onEdgesChange: (c) => set((s) => ({ edges: applyEdgeChanges(c, s.edges) })),
@@ -66,6 +79,7 @@ export const useStudio = create<State>((set, get) => ({
     nodes: s.nodes.filter((n) => n.id !== id),
     edges: s.edges.filter((e) => e.source !== id && e.target !== id),
     selected: s.selected === id ? null : s.selected,
+    bench: s.bench === id ? null : s.bench,
   })),
   load: (nodes, edges) => set({ nodes, edges, runs: {}, selected: null }),
   starter: (imageId, title) => {
@@ -91,22 +105,47 @@ export const signature = (s: Pick<State, 'nodes' | 'edges'>) =>
   JSON.stringify([s.nodes.map((n) => [n.id, n.data.type, n.data.params]), s.edges.map((e) => [e.source, e.sourceHandle, e.target, e.targetHandle])])
 
 let token = 0
-export async function runGraph() {
-  const g = useStudio.getState().graph()
+let curJob: string | null = null
+
+/** 'trace' evaluates only the trace-stage nodes (cheap, used for live feedback); 'all' evaluates everything. */
+export async function runGraph(scope: 'all' | 'trace' = 'all') {
+  const st = useStudio.getState()
+  const g = st.graph()
   const mine = ++token
-  if (!g.nodes.length) return useStudio.getState().setRuns({}, false)
-  useStudio.getState().setRuns(useStudio.getState().runs, true)
+  if (curJob) api.cancel(curJob).catch(() => {})
+  curJob = null
+  const targets = scope === 'trace' ? g.nodes.filter((n) => st.types[n.type]?.stage === 'trace').map((n) => n.id) : undefined
+  if (!g.nodes.length) return st.setRuns({}, false)
+  if (targets && !targets.length) return
+  useStudio.setState({ busy: true })
   try {
-    const { job } = await api.run(g)
+    const { job } = await api.run(g, targets)
+    if (mine !== token) return void api.cancel(job)
+    curJob = job
+    let since = 0
     for (;;) {
-      const st = await api.job(job)
+      const r = await api.job(job, since)
       if (mine !== token) return
-      useStudio.getState().setRuns(st.nodes, st.status !== 'done', st.error ?? null)
-      if (st.status === 'done') return
-      await new Promise((r) => setTimeout(r, 250))
+      since = r.n
+      const s = useStudio.getState()
+      if (r.log.length) s.addLogs(r.log)
+      // a node that has not been reached yet keeps its previous result (marked stale) so the canvas does not flicker
+      const merged: Record<string, NodeRun> = {}
+      for (const [id, n] of Object.entries(r.nodes)) {
+        const prev = s.runs[id]
+        merged[id] = n.state === 'pending' && prev ? { ...prev, stale: true }
+          : n.state === 'running' && prev?.key ? { ...n, key: prev.key, outputs: prev.outputs, stale: true } : n
+      }
+      const all = Object.values(r.nodes)
+      useStudio.setState({
+        runs: merged, busy: r.status === 'running', error: r.error ?? null,
+        progress: { done: all.filter((n) => n.state === 'done' || n.state === 'error').length, total: all.length },
+      })
+      if (r.status !== 'running') { curJob = null; return }
+      await new Promise((res) => setTimeout(res, 100))
     }
   } catch (e) {
-    if (mine === token) useStudio.getState().setRuns({}, false, String(e instanceof Error ? e.message : e))
+    if (mine === token) useStudio.setState({ busy: false, error: String(e instanceof Error ? e.message : e) })
   }
 }
 export { LANE_X }

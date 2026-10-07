@@ -2,6 +2,8 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { Background, Controls, MiniMap, ReactFlow, ReactFlowProvider, ViewportPortal, useReactFlow, type Edge } from '@xyflow/react'
 import { api, type Stage } from './api'
 import Inspector from './Inspector'
+import Console from './Console'
+import Workbench from './Workbench'
 import StudioNodeView, { KIND_COLOR } from './StudioNode'
 import { LANE_X, runGraph, signature, useStudio, type StudioNode } from './store'
 
@@ -37,9 +39,11 @@ function Canvas() {
   useEffect(() => {
     if (!Object.keys(s.types).length) return
     localStorage.setItem(STORE_KEY, JSON.stringify({ nodes: s.nodes, edges: s.edges }))
-    const t = setTimeout(runGraph, first.current ? 0 : 500)
+    // trace nodes answer almost live; the heavier stages follow once the edits settle
+    const quick = first.current ? undefined : setTimeout(() => runGraph('trace'), 100)
+    const full = setTimeout(() => runGraph('all'), first.current ? 0 : 700)
     first.current = false
-    return () => clearTimeout(t)
+    return () => { clearTimeout(quick); clearTimeout(full) }
   }, [sig, Object.keys(s.types).length])
 
   const addFile = useCallback(async (f: File, at?: { x: number; y: number }) => {
@@ -104,6 +108,8 @@ function Canvas() {
         <input className="pname" value={pname} onChange={(e) => setPname(e.target.value)} aria-label="Project name" />
         <button onClick={save}>Save</button>
         <button onClick={() => { s.load([], []); localStorage.removeItem(STORE_KEY) }}>New</button>
+        {s.busy && s.progress.total > 0 && <span className="gbar" title={`${s.progress.done}/${s.progress.total} nodes`}><i style={{ width: `${(s.progress.done / s.progress.total) * 100}%` }} /></span>}
+        <button className={s.consoleOpen ? 'on' : ''} onClick={() => s.setConsole(!s.consoleOpen)}>Console{s.logs.some((l) => l.level === 'error') ? ' ⚠' : ''}</button>
         <span className={`status${s.busy ? ' busy' : ''}`}>{s.error ? `⚠ ${s.error}` : s.busy ? 'working…' : 'ready'}</span>
       </header>
       <main>
@@ -111,7 +117,7 @@ function Canvas() {
           <ReactFlow
             nodes={s.nodes} edges={s.edges} nodeTypes={nodeTypes}
             onNodesChange={s.onNodesChange} onEdgesChange={s.onEdgesChange} onConnect={s.connect}
-            isValidConnection={isValid} onNodeClick={(_, n) => s.select(n.id)} onPaneClick={() => s.select(null)}
+            isValidConnection={isValid} onNodeClick={(_, n) => s.select(n.id)} onPaneClick={() => s.select(null)} onNodeDoubleClick={(_, n) => s.openBench(n.id)}
             deleteKeyCode={['Delete', 'Backspace']} colorMode="dark" fitView={false} minZoom={0.1} proOptions={{ hideAttribution: true }}
             defaultViewport={{ x: 20, y: 60, zoom: 0.7 }} defaultEdgeOptions={{ style: { stroke: KIND_COLOR.any, strokeWidth: 2 } }}
           >
@@ -125,6 +131,8 @@ function Canvas() {
         </div>
         <Inspector />
       </main>
+      {s.consoleOpen && <Console height={170} />}
+      <Workbench />
     </div>
   )
 }

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import hashlib
+import time
 import json
 from collections import OrderedDict
 from dataclasses import dataclass, field
@@ -151,6 +152,10 @@ class Store:
             self.items.popitem(last=False)
 
 
+class _Stopped(Exception):
+    pass
+
+
 @dataclass
 class Ctx:
     uploads: Any
@@ -162,7 +167,8 @@ def node_key(nt: NodeType, prm: dict, input_keys: dict) -> str:
     return h.hexdigest()[:20]
 
 
-def run_graph(graph: dict, store: Store, uploads, on_event: Callable[[str, dict], None], targets=None) -> None:
+def run_graph(graph: dict, store: Store, uploads, on_event: Callable[[str, dict], None], targets=None,
+              should_stop: Callable[[], bool] = lambda: False) -> None:
     """Evaluate the graph (or only the ancestors of `targets`). `on_event(node_id, state_dict)` reports every change."""
     validate(graph)
     nodes = {n["id"]: n for n in graph["nodes"]}
@@ -190,6 +196,8 @@ def run_graph(graph: dict, store: Store, uploads, on_event: Callable[[str, dict]
         visit(i)
     results: dict[str, dict | None] = {}
     for i in (x for x in order if x in needed):
+        if should_stop():
+            return
         nt = REGISTRY[nodes[i]["type"]]
         prm = clean_params(nt, nodes[i].get("params", {}))
         on_event(i, {"state": "pending"})
@@ -217,11 +225,17 @@ def run_graph(graph: dict, store: Store, uploads, on_event: Callable[[str, dict]
         key = node_key(nt, prm, keys)
         hit = store.get(key)
         cached = hit is not None
+        t0 = time.perf_counter()
         if hit is None:
             on_event(i, {"state": "running", "progress": 0.0})
             try:
-                ctx = Ctx(uploads, lambda f, m, i=i: on_event(i, {"state": "running", "progress": f, "message": m}))
-                vals = nt.fn(values, prm, ctx)
+                def report(f, m, i=i):
+                    if should_stop():
+                        raise _Stopped()
+                    on_event(i, {"state": "running", "progress": f, "message": m})
+                vals = nt.fn(values, prm, Ctx(uploads, report))
+            except _Stopped:
+                return
             except Exception as ex:      # a node failing must not stop the other branches
                 results[i] = None
                 on_event(i, {"state": "error", "error": str(ex) or ex.__class__.__name__})
@@ -229,6 +243,6 @@ def run_graph(graph: dict, store: Store, uploads, on_event: Callable[[str, dict]
             hit = {"key": key, "values": vals}
             store.put(key, hit)
         results[i] = hit
-        on_event(i, {"state": "done", "key": key, "cached": cached,
+        on_event(i, {"state": "done", "key": key, "cached": cached, "ms": round((time.perf_counter() - t0) * 1000),
                      "outputs": {o["name"]: {"type": o["type"], "available": hit["values"].get(o["name"]) is not None}
                                  for o in nt.outputs}})

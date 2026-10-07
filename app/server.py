@@ -6,6 +6,7 @@ import io
 import json
 import re
 import threading
+import time
 import uuid
 import zipfile
 from pathlib import Path
@@ -86,22 +87,34 @@ def create_app(data_dir: Path = DATA) -> FastAPI:
         except (GraphError, KeyError) as e:
             raise HTTPException(400, str(e))
         jid = uuid.uuid4().hex[:12]
-        job = {"status": "running", "nodes": {n["id"]: {"state": "pending"} for n in graph["nodes"]}}
+        job = {"status": "running", "cancel": False, "log": [], "t0": time.time(),
+               "nodes": {n["id"]: {"state": "pending"} for n in graph["nodes"]}}
         jobs[jid] = job
+        titles = {n["id"]: n["type"] for n in graph["nodes"]}
+
+        def say(level, nid, msg):
+            job["log"].append({"t": round(time.time() - job["t0"], 2), "level": level, "node": nid,
+                               "type": titles.get(nid, ""), "msg": msg})
 
         def on_event(nid, st):
             with lock:
                 cur = job["nodes"].setdefault(nid, {})
+                if st["state"] == "running" and st.get("message") and st["message"] != cur.get("message"):
+                    say("info", nid, st["message"])
+                elif st["state"] == "done":
+                    say("info", nid, "cached" if st.get("cached") else f"done in {st.get('ms', 0)} ms")
+                elif st["state"] == "error":
+                    say("error", nid, st.get("error", "error"))
                 if st["state"] != "running":
                     cur.clear()
                 cur.update(st)
 
         def work():
             try:
-                run_graph(graph, store, uploads, on_event, targets)
+                run_graph(graph, store, uploads, on_event, targets, lambda: job["cancel"])
             except Exception as e:
                 job["error"] = str(e)
-            job["status"] = "done"
+            job["status"] = "cancelled" if job["cancel"] else "done"
 
         threading.Thread(target=work, daemon=True).start()
         while len(jobs) > 40:
@@ -109,11 +122,33 @@ def create_app(data_dir: Path = DATA) -> FastAPI:
         return {"job": jid}
 
     @app.get("/api/jobs/{jid}")
-    def job_status(jid: str):
+    def job_status(jid: str, since: int = 0):
         if jid not in jobs:
             raise HTTPException(404)
         with lock:
-            return json.loads(json.dumps(jobs[jid]))
+            j = jobs[jid]
+            return json.loads(json.dumps({"status": j["status"], "nodes": j["nodes"], "error": j.get("error"),
+                                          "log": j["log"][since:], "n": len(j["log"])}))
+
+    @app.post("/api/jobs/{jid}/cancel")
+    def cancel(jid: str):
+        if jid in jobs:
+            jobs[jid]["cancel"] = True
+        return {"ok": True}
+
+    @app.get("/api/part/{key}/{output}/{name}")
+    def part(key: str, output: str, name: str):
+        hit = store.get(key)
+        v = hit["values"].get(output) if hit else None
+        if v is None or isinstance(v, (np.ndarray, Image.Image)):
+            raise HTTPException(404)
+        files = v.get("files")
+        if files is None and v.get("tiles_zip"):
+            z = zipfile.ZipFile(io.BytesIO(v["tiles_zip"]))
+            files = {n: z.read(n) for n in z.namelist()}
+        if not files or name not in files:
+            raise HTTPException(404)
+        return Response(files[name], media_type="model/stl")
 
     @app.get("/api/artifact/{key}/{output}")
     def artifact(key: str, output: str, size: int = 0):
@@ -153,7 +188,10 @@ def create_app(data_dir: Path = DATA) -> FastAPI:
         if isinstance(v, Image.Image):
             return {"kind": "image", "width": v.width, "height": v.height}
         if "stl" in v:
-            return {"kind": "solid", "stats": v["stats"], "bytes": len(v["stl"])}
+            tiles = []
+            if v.get("tiles_zip"):
+                tiles = [n for n in zipfile.ZipFile(io.BytesIO(v["tiles_zip"])).namelist() if n.endswith(".stl")]
+            return {"kind": "solid", "stats": v["stats"], "bytes": len(v["stl"]), "tiles": tiles}
         return {"kind": "parts", "files": {n: len(b) for n, b in v["files"].items()}}
 
     projects = data_dir / "graphs"
