@@ -12,28 +12,21 @@ CLI exits non-zero if islands remain or the mesh isn't watertight.
 
 ## Stencil studio (v2, node graph)
 
-A Blender-style node editor: image → trace nodes (Threshold, Reduce colours, Tone patterns) → stencil node (the engine above) → export. Multi-stencil sets are just several branches.
+A Blender-style node editor: image → trace nodes (Threshold, Reduce colours, Tone patterns) → stencil node (the engine above) → export. Multi-stencil sets are just several branches. See [USAGE.md](USAGE.md#stencil-studio-node-graph-interface) for the full guide.
 
     .venv/bin/pip install -r requirements.txt
     (cd app/web && npm install && npm run build)
     .venv/bin/python -m app --port 5056      # http://127.0.0.1:5056
     # dev: python -m app, and `npm run dev` in app/web (port 5173, proxies /api)
 
+Highlights: drop an image to get a starter graph; add/delete nodes and edges; double-click a node for a live
+workbench (zoom/pan raster, orbit 3D view with layer clipping and exploded tiles, parameters, per-node log);
+trace nodes update almost live; a console and progress bars show runs; the **Colour template** button builds
+Image → Reduce colours (2–10) → Tone patterns → Stencil → Export; projects are saved under `projects/`.
+
 Layout: `stencil/` geometry library + CLI, `webui/` legacy single-page UI (`python -m stencil --serve`),
 `app/` studio backend (FastAPI), `app/web/` studio frontend (React + Vite + @xyflow/react + three.js),
-`tests/` pytest. Drop an image on the canvas to get a starter graph; mask convention: painted = hole.
-Projects are saved under `projects/`.
-
-Colour workflow (header button **Colour template**): *Reduce colours* (k-means in Lab to N flat colours) →
-*Tone patterns*: colours are ranked by lightness (**Invert** flips it); the darkest is solid paint, the lightest
-stays empty, and the tones between get lines/dots/crosshatch/checker that thin out step by step. Type, spacing
-(mm) and coverage can be overridden per tone; set the node's plate width to the Stencil node's width so mm are
-true. Dot patterns leave islands, which the stencil step bridges.
-
-Double-click any node for its workbench: a full-size live preview (zoom/pan raster with mask-over-source overlay;
-orbit 3D view with wireframe, layer clipping and exploded tiles) beside the node's parameters and its own log.
-Trace nodes recompute almost live as you drag; the stencil/post stages follow when edits settle, and stale
-runs are cancelled. The Console button shows the run log.
+`tests/` pytest. Mask convention: painted = hole.
 
 ## License
 

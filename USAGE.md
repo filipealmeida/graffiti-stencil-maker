@@ -155,6 +155,78 @@ The page has three extra areas:
 The side panel reports islands found, bridges added, islands remaining, and whether
 the mesh is watertight.
 
+## Stencil studio (node-graph interface)
+
+The studio is a newer, node-based front end (FastAPI backend, React frontend). The legacy single-page
+interface above and the command line keep working.
+
+### Run it
+
+```sh
+.venv/bin/pip install -r requirements.txt
+(cd app/web && npm install && npm run build)     # once, and after frontend changes
+.venv/bin/python -m app --port 5056              # open http://127.0.0.1:5056
+```
+
+For frontend development run `python -m app` plus `npm run dev` in `app/web` (port 5173, proxies `/api`).
+The 3D views need a browser with WebGL.
+
+### The graph
+
+The canvas has three lanes, left to right: **1 · Trace** (image to masks), **2 · Stencil** (mask to a 3D plate with
+bridges) and **3 · Post-process** (export). Data flows along the edges; ports are typed (image, mask, solid, parts)
+and only compatible ports connect. A mask means *painted = hole in the stencil*. Branches give multi-stencil sets.
+
+- **Start:** drop a picture on the canvas (or **Open image…**) for a starter graph, or press **Colour template**
+  to rebuild the graph as Image → Reduce colours → Tone patterns → Stencil → Export from the current image.
+- **Add nodes:** the **+ trace / + stencil / + post** header menus; a menu closes after you pick a node
+  (also on outside click or Esc).
+- **Delete:** the × on a node header, or select an edge and press its delete button (Delete/Backspace also work).
+- **Edit parameters:** select a node and use the Inspector on the right, or open its workbench.
+- **Save / load:** the name box plus **Save** writes to `projects/`; **Open project…** loads one; **New** clears
+  the graph. The current graph is also kept in the browser between reloads.
+- **Running:** trace nodes recompute about 100 ms after each change (almost live); the Stencil and Export nodes
+  follow about 0.7 s after edits settle, and stale runs are cancelled. Each node shows a status dot, a progress bar
+  and, in the header, a global progress bar. **Console** shows the run log.
+
+### Workbench (double-click a node)
+
+A full-size preview with the node's parameters and its own log beside it:
+- **Image/mask outputs:** zoom/pan raster; **over source** overlays the mask on the source image (the setting is remembered).
+- **3D outputs (solid):** orbit view (drag, scroll, right-drag), wireframe, a layer-clip slider, exploded tiles,
+  Iso/Top camera buttons, stats (islands, bridges, watertight) and STL / tiles downloads.
+- Press Esc to close.
+
+### Nodes
+
+| Node | Stage | Purpose |
+|---|---|---|
+| Image | trace | The picture, resized to a working resolution (longest side, px). |
+| Threshold | trace | Dark areas become holes (256 = automatic Otsu threshold); **Invert** swaps them. |
+| Reduce colours | trace | k-means in Lab space to 2–10 flat colours (optional pre-blur). |
+| Tone patterns | trace | Turns each colour of a reduced image into a pattern (below). |
+| Stencil | stencil | The stencil engine: plate width/thickness/margin, flip, bridge width and count, raised bridges, Z-bridging strategy (steps, ramp, stepramp, island, grow, easy), layer height, smoothing, tiling and connectors. Outputs the solid and a bridge map. |
+| Export | post | Whole plate STL, or tiles + connectors zip. |
+
+#### Tone patterns
+
+Takes a reduced image with 2–10 colours (one tone per colour) and produces a mask.
+- Colours are ranked by lightness; the darkest is **solid** paint, the lightest stays **empty**, and the tones
+  between get patterns that thin out step by step. **Invert** flips the order.
+- **Default pattern type** (auto, lines, dots, crosshatch, checker) and **default spacing (mm)** apply to every
+  tone left on "auto"/0. Default spacing 0 turns those tones solid. *auto* uses lines at coverage ≥ 50 %, dots below.
+- Each tone has an override for **type**, **spacing** (mm, 0 = default) and **coverage** (%, 0 = automatic).
+  Unused tone rows are ignored.
+- Set **Plate width** to the Stencil node's width so spacing in mm is true.
+- Connected patterns (lines) keep the material in one piece; dots, crosshatch and checker leave islands that the
+  Stencil node bridges. For prints made upside down use *raised bridges* with the *easy* Z-bridging strategy.
+
+### HTTP API (studio)
+
+`GET /api/node-types`, `POST /api/images`, `POST /api/run` (returns a job), `GET /api/jobs/{id}`,
+`POST /api/jobs/{id}/cancel`, `GET /api/artifact/{key}/{output}`, `GET /api/info/{key}/{output}`,
+`GET /api/part/{key}/{output}/{name}`, `GET|PUT /api/projects[/{name}]`.
+
 ## Tips
 
 - Use high-contrast, bold images. Thin lines make fragile stencils; raise `--bridge`
