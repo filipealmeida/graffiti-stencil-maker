@@ -1,12 +1,18 @@
 import { useRef, useState } from 'react'
+import { create } from 'zustand'
+import { persist } from 'zustand/middleware'
+
+/** Overlay preferences outlive the component: it remounts whenever a run replaces the result. */
+const usePrefs = create<{ overlay: boolean; opacity: number; set: (p: Partial<{ overlay: boolean; opacity: number }>) => void }>()(
+  persist((set) => ({ overlay: true, opacity: 0.6, set: (p) => set(p) }), { name: 'studio.imageview' }),
+)
 
 interface Props { src: string; under?: string; kind: 'image' | 'mask' }
 
 /** Zoomable, pannable raster view. A mask can be laid over the image it was derived from. */
 export default function ImageView({ src, under, kind }: Props) {
   const [view, setView] = useState({ k: 1, x: 0, y: 0 })
-  const [opacity, setOpacity] = useState(0.6)
-  const [overlay, setOverlay] = useState(true)
+  const { overlay, opacity, set: setPrefs } = usePrefs()
   const drag = useRef<{ x: number; y: number } | null>(null)
   const host = useRef<HTMLDivElement>(null)
 
@@ -38,8 +44,8 @@ export default function ImageView({ src, under, kind }: Props) {
         <span>{Math.round(view.k * 100)}% · wheel zoom, drag pan, double-click reset</span>
         {under && kind === 'mask' && (
           <>
-            <label><input type="checkbox" checked={overlay} onChange={(e) => setOverlay(e.target.checked)} /> over source</label>
-            {overlay && <input type="range" min={0.1} max={1} step={0.05} value={opacity} onChange={(e) => setOpacity(+e.target.value)} />}
+            <label><input type="checkbox" checked={overlay} onChange={(e) => setPrefs({ overlay: e.target.checked })} /> over source</label>
+            {overlay && <input type="range" min={0.1} max={1} step={0.05} value={opacity} onChange={(e) => setPrefs({ opacity: +e.target.value })} />}
           </>
         )}
       </div>
