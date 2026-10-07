@@ -9,7 +9,7 @@ from flask import Flask, Response, request
 from .core import Params, make_stencil
 from .tiling import DIAMETERS, SHAPES, rod_name, rod_stl
 
-STATIC = Path(__file__).parent / "static"
+STATIC = Path(__file__).resolve().parent.parent / "webui" / "static"
 CONNECTORS = Path(__file__).parent.parent / "toolbox" / "stls" / "connectors"
 app = Flask(__name__, static_folder=str(STATIC), static_url_path="/static")
 app.config["MAX_CONTENT_LENGTH"] = 50 * 1024 * 1024

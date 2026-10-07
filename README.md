@@ -10,6 +10,21 @@ frame with narrow bridges, so the stencil is always one connected, watertight pi
 
 CLI exits non-zero if islands remain or the mesh isn't watertight.
 
+## Stencil studio (v2, node graph)
+
+A Blender-style node editor: image → trace nodes (channels, colour reduction, threshold, patterns, halftone,
+mask filter/boolean) → stencil node (the engine above) → export. Multi-stencil sets are just several branches.
+
+    .venv/bin/pip install -r requirements.txt
+    (cd app/web && npm install && npm run build)
+    .venv/bin/python -m app --port 5056      # http://127.0.0.1:5056
+    # dev: python -m app, and `npm run dev` in app/web (port 5173, proxies /api)
+
+Layout: `stencil/` geometry library + CLI, `webui/` legacy single-page UI (`python -m stencil --serve`),
+`app/` studio backend (FastAPI), `app/web/` studio frontend (React + Vite + @xyflow/react + three.js),
+`tests/` pytest. Drop an image on the canvas to get a starter graph; mask convention: painted = hole.
+Projects are saved under `projects/`.
+
 ## License
 
-[The Unlicense](LICENSE) (public domain), except `stencil/static/vendor/`, which is three.js under the MIT license (see `stencil/static/vendor/LICENSE`).
+[The Unlicense](LICENSE) (public domain), except `webui/static/vendor/`, which is three.js under the MIT license (see `webui/static/vendor/LICENSE`).
