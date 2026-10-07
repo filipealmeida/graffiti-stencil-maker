@@ -25,6 +25,11 @@ Layout: `stencil/` geometry library + CLI, `webui/` legacy single-page UI (`pyth
 `tests/` pytest. Drop an image on the canvas to get a starter graph; mask convention: painted = hole.
 Projects are saved under `projects/`.
 
+Double-click any node for its workbench: a full-size live preview (zoom/pan raster with mask-over-source overlay;
+orbit 3D view with wireframe, layer clipping and exploded tiles) beside the node's parameters and its own log.
+Trace nodes recompute almost live as you drag; the stencil/post stages follow when edits settle, and stale
+runs are cancelled. The Console button shows the run log.
+
 ## License
 
 [The Unlicense](LICENSE) (public domain), except `webui/static/vendor/`, which is three.js under the MIT license (see `webui/static/vendor/LICENSE`).
