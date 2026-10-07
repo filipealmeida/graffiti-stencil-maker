@@ -7,6 +7,8 @@ import json
 import re
 import threading
 import time
+from datetime import datetime
+from datetime import datetime
 import uuid
 import zipfile
 from pathlib import Path
@@ -92,18 +94,31 @@ def create_app(data_dir: Path = DATA) -> FastAPI:
         jobs[jid] = job
         titles = {n["id"]: n["type"] for n in graph["nodes"]}
 
-        def say(level, nid, msg):
-            job["log"].append({"t": round(time.time() - job["t0"], 2), "level": level, "node": nid,
-                               "type": titles.get(nid, ""), "msg": msg})
+        activity = {}
+
+        def say(level, nid, msg, ms=None):
+            now = time.time()
+            ts = datetime.fromtimestamp(now).astimezone().isoformat(timespec="milliseconds")
+            job["log"].append({"ts": ts, "t": round(now - job["t0"], 2), "level": level, "node": nid,
+                               "type": titles.get(nid, ""), "msg": msg, "ms": ms})
+
+        def close(nid, level="info"):
+            """Log the activity that was running on this node, with the time it took."""
+            a = activity.pop(nid, None)
+            if a:
+                say(level, nid, a[0], round((time.time() - a[1]) * 1000))
 
         def on_event(nid, st):
             with lock:
                 cur = job["nodes"].setdefault(nid, {})
                 if st["state"] == "running" and st.get("message") and st["message"] != cur.get("message"):
-                    say("info", nid, st["message"])
+                    close(nid)
+                    activity[nid] = (st["message"], time.time())
                 elif st["state"] == "done":
-                    say("info", nid, "cached" if st.get("cached") else f"done in {st.get('ms', 0)} ms")
+                    close(nid)
+                    say("info", nid, "cached" if st.get("cached") else "done", None if st.get("cached") else st.get("ms", 0))
                 elif st["state"] == "error":
+                    close(nid, "error")
                     say("error", nid, st.get("error", "error"))
                 if st["state"] != "running":
                     cur.clear()

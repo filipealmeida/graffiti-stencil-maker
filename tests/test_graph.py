@@ -76,7 +76,7 @@ def test_logs_tiles_and_parts(tmp_path):
     ]}
     st = run(c, g, targets=["thr"])
     assert st["nodes"]["st"]["state"] == "pending"          # only the trace part ran
-    assert any(l["node"] == "thr" and "done" in l["msg"] for l in st["log"])
+    assert any(l["node"] == "thr" and l["msg"] == "done" and l["ms"] is not None and "T" in l["ts"] for l in st["log"])
     st = run(c, g)
     assert not c.get(f"/api/info/{st['nodes']['st']['key']}/solid").json()["tiles"]      # the stencil node never tiles
     key = st["nodes"]["ex"]["key"]

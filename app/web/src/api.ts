@@ -32,7 +32,7 @@ export interface NodeRun {
   stale?: boolean
   outputs?: Record<string, { type: Kind; available: boolean }>
 }
-export interface LogLine { t: number; level: 'info' | 'error'; node: string; type: string; msg: string }
+export interface LogLine { ts: string; ms: number | null; t: number; level: 'info' | 'error'; node: string; type: string; msg: string }
 export interface GraphJson {
   nodes: { id: string; type: string; params: Record<string, unknown> }[]
   edges: { from: [string, string]; to: [string, string] }[]

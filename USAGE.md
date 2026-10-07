@@ -187,7 +187,7 @@ and only compatible ports connect. A mask means *painted = hole in the stencil*.
   the graph. The current graph is also kept in the browser between reloads.
 - **Running:** trace nodes recompute about 100 ms after each change (almost live); the Stencil and Export nodes
   follow about 0.7 s after edits settle, and stale runs are cancelled. Each node shows a status dot, a progress bar
-  and, in the header, a global progress bar. **Console** shows the run log.
+  and, in the header, a global progress bar. **Console** shows the run log: every line starts with an ISO 8601 timestamp (local time with offset, ms precision) and activity lines end with the time they took in ms. **Export** saves the shown lines as a `.log` text file; **Clear** empties it.
 
 ### Workbench (double-click a node)
 
