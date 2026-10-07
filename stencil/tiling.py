@@ -360,7 +360,7 @@ def tiles_zip(stem: str, tiles, rod: tuple[str, bytes] | None):
 
 # ---- mounting holes and the plates that use them -----------------------------------------------
 
-SCREW_HOLES = {"M3": 3.0, "M4": 4.0, "M5": 5.0}     # nominal screw diameter in mm
+SCREW_HOLES = {"M3": 3.0, "M4": 4.0, "M5": 5.0, "M6": 6.0, "M8": 8.0, "M10": 10.0}     # nominal screw diameter in mm
 JOIN_WALL_MM = 3.0                                  # material around a hole in a joiner plate
 
 

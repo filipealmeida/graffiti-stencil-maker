@@ -231,7 +231,7 @@ Tiling, pads and holes live in the Post stage, so changing them never recomputes
 plate from the Stencil node's mask and settings, and bridges every tile separately so each tile is one piece.
 - **Tiles:** tile width/height (mm) and optional connector rods, as in the command line `--tile-max` / `--connector-*`. **Connector fit** (0–1 mm in 0.1 steps, default 0.2) is how much larger the hole is than the rod (diametral); the rod always keeps its nominal size. With connectors the zip also holds `connector_fit_test_<shape>_d<N>mm.stl`: a flat strip of six through holes with 0.0–0.5 mm clearance (hole 1 has one dimple on top, hole 6 has six). Print it with your usual settings, try the rod from the zip in each hole, and set Connector fit to the snuggest one that still goes in by hand (glue needs a little play).
 - **Pads:** 0–4 threaded pads (M4–M10) in the frame, as `--pads`.
-- **Mounting holes** (M3/M4/M5, diameter plus clearance): through-holes in the middle of the frame band, only on tiles
+- **Mounting holes** (M3, M4, M5, M6, M8, M10; diameter plus clearance): through-holes in the middle of the frame band, only on tiles
   that have frame: one in each plate corner, one on each side of every seam that crosses the frame (distance from
   the seam is **Hole distance from seam**), and one in the middle of long frame segments. Interior tiles with no frame
   get none. Holes avoid pads, and the margin must be at least screw + clearance + 3 mm (otherwise the node says so).

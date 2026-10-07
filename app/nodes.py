@@ -201,7 +201,7 @@ def n_stencil(i, p, ctx):
        num("connector_diameter_mm", "Connector rod (mm, 0 = none)", 0, 0, 6, 0.5, "Tiles"),
        choice("connector_shape", "Connector shape", "hex", ["hex", "round"], "Tiles"),
        num("connector_clearance_mm", "Connector fit (mm, hole larger than rod)", 0.2, 0, 1, 0.1, "Tiles"),
-       choice("mount_screw", "Mounting holes (screw)", "none", ["none", "M3", "M4", "M5"], "Mounting holes"),
+       choice("mount_screw", "Mounting holes (screw)", "none", ["none", "M3", "M4", "M5", "M6", "M8", "M10"], "Mounting holes"),
        num("mount_offset_mm", "Hole distance from seam (mm)", 10, 4, 100, 1, "Mounting holes"),
        num("mount_clearance_mm", "Hole clearance (mm, diametral)", 0.3, 0, 2, 0.1, "Mounting holes"),
        num("mount_plate_mm", "Joiner plate thickness (mm)", 3, 1, 10, 0.5, "Mounting holes"),

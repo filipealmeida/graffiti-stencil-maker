@@ -42,7 +42,7 @@ class Params:
     connector_diameter_mm: float = 0.0   # 0 = plain cut; else 2.5, 3, 4, 5 or 6: blind holes in the seams for glued rods (plate > 4 mm)
     connector_shape: str = "hex"  # "hex" or "round"
     connector_clearance_mm: float = 0.2  # diametral clearance between the rod and its hole
-    mount_screw: str = "none"     # "none", "M3", "M4" or "M5": through-holes in the frame of every tile that has one
+    mount_screw: str = "none"     # "none", "M3" to "M10": through-holes in the frame of every tile that has one
     mount_clearance_mm: float = 0.3      # diametral clearance added to the screw diameter
     mount_offset_mm: float = 10.0        # distance from a seam to the mounting hole on each side of it
     mount_extend_mm: float = 20.0        # extender plate: distance of its outer hole row
