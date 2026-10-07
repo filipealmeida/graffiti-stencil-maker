@@ -10,6 +10,9 @@ interface Scene3D {
 }
 
 /** Orbitable STL viewer: wireframe, Z-clip (scrub through layers) and an exploded view for tiled parts. */
+// the camera survives regenerations so a finished run doesn't reset the user's view
+let savedCam: { pos: THREE.Vector3; target: THREE.Vector3 } | null = null
+
 export default function Viewer3D({ parts }: { parts: Part[] }) {
   const host = useRef<HTMLDivElement>(null)
   const sc = useRef<Scene3D | null>(null)
@@ -46,6 +49,7 @@ export default function Viewer3D({ parts }: { parts: Part[] }) {
     scene.add(dl)
     el.appendChild(renderer.domElement)
     const controls = new OrbitControls(camera, renderer.domElement)
+    controls.addEventListener('change', () => { savedCam = { pos: camera.position.clone(), target: controls.target.clone() } })
     const ro = new ResizeObserver(() => {
       const { clientWidth: w, clientHeight: h } = el
       renderer.setSize(w, h)
@@ -76,7 +80,10 @@ export default function Viewer3D({ parts }: { parts: Part[] }) {
       group.position.copy(center).negate()
       scene.add(group)
       const r = box.getSize(new THREE.Vector3()).length() / 2
-      camera.position.set(0, -r * 2.2, r * 1.6)
+      if (savedCam) {
+        camera.position.copy(savedCam.pos)
+        controls.target.copy(savedCam.target)
+      } else camera.position.set(0, -r * 2.2, r * 1.6)
       controls.update()
       sc.current = { meshes, centers, boxes, center, box, camera, controls, r }
       setStatus('')
@@ -95,16 +102,25 @@ export default function Viewer3D({ parts }: { parts: Part[] }) {
     const planes = clip < 1 ? [new THREE.Plane(new THREE.Vector3(0, 0, -1), zmin + clip * h + 1e-4)] : []
     const info = parts.map((p) => p.name.match(tileRe))
     const tiles = info.flatMap((m, i) => (m ? [i] : []))
-    const rows = tiles.map((i) => +info[i]![1]), cols = tiles.map((i) => +info[i]![2])
-    const rMid = rows.length ? (Math.min(...rows) + Math.max(...rows)) / 2 : 0
-    const cMid = cols.length ? (Math.min(...cols) + Math.max(...cols)) / 2 : 0
-    const tb = new THREE.Box3()
-    tiles.forEach((i) => tb.union(s.boxes[i]))
-    // loose parts (joiner/extender plates, rods) have no place on the plate: lay them out in a row below the tiles
-    let ax = tb.min.x
-    const ay = tb.min.y - explode * (Math.max(...rows, 1) - Math.min(...rows, 1) + 1) * 0.5 - 15
+    // each tile STL sits at its own origin: place it by the summed widths/heights of the tiles before it plus the gap
+    const rowSet = [...new Set(tiles.map((i) => +info[i]![1]))].sort((x, y) => x - y)
+    const colSet = [...new Set(tiles.map((i) => +info[i]![2]))].sort((x, y) => x - y)
+    const colW = new Map<number, number>(), rowH = new Map<number, number>()
+    tiles.forEach((i) => {
+      const r = +info[i]![1], c = +info[i]![2]
+      colW.set(c, Math.max(colW.get(c) ?? 0, s.boxes[i].max.x))
+      rowH.set(r, Math.max(rowH.get(r) ?? 0, s.boxes[i].max.y))
+    })
+    const colX = new Map<number, number>(), rowY = new Map<number, number>()
+    let acc = 0
+    colSet.forEach((c) => { colX.set(c, acc); acc += colW.get(c)! + explode })
+    acc = 0
+    ;[...rowSet].reverse().forEach((r) => { rowY.set(r, acc); acc += rowH.get(r)! + explode })
+    // loose parts (joiner/extender plates, rods) lay out in a row below the tiles
+    let ax = 0
+    const ay = -15
     const loose = parts.map((_, i) => i).filter((i) => tiles.length && !info[i]).sort((a, b) => parts[a].name.localeCompare(parts[b].name))
-    s.meshes.forEach((m, i) => {
+        s.meshes.forEach((m, i) => {
       const mat = m.material as THREE.MeshStandardMaterial
       mat.wireframe = wire
       mat.clippingPlanes = planes
@@ -112,7 +128,7 @@ export default function Viewer3D({ parts }: { parts: Part[] }) {
       mat.needsUpdate = true
       m.visible = !hidden.has(parts[i].name)
       const t = info[i]
-      if (t) m.position.set((+t[2] - cMid) * explode, -(+t[1] - rMid) * explode, 0)
+      if (t) m.position.set(colX.get(+t[2])!, rowY.get(+t[1])!, 0)
       else if (tiles.length) m.position.set(0, 0, 0)
       else m.position.set((s.centers[i].x - s.center.x) * explode / 12, (s.centers[i].y - s.center.y) * explode / 12, 0)
     })
@@ -124,9 +140,13 @@ export default function Viewer3D({ parts }: { parts: Part[] }) {
   }, [wire, explode, clip, ready, hidden])
 
   // refit the camera so every part stays inside the panel as the spacing changes
+  const fitRef = useRef(-1)
   useEffect(() => {
     const s = sc.current
     if (!s) return
+    const changed = fitRef.current !== explode
+    fitRef.current = explode
+    if (!changed && savedCam) return
     const b = new THREE.Box3()
     s.meshes.forEach((m) => { if (m.visible) { m.updateMatrixWorld(true); b.union(new THREE.Box3().setFromObject(m)) } })
     if (b.isEmpty()) return
@@ -137,7 +157,7 @@ export default function Viewer3D({ parts }: { parts: Part[] }) {
     s.controls.target.copy(c)
     s.camera.position.copy(c).add(dir.setLength(d))
     s.controls.update()
-  }, [explode, ready, hidden])
+  }, [explode, ready])
 
   const view = (v: 'iso' | 'top' | 'bottom' | 'left' | 'right') => {
     const s = sc.current

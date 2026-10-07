@@ -196,7 +196,7 @@ A full-size preview with the node's parameters and its own log beside it:
 - **3D outputs (solid):** orbit view (drag, scroll, right-drag), wireframe, a layer-clip slider, exploded tiles,
   Iso/Top/Bottom/Left/Right camera buttons, stats (islands, bridges, watertight) and STL / tiles downloads.
 - **Parts (tiles & mounting):** a chip bar toggles each part (all / none / "only"). Tiles are laid out on their grid
-  with a "spacing (mm)" slider (0–150, default 12; the camera refits so all parts stay in view) so none overlap; joiner, extender and rods sit in a row below the tiles.
+  with a "spacing (mm)" slider (0–150 mm of gap between tiles, default 12; every tile STL is at its own origin, so the viewer lays them out by tile size and no gap value overlaps; the camera refits on spacing changes but is kept across regenerations) so none overlap; joiner, extender and rods sit in a row below the tiles.
 - Press Esc to close.
 
 ### Nodes
