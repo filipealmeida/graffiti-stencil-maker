@@ -183,22 +183,24 @@ export default function Viewer3D({ parts }: { parts: Part[] }) {
         {parts.length > 1 && <label>{tiled ? 'spacing (mm)' : 'explode'} <input type="range" min={0} max={tiled ? 150 : 12} step={tiled ? 1 : 0.25} value={explode} onChange={(e) => setExplode(+e.target.value)} /></label>}
         <span className="mut">{parts.length > 1 ? `${parts.length} parts` : ''}</span>
       </div>
-      {parts.length > 1 && (
-        <div className="v3parts">
-          <button onClick={() => setHidden(new Set())}>all</button>
-          <button onClick={() => setHidden(new Set(parts.map((p) => p.name)))}>none</button>
-          {parts.map((p, i) => (
-            <span key={p.name} className={hidden.has(p.name) ? 'off' : ''}>
-              <label title={p.name}><input type="checkbox" checked={!hidden.has(p.name)} onChange={() => setHidden((h) => { const n = new Set(h); n.has(p.name) ? n.delete(p.name) : n.add(p.name); return n })} />
-                <i style={{ background: `#${colorOf(i).getHexString()}` }} />{p.name.replace(/\.stl$/, '').replace(/^.*?_(r\d+c\d+)$/, '$1')}</label>
-              <button title="show only this part" onClick={() => setHidden(new Set(parts.filter((q) => q.name !== p.name).map((q) => q.name)))}>only</button>
-            </span>
-          ))}
+      <div className="v3main">
+        <div className="v3host">
+          <div className="viewer" ref={host} />
+          {status && <div className="v3status">{status}</div>}
         </div>
-      )}
-      <div className="v3host">
-        <div className="viewer" ref={host} />
-        {status && <div className="v3status">{status}</div>}
+        {parts.length > 1 && (
+          <aside className="v3parts">
+            <div className="v3parts-head"><b>Files</b><button onClick={() => setHidden(new Set())}>all</button><button onClick={() => setHidden(new Set(parts.map((p) => p.name)))}>none</button></div>
+            {parts.map((p, i) => (
+              <div key={p.name} className={hidden.has(p.name) ? 'v3part off' : 'v3part'}>
+                <label title={p.name}><input type="checkbox" checked={!hidden.has(p.name)} onChange={() => setHidden((h) => { const n = new Set(h); n.has(p.name) ? n.delete(p.name) : n.add(p.name); return n })} />
+                  <i style={{ background: `#${colorOf(i).getHexString()}` }} />{p.name.replace(/\.stl$/, '')}</label>
+                <button title="show only this part" onClick={() => setHidden(new Set(parts.filter((q) => q.name !== p.name).map((q) => q.name)))}>only</button>
+                <a className="btn" href={p.url} download={p.name.endsWith('.stl') ? p.name : `${p.name}.stl`} title="download this STL">⬇</a>
+              </div>
+            ))}
+          </aside>
+        )}
       </div>
     </div>
   )

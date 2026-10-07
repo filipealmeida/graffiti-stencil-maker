@@ -76,8 +76,9 @@ table{width:100%;border-collapse:collapse;margin:6px 0}td{border-top:1px solid v
 .pct+.node-del,.node-head .pct{margin-left:6px}
 .edge-del{position:absolute;pointer-events:all;width:22px;height:22px;padding:0;border-radius:50%;background:#ff5b5b;color:#fff;border:0;font-size:15px;line-height:20px}
 
-.v3parts{display:flex;flex-wrap:wrap;gap:4px 10px;padding:4px 8px;border-bottom:1px solid #2a2f37;font-size:12px;max-height:84px;overflow:auto}
-.v3parts span{display:inline-flex;align-items:center;gap:4px}
-.v3parts span.off{opacity:.45}
+.v3main{display:flex;flex:1;min-height:0}.v3main .v3host{flex:1;min-width:0}
+.v3parts{width:250px;flex:none;overflow:auto;border-left:1px solid var(--line);background:var(--panel);font-size:12px;padding:4px 8px}
+.v3parts-head{display:flex;gap:6px;align-items:center;padding:2px 0 6px}.v3parts-head b{margin-right:auto}
+.v3part{display:flex;align-items:center;gap:6px;padding:2px 0}.v3part label{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.v3part.off{opacity:.5}
 .v3parts i{display:inline-block;width:10px;height:10px;border-radius:2px;margin:0 4px}
-.v3parts button{padding:0 6px;font-size:11px}
+.v3parts button,.v3parts a.btn{padding:0 6px;font-size:11px}
