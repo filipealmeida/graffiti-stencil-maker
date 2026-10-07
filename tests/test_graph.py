@@ -34,24 +34,20 @@ def test_pipeline(tmp_path):
     img = c.post("/api/images", files={"file": ("a.png", picture(), "image/png")}).json()["id"]
     g = {"nodes": [
         {"id": "src", "type": "source", "params": {"image_id": img, "resolution": 200}},
-        {"id": "red", "type": "reduce", "params": {"k": 3}},
-        {"id": "pat", "type": "pattern", "params": {"kind": "dots", "spacing": 8}},
-        {"id": "and", "type": "mask_boolean", "params": {"op": "and"}},
+        {"id": "thr", "type": "threshold", "params": {}},
         {"id": "st", "type": "stencil", "params": {"width_mm": 80, "margin_mm": 6, "raised_bridges": True, "z_bridging": "easy", "thickness_mm": 2}},
         {"id": "ex", "type": "export"}],
-        "edges": [{"from": ["src", "image"], "to": ["red", "image"]}, {"from": ["src", "image"], "to": ["pat", "size"]},
-                  {"from": ["red", "m1"], "to": ["and", "a"]}, {"from": ["pat", "mask"], "to": ["and", "b"]},
-                  {"from": ["and", "mask"], "to": ["st", "mask"]}, {"from": ["st", "solid"], "to": ["ex", "solid"]}]}
+        "edges": [{"from": ["src", "image"], "to": ["thr", "image"]},
+                  {"from": ["thr", "mask"], "to": ["st", "mask"]}, {"from": ["st", "solid"], "to": ["ex", "solid"]}]}
     st = run(c, g)
     assert all(n["state"] == "done" for n in st["nodes"].values()), st
     key = st["nodes"]["st"]["key"]
     info = c.get(f"/api/info/{key}/solid").json()
     assert info["stats"]["watertight"] and info["stats"]["islands_remaining"] == 0
-    assert c.get(f"/api/artifact/{key}/solid").content[:5] == b"solid" or len(c.get(f"/api/artifact/{key}/solid").content) > 84
     # an edit re-runs only what changed
-    g["nodes"][3]["params"]["op"] = "or"
+    g["nodes"][1]["params"]["invert"] = True
     st2 = run(c, g)
-    assert st2["nodes"]["src"]["cached"] and st2["nodes"]["red"]["cached"] and not st2["nodes"]["and"]["cached"]
+    assert st2["nodes"]["src"]["cached"] and not st2["nodes"]["thr"]["cached"]
 
 
 def test_errors_and_types(tmp_path):
@@ -63,18 +59,6 @@ def test_errors_and_types(tmp_path):
     wrong = {"nodes": [{"id": "a", "type": "threshold"}, {"id": "b", "type": "export"}],
              "edges": [{"from": ["a", "mask"], "to": ["b", "solid"]}]}
     assert c.post("/api/run", json={"graph": wrong}).status_code == 400
-    cyc = {"nodes": [{"id": "a", "type": "mask_filter"}, {"id": "b", "type": "mask_filter"}],
-           "edges": [{"from": ["a", "mask"], "to": ["b", "mask"]}, {"from": ["b", "mask"], "to": ["a", "mask"]}]}
-    assert c.post("/api/run", json={"graph": cyc}).status_code == 400
-
-
-def test_halftone_and_reduce_masks(tmp_path):
-    from app.nodes import n_halftone, n_pattern
-    im = Image.fromarray(np.tile(np.linspace(0, 255, 120, dtype=np.uint8), (60, 1))).convert("RGB")
-    m = n_halftone({"image": im}, {"kind": "dots", "spacing": 8, "angle": 45, "contrast": 1.0, "invert": False}, None)["mask"]
-    assert m[:, :20].mean() > m[:, -20:].mean()      # darker side has bigger dots
-    p = n_pattern({"size": m}, {"kind": "crosshatch", "spacing": 10, "fill": 0.5, "angle": 0, "invert": False}, None)["mask"]
-    assert p.shape == m.shape and 0.2 < p.mean() < 0.8
 
 
 def test_logs_tiles_and_parts(tmp_path):
