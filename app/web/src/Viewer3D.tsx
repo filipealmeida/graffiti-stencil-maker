@@ -139,21 +139,28 @@ export default function Viewer3D({ parts }: { parts: Part[] }) {
     s.controls.update()
   }, [explode, ready, hidden])
 
-  const view = (top: boolean) => {
+  const view = (v: 'iso' | 'top' | 'bottom' | 'left' | 'right') => {
     const s = sc.current
     if (!s) return
-    s.camera.position.set(0, top ? -s.r * 0.001 : -s.r * 2.2, top ? s.r * 3 : s.r * 1.6)
+    const e = s.r * 0.001, d = s.r * 3
+    const pos: Record<string, [number, number, number]> = {
+      iso: [0, -s.r * 2.2, s.r * 1.6], top: [0, -e, d], bottom: [0, -e, -d], left: [-d, 0, e], right: [d, 0, e],
+    }
+    s.camera.position.set(...pos[v])
     s.controls.target.set(0, 0, 0)
     s.controls.update()
   }
   return (
     <div className="v3">
       <div className="v3bar">
-        <button onClick={() => view(false)}>Iso</button>
-        <button onClick={() => view(true)}>Top</button>
+        <button onClick={() => view('iso')}>Iso</button>
+        <button onClick={() => view('top')}>Top</button>
+        <button onClick={() => view('bottom')}>Bottom</button>
+        <button onClick={() => view('left')}>Left</button>
+        <button onClick={() => view('right')}>Right</button>
         <label><input type="checkbox" checked={wire} onChange={(e) => setWire(e.target.checked)} /> wireframe</label>
         <label>layers up to <input type="range" min={0.01} max={1} step={0.01} value={clip} onChange={(e) => setClip(+e.target.value)} /></label>
-        {parts.length > 1 && <label>{tiled ? 'spacing (mm)' : 'explode'} <input type="range" min={0} max={tiled ? 100 : 12} step={tiled ? 1 : 0.25} value={explode} onChange={(e) => setExplode(+e.target.value)} /></label>}
+        {parts.length > 1 && <label>{tiled ? 'spacing (mm)' : 'explode'} <input type="range" min={0} max={tiled ? 150 : 12} step={tiled ? 1 : 0.25} value={explode} onChange={(e) => setExplode(+e.target.value)} /></label>}
         <span className="mut">{parts.length > 1 ? `${parts.length} parts` : ''}</span>
       </div>
       {parts.length > 1 && (

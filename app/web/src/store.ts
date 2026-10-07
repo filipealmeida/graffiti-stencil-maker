@@ -50,7 +50,7 @@ interface State {
 
 export const useStudio = create<State>((set, get) => ({
   types: {}, nodes: [], edges: [], runs: {}, selected: null, busy: false, error: null,
-  logs: [], consoleOpen: false, bench: null, progress: { done: 0, total: 0 },
+  logs: [], consoleOpen: true, bench: null, progress: { done: 0, total: 0 },
   addLogs: (l) => set((s) => ({ logs: [...s.logs, ...l.map((x, i) => ({ ...x, id: s.logs.length + i + Math.random() }))].slice(-500) })),
   clearLogs: () => set({ logs: [] }),
   setConsole: (consoleOpen) => set({ consoleOpen }),
