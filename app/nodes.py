@@ -109,7 +109,8 @@ MAX_RUNGS = 8          # patterned tones between "solid" and "empty" (10 colours
 @node("tone_patterns", "Tone patterns", "trace", [inp("image")], [out("mask", "mask"), out("tones", "image")],
       [num("plate_width_mm", "Plate width (mm, match the Stencil node)", 100, 20, 2000, 1, integer=True),
        flag("invert", "Invert (lightest colour solid, darkest empty)"),
-       num("spacing_mm", "Default pattern spacing (mm)", 2.5, 0.8, 20, 0.1),
+       choice("kind", "Default pattern type", "auto", ["auto", "lines", "dots", "crosshatch", "checker"]),
+       num("spacing_mm", "Default pattern spacing (mm, 0 = solid)", 2.5, 0, 20, 0.1),
        num("angle", "Default pattern angle (deg)", 45, 0, 90, 5, integer=True)]
       + [q for k in range(1, MAX_RUNGS + 1) for q in (
           choice(f"kind_{k}", f"Type", "auto", ["auto", "lines", "dots", "crosshatch", "checker", "solid", "empty"], f"Tone {k}"),
@@ -143,12 +144,16 @@ def n_tone_patterns(i, p, ctx):
             kind, cov = "empty", 0.0
         else:
             kind, cov = p[f"kind_{r}"], p[f"cover_{r}"] / 100
+            if kind == "auto":
+                kind = p["kind"]
             if cov == 0:
                 cov = 1 - r / (n - 1)
             if kind == "auto":
                 kind = "lines" if cov >= 0.5 else "dots"
         spacing = (p[f"spacing_{r}"] if 0 < r < n - 1 else 0) or p["spacing_mm"]
         sel = tone_idx == r
+        if spacing <= 0 and kind not in ("empty", "solid"):
+            kind = "solid"
         if kind == "solid":
             result |= sel
         elif kind != "empty":
