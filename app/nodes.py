@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import io
+import math
 import zipfile
 
 import numpy as np
@@ -204,6 +205,7 @@ def n_stencil(i, p, ctx):
        choice("mount_screw", "Mounting holes (screw)", "none", ["none", "M3", "M4", "M5", "M6", "M8", "M10"], "Mounting holes"),
        num("mount_offset_mm", "Hole distance from seam (mm)", 10, 4, 100, 1, "Mounting holes"),
        num("mount_clearance_mm", "Hole clearance (mm, diametral)", 0.3, 0, 2, 0.1, "Mounting holes"),
+       num("mount_screw_length_mm", "Screw length under head (mm, 0 = auto)", 0, 0, 200, 1, "Mounting holes"),
        num("mount_plate_mm", "Joiner plate thickness (mm)", 3, 1, 10, 0.5, "Mounting holes"),
        num("mount_extend_mm", "Extender outer holes (mm outward)", 20, 5, 200, 1, "Mounting holes"),
        num("pad_count", "Mounting pads", 0, 0, 4, 1, "Pads", integer=True),
@@ -240,6 +242,14 @@ def n_export(i, p, ctx):
         files[f"connector_fit_test_{p['connector_shape']}_d{d:g}mm.stl"] = tiling.stl_bytes(tiling.fit_test(p["connector_shape"], d))[0]
         ctx.progress(0.985, f"connector fit test: holes 1-{len(tiling.FIT_STEPS)} (dimples) have {tiling.FIT_STEPS[0]:g}-{tiling.FIT_STEPS[-1]:g} mm clearance; current setting {p['connector_clearance_mm']:g} mm")
     mount = stats.get("mount")
+    if mount and mount.get("holes"):
+        plate_t = (stats.get("size_mm") or [0, 0, 8])[2]
+        nut_h = round(0.8 * float(p["mount_screw"][1:]), 1)
+        length = p["mount_screw_length_mm"] or float(math.ceil(plate_t + p["mount_plate_mm"] + nut_h + 2))
+        bolt, nut, sinfo = tiling.screw_parts(p["mount_screw"], length, p.get("thread_clearance_mm", 0.2))
+        files[f"screw_{p['mount_screw']}x{length:g}.stl"] = tiling.stl_bytes(bolt)[0]
+        files[f"nut_{p['mount_screw']}.stl"] = tiling.stl_bytes(nut)[0]
+        ctx.progress(0.986, f"{p['mount_screw']}x{length:g} printable screw and nut: print one set per hole you fill")
     if mount and mount.get("pairs"):
         d = tiling.hole_diameter(p["mount_screw"], p["mount_clearance_mm"])
         joiner, extender = tiling.join_plates(d, p["mount_offset_mm"], p["mount_extend_mm"], p["mount_plate_mm"])

@@ -89,6 +89,7 @@ def test_logs_tiles_and_parts(tmp_path):
     assert c.get(f"/api/part/{key}/solid/nope.stl").status_code == 404
     files = c.get(f"/api/info/{key}/parts").json()["files"]
     assert "joiner_2hole_M4.stl" in files and "extender_4hole_M4.stl" in files
+    assert "nut_M4.stl" in files and any(f.startswith("screw_M4x") for f in files)
 
 
 def test_reduce_and_tone_patterns(tmp_path):
@@ -159,3 +160,10 @@ def test_connector_fit_and_test_strip(tmp_path):
     for i, _ in enumerate(tiling.FIT_STEPS):
         rod = tiling.prism("hex", 1.5, 12, "y").translate((2 + 10 * (i + 0.5), 0, top / 2))
         assert (m ^ rod).volume() < 1e-6          # the rod goes into every hole, including the 0 mm one
+
+
+def test_printable_screw_and_nut_mate():
+    from stencil import tiling
+    bolt, nut, _ = tiling.screw_parts("M6", 16)
+    assert len(bolt.decompose()) == 1 and tiling.stl_bytes(bolt)[2] and tiling.stl_bytes(nut)[2]
+    assert min((bolt ^ nut.rotate((0, 0, a)).translate((0, 0, 8))).volume() for a in range(0, 360, 15)) < 1e-6

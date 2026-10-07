@@ -330,6 +330,20 @@ def fit_test(shape: str, d: float, steps=FIT_STEPS):
     return block - m3d.Manifold.batch_boolean(cuts, m3d.OpType.Add)
 
 
+def screw_parts(screw: str, length: float, nut_clearance: float = 0.2):
+    """Printable hex-head bolt (fully threaded, head on the bed) and its hex nut. Returns (bolt, nut, info)."""
+    import manifold3d as m3d
+    from .core import THREADS, thread_void
+    d, _ = THREADS[screw]
+    af = round(1.6 * d, 1)                      # across flats
+    head_h, nut_h = round(0.7 * d, 1), round(0.8 * d, 1)
+    ac = af / math.cos(math.pi / 6)             # across corners
+    hexa = lambda h: prism("hex", ac / 2, h).translate((0.0, 0.0, h / 2))
+    bolt = hexa(head_h) + thread_void(screw, 0.0, head_h - 0.01, head_h + length)
+    nut = hexa(nut_h) - thread_void(screw, nut_clearance, -0.5, nut_h + 0.5)
+    return bolt, nut, {"across_flats_mm": af, "head_mm": head_h, "nut_mm": nut_h, "length_mm": length}
+
+
 def write_connector_stls(folder) -> list[Path]:
     folder = Path(folder)
     folder.mkdir(parents=True, exist_ok=True)

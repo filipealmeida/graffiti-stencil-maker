@@ -235,6 +235,9 @@ plate from the Stencil node's mask and settings, and bridges every tile separate
   that have frame: one in each plate corner, one on each side of every seam that crosses the frame (distance from
   the seam is **Hole distance from seam**), and one in the middle of long frame segments. Interior tiles with no frame
   get none. Holes avoid pads, and the margin must be at least screw + clearance + 3 mm (otherwise the node says so).
+  The zip also holds a printable `screw_<size>x<length>.stl` (hex head, fully threaded, head on the bed) and a matching
+  `nut_<size>.stl`. **Screw length** is under the head; 0 picks plate + joiner + nut + 2 mm rounded up. Print one set per hole
+  you fill; printed M3/M4 threads are fragile, so prefer M6 or larger or use metal screws.
 - **Joiner and extender plates:** when a seam has a hole pair, the zip also contains `joiner_2hole_<screw>.stl`
   (two holes, one screwed into each tile across the seam) and `extender_4hole_<screw>.stl` (the same two holes plus
   two more **Extender outer holes** mm outward, to attach extra margin, a wall mount or a clamping rod). The node log

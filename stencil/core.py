@@ -770,7 +770,7 @@ def trace_svg(section, w: float, h: float) -> str:
             f'viewBox="0 0 {w:.2f} {h:.2f}"><path fill="#000" fill-rule="evenodd" d="{d}"/></svg>\n')
 
 
-THREADS = {"M4": (4.0, 0.7), "M6": (6.0, 1.0), "M8": (8.0, 1.25), "M10": (10.0, 1.5)}   # (major diameter, pitch) in mm
+THREADS = {"M3": (3.0, 0.5), "M4": (4.0, 0.7), "M5": (5.0, 0.8), "M6": (6.0, 1.0), "M8": (8.0, 1.25), "M10": (10.0, 1.5)}   # (major diameter, pitch) in mm
 PAD_WALL_MM = 2.0                                 # solid ring around the thread: pad diameter = major diameter + 2 * wall
 
 
