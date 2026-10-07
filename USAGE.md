@@ -195,6 +195,8 @@ A full-size preview with the node's parameters and its own log beside it:
 - **Image/mask outputs:** zoom/pan raster; **over source** overlays the mask on the source image (the setting is remembered).
 - **3D outputs (solid):** orbit view (drag, scroll, right-drag), wireframe, a layer-clip slider, exploded tiles,
   Iso/Top camera buttons, stats (islands, bridges, watertight) and STL / tiles downloads.
+- **Parts (tiles & mounting):** a chip bar toggles each part (all / none / "only"). Tiles are laid out on their grid
+  with a "spacing (mm)" slider (default 12) so none overlap; joiner, extender and rods sit in a row below the tiles.
 - Press Esc to close.
 
 ### Nodes

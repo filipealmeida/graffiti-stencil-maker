@@ -75,3 +75,9 @@ table{width:100%;border-collapse:collapse;margin:6px 0}td{border-top:1px solid v
 .node-del{margin-left:auto;padding:0 6px;line-height:16px;border-radius:4px;opacity:.35}.node:hover .node-del,.node.sel .node-del{opacity:1}.node-del:hover{color:#ff6b6b;border-color:#ff6b6b}
 .pct+.node-del,.node-head .pct{margin-left:6px}
 .edge-del{position:absolute;pointer-events:all;width:22px;height:22px;padding:0;border-radius:50%;background:#ff5b5b;color:#fff;border:0;font-size:15px;line-height:20px}
+
+.v3parts{display:flex;flex-wrap:wrap;gap:4px 10px;padding:4px 8px;border-bottom:1px solid #2a2f37;font-size:12px;max-height:84px;overflow:auto}
+.v3parts span{display:inline-flex;align-items:center;gap:4px}
+.v3parts span.off{opacity:.45}
+.v3parts i{display:inline-block;width:10px;height:10px;border-radius:2px;margin:0 4px}
+.v3parts button{padding:0 6px;font-size:11px}
