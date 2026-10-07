@@ -16,6 +16,7 @@ export default function StudioNodeView({ id, data, selected }: NodeProps<StudioN
       <div className="node-head">
         <span className={`dot ${run?.state ?? 'idle'}`} title={run?.error ?? run?.state ?? 'not run'} />
         <b>{data.title || t.label}</b>
+        <button className="node-del nodrag" title="Delete node" onClick={(e) => { e.stopPropagation(); useStudio.getState().removeNode(id) }}>×</button>
         {run?.state === 'running' && <span className="pct">{Math.round((run.progress ?? 0) * 100)}%</span>}
       </div>
       {run?.state === 'running' && <div className="bar"><i style={{ width: `${(run.progress ?? 0) * 100}%` }} /></div>}

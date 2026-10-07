@@ -4,10 +4,12 @@ import { api, type Stage } from './api'
 import Inspector from './Inspector'
 import Console from './Console'
 import Workbench from './Workbench'
+import StudioEdge from './StudioEdge'
 import StudioNodeView, { KIND_COLOR } from './StudioNode'
 import { LANE_X, runGraph, signature, useStudio, type StudioNode } from './store'
 
 const nodeTypes = { studio: StudioNodeView }
+const edgeTypes = { default: StudioEdge }
 const LANES: { stage: Stage; title: string; x: number; w: number }[] = [
   { stage: 'trace', title: '1 · Trace — image to masks', x: 0, w: 1150 },
   { stage: 'stencil', title: '2 · Stencil — mask to 3D plate', x: LANE_X.stencil, w: 530 },
@@ -21,6 +23,14 @@ function Canvas() {
   const [drag, setDrag] = useState(false)
   const [names, setNames] = useState<string[]>([])
   const [pname, setPname] = useState('project')
+  const [menu, setMenu] = useState<Stage | null>(null)
+  const bar = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const away = (e: MouseEvent) => { if (!bar.current?.contains(e.target as Node)) setMenu(null) }
+    const esc = (e: KeyboardEvent) => e.key === 'Escape' && setMenu(null)
+    window.addEventListener('mousedown', away); window.addEventListener('keydown', esc)
+    return () => { window.removeEventListener('mousedown', away); window.removeEventListener('keydown', esc) }
+  }, [])
 
   useEffect(() => {
     api.nodeTypes().then((t) => {
@@ -92,14 +102,14 @@ function Canvas() {
     <div className="app" onDragOver={(e) => { e.preventDefault(); setDrag(true) }} onDragLeave={() => setDrag(false)} onDrop={onDrop}>
       <header>
         <b>Stencil studio</b>
-        <div className="palette">
+        <div className="palette" ref={bar}>
           {(['trace', 'stencil', 'post'] as Stage[]).map((st) => (
-            <details key={st}>
-              <summary className={`stage-${st}`}>+ {st}</summary>
-              <div className="menu">{stageNodes(st).map((t) => (
-                <button key={t.id} title={t.doc} onClick={() => { const c = rf.screenToFlowPosition({ x: window.innerWidth * 0.3, y: 160 }); s.addNode(t.id, {}, { x: st === 'trace' ? c.x : LANE_X[st] + 30, y: c.y }) }}>{t.label}</button>
-              ))}</div>
-            </details>
+            <div key={st} className="pal">
+              <button className={`stage-${st}${menu === st ? ' on' : ''}`} onClick={() => setMenu(menu === st ? null : st)}>+ {st}</button>
+              {menu === st && <div className="menu">{stageNodes(st).map((t) => (
+                <button key={t.id} title={t.doc} onClick={() => { const c = rf.screenToFlowPosition({ x: window.innerWidth * 0.3, y: 160 }); s.addNode(t.id, {}, { x: st === 'trace' ? c.x : LANE_X[st] + 30, y: c.y }); setMenu(null) }}>{t.label}</button>
+              ))}</div>}
+            </div>
           ))}
         </div>
         <label className="btn">Open image…<input type="file" accept=".png,.jpg,.jpeg,.bmp,.svg" hidden onChange={(e) => e.target.files?.[0] && addFile(e.target.files[0])} /></label>
@@ -115,7 +125,7 @@ function Canvas() {
       <main>
         <div className="canvas">
           <ReactFlow
-            nodes={s.nodes} edges={s.edges} nodeTypes={nodeTypes}
+            nodes={s.nodes} edges={s.edges} nodeTypes={nodeTypes} edgeTypes={edgeTypes}
             onNodesChange={s.onNodesChange} onEdgesChange={s.onEdgesChange} onConnect={s.connect}
             isValidConnection={isValid} onNodeClick={(_, n) => s.select(n.id)} onPaneClick={() => s.select(null)} onNodeDoubleClick={(_, n) => s.openBench(n.id)}
             deleteKeyCode={['Delete', 'Backspace']} colorMode="dark" fitView={false} minZoom={0.1} proOptions={{ hideAttribution: true }}

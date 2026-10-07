@@ -40,6 +40,7 @@ interface State {
   addNode: (type: string, params?: Record<string, unknown>, pos?: { x: number; y: number }, title?: string) => string
   setParam: (id: string, name: string, value: unknown) => void
   removeNode: (id: string) => void
+  removeEdge: (id: string) => void
   load: (nodes: StudioNode[], edges: Edge[]) => void
   starter: (imageId: string, title: string) => void
   graph: () => GraphJson
@@ -75,6 +76,7 @@ export const useStudio = create<State>((set, get) => ({
   setParam: (id, name, value) => set((s) => ({
     nodes: s.nodes.map((n) => (n.id === id ? { ...n, data: { ...n.data, params: { ...n.data.params, [name]: value } } } : n)),
   })),
+  removeEdge: (id) => set((s) => ({ edges: s.edges.filter((e) => e.id !== id) })),
   removeNode: (id) => set((s) => ({
     nodes: s.nodes.filter((n) => n.id !== id),
     edges: s.edges.filter((e) => e.source !== id && e.target !== id),
