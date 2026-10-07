@@ -114,3 +114,16 @@ def test_reduce_and_tone_patterns(tmp_path):
     assert 0.05 < cov < 0.95 and cov != cov2
     info = c.get(f"/api/info/{st['nodes']['st']['key']}/solid").json()
     assert info["stats"]["watertight"] and info["stats"]["islands_remaining"] == 0
+
+
+def test_mount_holes_mirror_when_flipped():
+    from stencil.core import Params, make_stencil
+    data = picture()
+    kw = dict(width_mm=200, margin_mm=14, mount_screw="M4", tile_max_x_mm=80, thickness_mm=8, pad_count=2)
+    pos = {}
+    for flip in (False, True):
+        _, st = make_stencil(data, "a.png", Params(flip=flip, **kw))
+        assert st["islands_remaining"] == 0 and st["mount"]["holes"] > 0
+        pos[flip] = (st["size_mm"][0], sorted((round(x, 1), round(y, 1)) for x, y in st["mount"]["positions"]))
+    W = pos[False][0]
+    assert pos[True][1] == sorted((round(W - x, 1), y) for x, y in pos[False][1])

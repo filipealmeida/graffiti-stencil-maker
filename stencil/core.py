@@ -853,15 +853,15 @@ def _drill_mount_holes(solid, p: Params, W, H, margin, T, xs, ys, pads, flipped)
     if len(xs) > 2 or len(ys) > 2:
         if p.connector_diameter_mm > 0 and off < p.connector_diameter_mm / 2 + d / 2 + 2:
             raise ValueError(f"mounting holes would hit the seam connectors: use a hole offset of at least {p.connector_diameter_mm / 2 + d / 2 + 2:.1f} mm")
-    avoid = [(x, y, pad_diameter(p.pad_thread) / 2) for x, y in pads]
+    # xs is already in the printed frame; pads are still in the design frame, so mirror them when the part was turned over
+    avoid = [((W - x) if flipped else x, y, pad_diameter(p.pad_thread) / 2) for x, y in pads]
     pts, pairs = tiling.mount_positions(W, H, margin, d, off, xs, ys, avoid)
     if not pts:
         return solid, {"holes": 0, "pairs": 0, "diameter_mm": round(d, 2),
                        "note": f"margin of {margin:.1f} mm is too small for {p.mount_screw} holes (needs {d + 3:.1f} mm)"}
-    cx = (lambda x: W - x) if flipped else (lambda x: x)
-    cut = [m3d.Manifold.cylinder(T + p.pad_height_mm + 2, d / 2, d / 2, 48).translate((cx(x), y, -1.0)) for x, y in pts]
+    cut = [m3d.Manifold.cylinder(T + p.pad_height_mm + 2, d / 2, d / 2, 48).translate((x, y, -1.0)) for x, y in pts]
     solid = solid - m3d.Manifold.batch_boolean(cut, m3d.OpType.Add)
-    return solid, {"holes": len(pts), "pairs": len(pairs), "diameter_mm": round(d, 2), "positions": [[round(cx(x), 2), round(y, 2)] for x, y in pts]}
+    return solid, {"holes": len(pts), "pairs": len(pairs), "diameter_mm": round(d, 2), "positions": [[round(x, 2), round(y, 2)] for x, y in pts]}
 
 
 def make_stencil(data: bytes, filename: str = "", params: Params | None = None, progress=None):
