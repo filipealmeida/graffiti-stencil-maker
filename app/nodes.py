@@ -49,7 +49,7 @@ def _rgb_to_lab(c):
 
 
 @node("reduce", "Reduce colours", "trace", [inp("image")], [out("image", "image")],
-      [num("colours", "Colours", 3, 2, 6, 1, integer=True),
+      [num("colours", "Colours", 3, 2, 10, 1, integer=True),
        num("smooth", "Pre-blur (px)", 0, 0, 6, 0.5)],
       "Quantizes the picture to N colours (k-means in Lab space) so every region has exactly one flat colour.")
 def n_reduce(i, p, ctx):
@@ -103,7 +103,7 @@ def _pat_checker(x, y, spacing, cov, angle):
 
 
 PATTERNS = {"lines": _pat_lines, "dots": _pat_dots, "crosshatch": _pat_cross, "checker": _pat_checker}
-MAX_RUNGS = 4          # patterned tones between "solid" and "empty" (6 colours)
+MAX_RUNGS = 8          # patterned tones between "solid" and "empty" (10 colours)
 
 
 @node("tone_patterns", "Tone patterns", "trace", [inp("image")], [out("mask", "mask"), out("tones", "image")],
@@ -117,7 +117,7 @@ MAX_RUNGS = 4          # patterned tones between "solid" and "empty" (6 colours)
           num(f"cover_{k}", "Coverage (%, 0 = automatic)", 0, 0, 95, 1, f"Tone {k}"))],
       "Ranks the colours of a reduced image by lightness. The darkest becomes solid paint, the lightest stays empty, and the tones "
       "between get patterns that thin out step by step. Tone k is the k-th step away from solid. Connected patterns (lines, dots) "
-      "are chosen automatically; dots leave islands that the stencil bridges.")
+      "are chosen automatically; dots leave islands that the stencil bridges. One tone per colour of the input (up to 10); unused tone rows are ignored.")
 def n_tone_patterns(i, p, ctx):
     img = i["image"].convert("RGB")
     arr = np.asarray(img)
