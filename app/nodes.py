@@ -70,6 +70,50 @@ def n_reduce(i, p, ctx):
     return {"image": Image.fromarray(palette[idx].reshape(img.height, img.width, 3).round().astype(np.uint8))}
 
 
+MAX_SPLIT = 10
+
+
+@node("split_colours", "Split colours", "trace", [inp("image")],
+      [out(f"colour_{k}", "mask") for k in range(1, MAX_SPLIT + 1)] + [out("palette", "image")],
+      [flag("invert", "Invert order (lightest first)"),
+       num("colours", "Colours if the input has more than this many (2-10)", 10, 2, MAX_SPLIT, 1, integer=True),
+       num("min_area", "Drop specks smaller than (% of image, 0 = keep)", 0, 0, 5, 0.05)],
+      "Splits an image into one mask per flat colour, darkest first (colour 1), so each colour can feed its own Stencil. Meant for "
+      "the output of Reduce colours; an image with more colours than the setting is reduced first. Every mask is True where that "
+      "colour is (paint). Outputs beyond the number of colours are hidden. The palette output shows the colours in order.")
+def n_split_colours(i, p, ctx):
+    from scipy import ndimage as ndi
+    img = i["image"].convert("RGB")
+    arr = np.asarray(img)
+    h, w = arr.shape[:2]
+    colours, inverse = np.unique(arr.reshape(-1, 3), axis=0, return_inverse=True)
+    if len(colours) > p["colours"]:
+        ctx.progress(0.1, f"{len(colours)} colours found: reducing to {p['colours']}")
+        img = n_reduce({"image": img}, {"colours": p["colours"], "smooth": 0}, ctx)["image"]
+        arr = np.asarray(img)
+        colours, inverse = np.unique(arr.reshape(-1, 3), axis=0, return_inverse=True)
+    lum = colours @ np.array([0.299, 0.587, 0.114])
+    order = np.argsort(-lum if p["invert"] else lum, kind="stable")
+    idx = inverse.reshape(h, w)
+    res = {}
+    for k in range(MAX_SPLIT):
+        if k < len(order):
+            m = idx == order[k]
+            if p["min_area"] > 0 and m.any():
+                lab, cnt = ndi.label(m)
+                sizes = ndi.sum(m, lab, range(1, cnt + 1))
+                m = np.isin(lab, 1 + np.flatnonzero(sizes >= p["min_area"] / 100 * h * w))
+            ctx.progress((k + 1) / MAX_SPLIT, f"colour {k + 1}: {tuple(int(v) for v in colours[order[k]])}, {m.mean() * 100:.1f}% of the image")
+        else:
+            m = None                                    # unused port: hidden on the node
+        res[f"colour_{k + 1}"] = m
+    sw = np.zeros((40, 40 * len(order), 3), np.uint8)
+    for k, o in enumerate(order):
+        sw[:, 40 * k:40 * k + 40] = colours[o]
+    res["palette"] = Image.fromarray(sw)
+    return res
+
+
 # ---- patterns: each returns a bool array, True = paint (hole in the stencil) ----------------------
 
 def _pat_lines(x, y, spacing, cov, angle):

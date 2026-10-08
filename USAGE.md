@@ -208,6 +208,7 @@ A full-size preview with the node's parameters and its own log beside it:
 | Image | trace | The picture, resized to a working resolution (longest side, px). |
 | Threshold | trace | Dark areas become holes (256 = automatic Otsu threshold); **Invert** swaps them. |
 | Reduce colours | trace | k-means in Lab space to 2–10 flat colours (optional pre-blur). |
+| Split colours | trace | One mask output per flat colour (`colour_1` darkest ... `colour_10`), plus a `palette` image. Accepts any image (reduced first if it has more colours than the setting) but is meant for Reduce colours. Connect each colour output to its own Stencil node; outputs beyond the colour count are hidden. Options: invert the order, drop specks. |
 | Tone patterns | trace | Turns each colour of a reduced image into a pattern (below). |
 | Stencil | stencil | The stencil engine: plate width/thickness/margin, flip, bridge width and count, raised bridges, Z-bridging strategy (steps, ramp, stepramp, island, grow, easy), layer height, smoothing. Outputs the whole-plate solid and a bridge map. |
 | Tiles & mounting (id `export`) | post | Tiling, seam connector rods, threaded pads, frame mounting holes, joiner and extender plates (below). Outputs the parts (downloadable) and a solid for the 3D preview. With nothing set it passes the plate through. |

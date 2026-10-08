@@ -13,7 +13,7 @@ CLI exits non-zero if islands remain or the mesh isn't watertight.
 
 ## Stencil studio (v2, node graph)
 
-A Blender-style node editor: image → trace nodes (Threshold, Reduce colours, Tone patterns) → stencil node (the engine above) → export. Multi-stencil sets are just several branches. See [USAGE.md](USAGE.md#stencil-studio-node-graph-interface) for the full guide.
+A Blender-style node editor: image → trace nodes (Threshold, Reduce colours, Split colours, Tone patterns) → stencil node (the engine above) → export. Multi-stencil sets are just several branches. See [USAGE.md](USAGE.md#stencil-studio-node-graph-interface) for the full guide.
 
     .venv/bin/pip install -r requirements.txt
     (cd app/web && npm install && npm run build)

@@ -195,3 +195,25 @@ def test_threaded_mount_holes_and_plates():
     pitch = THREADS["M6"][1]
     best = min((bolt.translate((18, 0, -5.2 + k * pitch / 24)) ^ j).volume() for k in range(24))
     assert best < 1.0                                    # the printed screw threads into the plate at some phase
+
+
+def test_split_colours(tmp_path):
+    c = TestClient(create_app(tmp_path))
+    img = c.post("/api/images", files={"file": ("a.png", picture(), "image/png")}).json()["id"]
+    g = {"nodes": [
+        {"id": "src", "type": "source", "params": {"image_id": img, "resolution": 200}},
+        {"id": "red", "type": "reduce", "params": {"colours": 3}},
+        {"id": "sp", "type": "split_colours", "params": {}},
+        {"id": "st", "type": "stencil", "params": {"width_mm": 100}},
+    ], "edges": [
+        {"from": ["src", "image"], "to": ["red", "image"]},
+        {"from": ["red", "image"], "to": ["sp", "image"]},
+        {"from": ["sp", "colour_1"], "to": ["st", "mask"]},
+    ]}
+    st = run(c, g)
+    assert st["nodes"]["sp"]["state"] == "done" and st["nodes"]["st"]["state"] == "done", st["nodes"]
+    key = st["nodes"]["sp"]["key"]
+    cov = [c.get(f"/api/info/{key}/colour_{k}").json()["coverage"] for k in range(1, 4)]
+    assert abs(sum(cov) - 1) < 1e-3 and all(v > 0 for v in cov)
+    outs = st["nodes"]["sp"]["outputs"]
+    assert outs["colour_3"]["available"] and not outs["colour_4"]["available"]
