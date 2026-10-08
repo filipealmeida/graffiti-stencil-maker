@@ -235,6 +235,9 @@ plate from the Stencil node's mask and settings, and bridges every tile separate
   that have frame: one in each plate corner, one on each side of every seam that crosses the frame (distance from
   the seam is **Hole distance from seam**), and one in the middle of long frame segments. Interior tiles with no frame
   get none. Holes avoid pads, and the margin must be at least screw + clearance + 3 mm (otherwise the node says so).
+  **Threaded holes** (default on) cut a real right-handed thread of the screw size in the tile holes and in the joiner and
+  extender plates, so the printed (or metal) screw bites without a nut; the clearance slider is then split half per side.
+  Threads cost triangles: each tiled STL grows by a few MB with many holes. Turn the option off for plain clearance holes.
   The zip also holds a printable `screw_<size>x<length>.stl` (hex head, fully threaded, head on the bed) and a matching
   `nut_<size>.stl`. **Screw length** is under the head; 0 picks plate + joiner + nut + 2 mm rounded up. Print one set per hole
   you fill; printed M3/M4 threads are fragile, so prefer M6 or larger or use metal screws.

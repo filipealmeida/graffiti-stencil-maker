@@ -43,7 +43,8 @@ class Params:
     connector_shape: str = "hex"  # "hex" or "round"
     connector_clearance_mm: float = 0.2  # diametral clearance between the rod and its hole
     mount_screw: str = "none"     # "none", "M3" to "M10": through-holes in the frame of every tile that has one
-    mount_clearance_mm: float = 0.3      # diametral clearance added to the screw diameter
+    mount_clearance_mm: float = 0.3      # diametral clearance added to the screw diameter (threaded: half of it is the radial thread clearance)
+    mount_threaded: bool = True          # cut a real thread of the screw size in the mounting holes instead of a plain hole
     mount_offset_mm: float = 10.0        # distance from a seam to the mounting hole on each side of it
     mount_extend_mm: float = 20.0        # extender plate: distance of its outer hole row
     mount_plate_mm: float = 3.0          # thickness of the joiner and extender plates
@@ -790,13 +791,12 @@ def pad_centers(count: int, W: float, H: float, margin: float):
     return [(c, H - c), (W - c, H - c), (c, c), (W - c, c)]
 
 
-def thread_void(thread: str, clearance: float, z0: float, z1: float):
+def thread_void(thread: str, clearance: float, z0: float, z1: float, n: int = 96, per_turn: int = 20):
     """Right-handed internal thread cavity (the external thread shape plus clearance), made by twisting a polar cross-section."""
     import manifold3d as m3d
     d, pitch = THREADS[thread]
     r_maj = d / 2 + clearance
     depth = 0.54 * pitch
-    n = 96
     pts = []
     for i in range(n):
         t = i / n                                  # position along one pitch
@@ -813,7 +813,7 @@ def thread_void(thread: str, clearance: float, z0: float, z1: float):
         pts.append((r * np.cos(a), r * np.sin(a)))
     h = z1 - z0
     cs = m3d.CrossSection([np.array(pts)], m3d.FillRule.NonZero)
-    body = m3d.Manifold.extrude(cs, h, int(np.ceil(h / pitch * 20)), 360.0 * h / pitch)
+    body = m3d.Manifold.extrude(cs, h, int(np.ceil(h / pitch * per_turn)), 360.0 * h / pitch)
     return body.translate((0.0, 0.0, z0))
 
 
@@ -859,9 +859,12 @@ def _drill_mount_holes(solid, p: Params, W, H, margin, T, xs, ys, pads, flipped)
     if not pts:
         return solid, {"holes": 0, "pairs": 0, "diameter_mm": round(d, 2),
                        "note": f"margin of {margin:.1f} mm is too small for {p.mount_screw} holes (needs {d + 3:.1f} mm)"}
-    cut = [m3d.Manifold.cylinder(T + p.pad_height_mm + 2, d / 2, d / 2, 48).translate((x, y, -1.0)) for x, y in pts]
+    if p.mount_threaded:
+        cut = [thread_void(p.mount_screw, p.mount_clearance_mm / 2, -1.0, T + p.pad_height_mm + 1.0, 48, 8).translate((x, y, 0.0)) for x, y in pts]
+    else:
+        cut = [m3d.Manifold.cylinder(T + p.pad_height_mm + 2, d / 2, d / 2, 48).translate((x, y, -1.0)) for x, y in pts]
     solid = solid - m3d.Manifold.batch_boolean(cut, m3d.OpType.Add)
-    return solid, {"holes": len(pts), "pairs": len(pairs), "diameter_mm": round(d, 2), "positions": [[round(x, 2), round(y, 2)] for x, y in pts]}
+    return solid, {"holes": len(pts), "pairs": len(pairs), "diameter_mm": round(d, 2), "threaded": bool(p.mount_threaded), "positions": [[round(x, 2), round(y, 2)] for x, y in pts]}
 
 
 def make_stencil(data: bytes, filename: str = "", params: Params | None = None, progress=None):

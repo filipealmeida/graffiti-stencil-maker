@@ -167,3 +167,23 @@ def test_printable_screw_and_nut_mate():
     bolt, nut, _ = tiling.screw_parts("M6", 16)
     assert len(bolt.decompose()) == 1 and tiling.stl_bytes(bolt)[2] and tiling.stl_bytes(nut)[2]
     assert min((bolt ^ nut.rotate((0, 0, a)).translate((0, 0, 8))).volume() for a in range(0, 360, 15)) < 1e-6
+
+
+def test_threaded_mount_holes_and_plates():
+    import numpy as np
+    from stencil.core import THREADS, Params, make_stencil
+    from stencil import tiling
+    data = picture()
+    kw = dict(width_mm=200, margin_mm=14, mount_screw="M6", tile_max_x_mm=80, thickness_mm=8)
+    _, plain = make_stencil(data, "a.png", Params(mount_threaded=False, **kw))
+    stl, thr = make_stencil(data, "a.png", Params(mount_threaded=True, **kw))
+    assert thr["mount"]["threaded"] and not plain["mount"]["threaded"] and thr["mount"]["holes"] == plain["mount"]["holes"] > 0
+    assert thr["watertight"] and thr["islands_remaining"] == 0 and thr["triangles"] > plain["triangles"]
+    d = tiling.hole_diameter("M6", 0.3)
+    j, _ = tiling.join_plates(d, 18, 20, 3, "M6", 0.15)
+    jp, _ = tiling.join_plates(d, 18, 20, 3)
+    assert len(j.decompose()) == 1 and tiling.stl_bytes(j)[2] and j.volume() > jp.volume() + 1     # the thread leaves material in the hole
+    bolt, _, _ = tiling.screw_parts("M6", 10)
+    pitch = THREADS["M6"][1]
+    best = min((bolt.translate((18, 0, -5.2 + k * pitch / 24)) ^ j).volume() for k in range(24))
+    assert best < 1.0                                    # the printed screw threads into the plate at some phase

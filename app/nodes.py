@@ -203,8 +203,9 @@ def n_stencil(i, p, ctx):
        choice("connector_shape", "Connector shape", "hex", ["hex", "round"], "Tiles"),
        num("connector_clearance_mm", "Connector fit (mm, hole larger than rod)", 0.2, 0, 1, 0.1, "Tiles"),
        choice("mount_screw", "Mounting holes (screw)", "none", ["none", "M3", "M4", "M5", "M6", "M8", "M10"], "Mounting holes"),
+       flag("mount_threaded", "Threaded holes (tiles and plates)", True, "Mounting holes"),
        num("mount_offset_mm", "Hole distance from seam (mm)", 10, 4, 100, 1, "Mounting holes"),
-       num("mount_clearance_mm", "Hole clearance (mm, diametral)", 0.3, 0, 2, 0.1, "Mounting holes"),
+       num("mount_clearance_mm", "Hole clearance (mm, diametral; threaded: half per side)", 0.3, 0, 2, 0.1, "Mounting holes"),
        num("mount_screw_length_mm", "Screw length under head (mm, 0 = auto)", 0, 0, 200, 1, "Mounting holes"),
        num("mount_plate_mm", "Joiner plate thickness (mm)", 3, 1, 10, 0.5, "Mounting holes"),
        num("mount_extend_mm", "Extender outer holes (mm outward)", 20, 5, 200, 1, "Mounting holes"),
@@ -218,7 +219,7 @@ def n_export(i, p, ctx):
     from stencil import tiling
     s = i["solid"]
     post = {k: p[k] for k in ("tile_max_x_mm", "tile_max_y_mm", "connector_diameter_mm", "connector_shape", "connector_clearance_mm", "mount_screw", "mount_offset_mm",
-                              "mount_clearance_mm", "mount_plate_mm", "mount_extend_mm", "pad_count", "pad_thread", "pad_height_mm")}
+                              "mount_clearance_mm", "mount_threaded", "mount_plate_mm", "mount_extend_mm", "pad_count", "pad_thread", "pad_height_mm")}
     if not (p["tile_max_x_mm"] or p["tile_max_y_mm"] or p["mount_screw"] != "none" or p["pad_count"]):
         return {"parts": {"files": {"stencil.stl": s["stl"]}}, "solid": s}
     r = s["recipe"]
@@ -252,7 +253,8 @@ def n_export(i, p, ctx):
         ctx.progress(0.986, f"{p['mount_screw']}x{length:g} printable screw and nut: print one set per hole you fill")
     if mount and mount.get("pairs"):
         d = tiling.hole_diameter(p["mount_screw"], p["mount_clearance_mm"])
-        joiner, extender = tiling.join_plates(d, p["mount_offset_mm"], p["mount_extend_mm"], p["mount_plate_mm"])
+        joiner, extender = tiling.join_plates(d, p["mount_offset_mm"], p["mount_extend_mm"], p["mount_plate_mm"],
+                                           p["mount_screw"] if p["mount_threaded"] else None, p["mount_clearance_mm"] / 2)
         files[f"joiner_2hole_{p['mount_screw']}.stl"] = tiling.stl_bytes(joiner)[0]
         files[f"extender_4hole_{p['mount_screw']}.stl"] = tiling.stl_bytes(extender)[0]
         ctx.progress(0.99, f"{mount['pairs']} seam joints: print {mount['pairs']} joiners (or extenders); {mount['holes']} holes in total")

@@ -425,17 +425,22 @@ def _slot(pts, r):
     return m3d.CrossSection.batch_hull(circles)
 
 
-def join_plates(d: float, off: float, ext: float, thickness: float):
+def join_plates(d: float, off: float, ext: float, thickness: float, screw: str | None = None, radial_clearance: float = 0.15):
     """(joiner, extender) as Manifolds lying flat on the bed.
 
     The joiner has two holes 2*off apart, one per tile across a seam. The extender adds a second row of two holes `ext`
-    outward, to screw to extra margin material or to a wall."""
+    outward, to screw to extra margin material or to a wall. With `screw` the holes are real threads of that size."""
     import manifold3d as m3d
+    from .core import thread_void
     r = d / 2 + JOIN_WALL_MM
     row = [(-off, 0.0), (off, 0.0)]
     out = []
     for pts in (row, row + [(-off, ext), (off, ext)]):
         body = m3d.Manifold.extrude(_slot(pts, r), thickness)
-        holes = m3d.Manifold.batch_boolean([m3d.Manifold.cylinder(thickness + 2, d / 2, d / 2, 48).translate((x, y, -1.0)) for x, y in pts], m3d.OpType.Add)
+        if screw:
+            cyl = [thread_void(screw, radial_clearance, -1.0, thickness + 1.0, 48, 8).translate((x, y, 0.0)) for x, y in pts]
+        else:
+            cyl = [m3d.Manifold.cylinder(thickness + 2, d / 2, d / 2, 48).translate((x, y, -1.0)) for x, y in pts]
+        holes = m3d.Manifold.batch_boolean(cyl, m3d.OpType.Add)
         out.append(body - holes)
     return out[0], out[1]
