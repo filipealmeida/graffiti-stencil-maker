@@ -239,12 +239,13 @@ plate from the Stencil node's mask and settings, and bridges every tile separate
   extender plates, so the printed (or metal) screw bites without a nut; the clearance slider is then split half per side.
   Threads cost triangles: each tiled STL grows by a few MB with many holes. Turn the option off for plain clearance holes.
   The zip also holds a printable `screw_<size>x<length>.stl` (hex head, fully threaded, head on the bed) and a matching
-  `nut_<size>.stl`. **Screw length** is under the head; 0 picks plate + joiner + nut + 2 mm rounded up. Print one set per hole
+  `nut_<size>.stl`. **Screw length** is under the head; 0 picks plate + joiner (same thickness) + nut + 2 mm rounded up. Print one set per hole
   you fill; printed M3/M4 threads are fragile, so prefer M6 or larger or use metal screws.
 - **Joiner and extender plates:** when a seam has a hole pair, the zip also contains `joiner_2hole_<screw>.stl`
   (two holes, one screwed into each tile across the seam) and `extender_4hole_<screw>.stl` (the same two holes plus
   two more **Extender outer holes** mm outward, to attach extra margin, a wall mount or a clamping rod). The node log
-  tells how many joints there are; print one plate per joint.
+  tells how many joints there are; print one plate per joint. Both plates are exactly as thick as the stencil
+  (including any extra top layers), so they sit flush with the tiles.
 - **Cost:** the Stencil node still builds a whole-plate preview, and this node builds the plate again with tiling, so a
   tiled export costs about one extra build plus a small per-tile overhead (roughly 1.2–2× the build time for a 3×3 split).
   Holes add little time but more triangles.

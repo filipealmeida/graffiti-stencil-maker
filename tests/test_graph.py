@@ -89,6 +89,14 @@ def test_logs_tiles_and_parts(tmp_path):
     assert c.get(f"/api/part/{key}/solid/nope.stl").status_code == 404
     files = c.get(f"/api/info/{key}/parts").json()["files"]
     assert "joiner_2hole_M4.stl" in files and "extender_4hole_M4.stl" in files
+    import io as _io, struct, zipfile as _zf
+    assert info["stats"]["thickness_mm"] > 0
+    z = c.get(f"/api/artifact/{key}/parts").content
+    for name in ("joiner_2hole_M4.stl", "extender_4hole_M4.stl"):
+        data = _zf.ZipFile(_io.BytesIO(z)).read(name)
+        n = struct.unpack("<I", data[80:84])[0]
+        zs = np.frombuffer(data[84:84 + 50 * n], dtype=np.dtype([("n", "<f4", 3), ("v", "<f4", (3, 3)), ("a", "<u2")]))["v"][:, :, 2]
+        assert abs(zs.max() - zs.min() - info["stats"]["thickness_mm"]) < 1e-3
     assert "nut_M4.stl" in files and any(f.startswith("screw_M4x") for f in files)
 
 

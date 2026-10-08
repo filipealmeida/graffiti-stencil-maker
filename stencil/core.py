@@ -47,7 +47,6 @@ class Params:
     mount_threaded: bool = True          # cut a real thread of the screw size in the mounting holes instead of a plain hole
     mount_offset_mm: float = 10.0        # distance from a seam to the mounting hole on each side of it
     mount_extend_mm: float = 20.0        # extender plate: distance of its outer hole row
-    mount_plate_mm: float = 3.0          # thickness of the joiner and extender plates
 
 
 def load_image(data: bytes, filename: str = "") -> Image.Image:
@@ -967,6 +966,7 @@ def make_stencil(data: bytes, filename: str = "", params: Params | None = None, 
         triangles=int(len(tris)),
         watertight=watertight,
         layers=int(n_layers),
+        thickness_mm=round(float(T), 3),
         extra_top_layers=extra,
         z_bridging=p.z_bridging if p.raised_bridges else None,
         layer_height_mm=round(lh, 4),

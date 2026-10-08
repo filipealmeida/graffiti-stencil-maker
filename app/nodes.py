@@ -207,7 +207,6 @@ def n_stencil(i, p, ctx):
        num("mount_offset_mm", "Hole distance from seam (mm)", 10, 4, 100, 1, "Mounting holes"),
        num("mount_clearance_mm", "Hole clearance (mm, diametral; threaded: half per side)", 0.3, 0, 2, 0.1, "Mounting holes"),
        num("mount_screw_length_mm", "Screw length under head (mm, 0 = auto)", 0, 0, 200, 1, "Mounting holes"),
-       num("mount_plate_mm", "Joiner plate thickness (mm)", 3, 1, 10, 0.5, "Mounting holes"),
        num("mount_extend_mm", "Extender outer holes (mm outward)", 20, 5, 200, 1, "Mounting holes"),
        num("pad_count", "Mounting pads", 0, 0, 4, 1, "Pads", integer=True),
        choice("pad_thread", "Pad thread", "M8", ["M4", "M6", "M8", "M10"], "Pads"),
@@ -219,7 +218,7 @@ def n_export(i, p, ctx):
     from stencil import tiling
     s = i["solid"]
     post = {k: p[k] for k in ("tile_max_x_mm", "tile_max_y_mm", "connector_diameter_mm", "connector_shape", "connector_clearance_mm", "mount_screw", "mount_offset_mm",
-                              "mount_clearance_mm", "mount_threaded", "mount_plate_mm", "mount_extend_mm", "pad_count", "pad_thread", "pad_height_mm")}
+                              "mount_clearance_mm", "mount_threaded", "mount_extend_mm", "pad_count", "pad_thread", "pad_height_mm")}
     if not (p["tile_max_x_mm"] or p["tile_max_y_mm"] or p["mount_screw"] != "none" or p["pad_count"]):
         return {"parts": {"files": {"stencil.stl": s["stl"]}}, "solid": s}
     r = s["recipe"]
@@ -244,16 +243,16 @@ def n_export(i, p, ctx):
         ctx.progress(0.985, f"connector fit test: holes 1-{len(tiling.FIT_STEPS)} (dimples) have {tiling.FIT_STEPS[0]:g}-{tiling.FIT_STEPS[-1]:g} mm clearance; current setting {p['connector_clearance_mm']:g} mm")
     mount = stats.get("mount")
     if mount and mount.get("holes"):
-        plate_t = (stats.get("size_mm") or [0, 0, 8])[2]
+        plate_t = float(stats["thickness_mm"])      # joiner and extender are exactly as thick as the stencil
         nut_h = round(0.8 * float(p["mount_screw"][1:]), 1)
-        length = p["mount_screw_length_mm"] or float(math.ceil(plate_t + p["mount_plate_mm"] + nut_h + 2))
+        length = p["mount_screw_length_mm"] or float(math.ceil(2 * plate_t + nut_h + 2))
         bolt, nut, sinfo = tiling.screw_parts(p["mount_screw"], length, p.get("thread_clearance_mm", 0.2))
         files[f"screw_{p['mount_screw']}x{length:g}.stl"] = tiling.stl_bytes(bolt)[0]
         files[f"nut_{p['mount_screw']}.stl"] = tiling.stl_bytes(nut)[0]
         ctx.progress(0.986, f"{p['mount_screw']}x{length:g} printable screw and nut: print one set per hole you fill")
     if mount and mount.get("pairs"):
         d = tiling.hole_diameter(p["mount_screw"], p["mount_clearance_mm"])
-        joiner, extender = tiling.join_plates(d, p["mount_offset_mm"], p["mount_extend_mm"], p["mount_plate_mm"],
+        joiner, extender = tiling.join_plates(d, p["mount_offset_mm"], p["mount_extend_mm"], plate_t,
                                            p["mount_screw"] if p["mount_threaded"] else None, p["mount_clearance_mm"] / 2)
         files[f"joiner_2hole_{p['mount_screw']}.stl"] = tiling.stl_bytes(joiner)[0]
         files[f"extender_4hole_{p['mount_screw']}.stl"] = tiling.stl_bytes(extender)[0]
