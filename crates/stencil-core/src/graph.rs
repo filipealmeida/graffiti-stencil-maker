@@ -182,7 +182,7 @@ fn run_source(e: &Engine, _: &HashMap<String, Value>, p: &P) -> Result<Outputs, 
         .uploads
         .get(id)
         .ok_or("the image is no longer loaded: drop it again")?;
-    let rgb = crate::decode_rgb(bytes, p.f("resolution") as u32)?;
+    let rgb = crate::decode::decode_rgb(bytes, p.f("resolution") as u32)?;
     Ok(vec![("image", Value::Image(Rc::new(rgb)))])
 }
 
