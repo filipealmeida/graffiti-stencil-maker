@@ -64,6 +64,18 @@ function call<T>(msg: Record<string, unknown>, transfer: Transferable[] = []): P
 
 // Results live in the browser: artifacts are blobs, infos are cached JSON.
 const blobs = new Map<string, string>()
+const MAX_LIVE_KEYS = 48
+const liveKeys: string[] = []
+function retain(key: string) {
+  const at = liveKeys.indexOf(key)
+  if (at >= 0) liveKeys.splice(at, 1)
+  liveKeys.push(key)
+  while (liveKeys.length > MAX_LIVE_KEYS) {
+    const old = liveKeys.shift()!
+    for (const k of [...blobs.keys()]) if (k.startsWith(`${old}/`)) { URL.revokeObjectURL(blobs.get(k)!); blobs.delete(k) }
+    for (const k of [...infos.keys()]) if (k.startsWith(`${old}/`)) infos.delete(k)
+  }
+}
 const infos = new Map<string, Info>()
 const jobs = new Map<string, { status: string; nodes: Record<string, NodeRun>; error?: string; log: LogLine[]; n: number }>()
 let jobSeq = 0
@@ -102,6 +114,18 @@ const b64 = (b: ArrayBuffer) => {
 }
 const unb64 = (s: string) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0)).buffer
 
+let waiting: { graph: GraphJson; targets?: string[]; ok: (r: any) => void; err: (e: Error) => void } | null = null
+let working = false
+function pump() {
+  if (working || !waiting) return
+  const w = waiting
+  waiting = null
+  working = true
+  call<{ result: any; artifacts: any[] }>({ op: 'run', graph: JSON.stringify(w.graph), targets: w.targets ? JSON.stringify(w.targets) : '' })
+    .then(w.ok, w.err)
+    .finally(() => { working = false; pump() })
+}
+
 export const api = {
   nodeTypes: () => call<NodeType[]>({ op: 'types' }),
   async upload(f: File) {
@@ -118,10 +142,18 @@ export const api = {
       if (img) await call({ op: 'image', bytes: img.bytes.slice(0) })
     }
   },
+  /** The worker is synchronous, so runs go one at a time and a waiting run is replaced by a newer request. */
   async run(graph: GraphJson, targets?: string[]) {
+    const r = await new Promise<{ result: any; artifacts: any[] }>((ok, err) => {
+      waiting?.err(new Error('superseded'))
+      waiting = { graph, targets, ok, err }
+      pump()
+    })
     const job = `j${++jobSeq}`
-    const r = await call<{ result: any; artifacts: any[] }>({ op: 'run', graph: JSON.stringify(graph), targets: targets ? JSON.stringify(targets) : '' })
     for (const a of r.artifacts) {
+      retain(a.key)
+      const prev = blobs.get(`${a.key}/${a.out}`)
+      if (prev) URL.revokeObjectURL(prev)
       if (a.bytes.length) blobs.set(`${a.key}/${a.out}`, URL.createObjectURL(new Blob([a.bytes as BlobPart], { type: a.mime })))
       for (const [name, bytes] of Object.entries<Uint8Array>(a.parts)) blobs.set(`${a.key}/${a.out}/${name}`, URL.createObjectURL(new Blob([bytes as BlobPart], { type: 'model/stl' })))
       if (a.info) infos.set(`${a.key}/${a.out}`, a.info)
@@ -151,12 +183,20 @@ export const api = {
     return { version: 2, graph, images }
   },
   async importProject(p: any) {
+    const remap = new Map<string, string>()
     for (const [id, img] of Object.entries<{ name: string; base64: string }>(p.images ?? {})) {
       const bytes = unb64(img.base64)
       const got = await call<{ id: string }>({ op: 'image', bytes: bytes.slice(0) })
-      await idb('readwrite', (s) => s.put({ name: img.name, bytes } satisfies StoredImage, got.id ?? id))
+      remap.set(id, got.id)
+      await idb('readwrite', (s) => s.put({ name: img.name, bytes } satisfies StoredImage, got.id))
     }
-    return p.graph as { nodes: any[]; edges: any[] }
+    const g = p.graph as { nodes: any[]; edges: any[] }
+    // older projects keep the picture ids of the engine that saved them
+    for (const n of g.nodes ?? []) {
+      const old = n.data?.params?.image_id
+      if (old && remap.has(String(old))) n.data.params.image_id = remap.get(String(old))
+    }
+    return g
   },
 }
 

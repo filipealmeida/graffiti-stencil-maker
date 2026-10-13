@@ -177,7 +177,7 @@ export async function runGraph(scope: 'all' | 'trace' = 'all') {
       await new Promise((res) => setTimeout(res, 100))
     }
   } catch (e) {
-    if (mine === token) useStudio.setState({ busy: false, error: String(e instanceof Error ? e.message : e) })
+    if (mine === token && !(e instanceof Error && e.message === 'superseded')) useStudio.setState({ busy: false, error: String(e instanceof Error ? e.message : e) })
   }
 }
 export { LANE_X }

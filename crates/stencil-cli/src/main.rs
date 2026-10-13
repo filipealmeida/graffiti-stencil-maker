@@ -148,6 +148,27 @@ fn main() {
         );
     }
 
+    // every plate a stencil node built has passed the island and watertight checks, or the run would have failed
+    for n in graph["nodes"].as_array().into_iter().flatten() {
+        let r = &result["nodes"][n["id"].as_str().unwrap_or("")];
+        let (Some(key), Some(outs)) = (r["key"].as_str(), r["outputs"].as_object()) else {
+            continue;
+        };
+        if let Some(st) = outs
+            .contains_key("solid")
+            .then(|| engine.value(key, "solid"))
+            .flatten()
+            .map(|v| v.info())
+            .and_then(|i| i.get("stats").cloned())
+            .filter(|_| matches!(n["type"].as_str(), Some("stencil" | "vector_stencil")))
+        {
+            eprintln!(
+                "verified: {} islands found, {} remaining, watertight {}, {} triangles",
+                st["islands_found"], st["islands_remaining"], st["watertight"], st["triangles"]
+            );
+        }
+    }
+
     let consumed: HashSet<&str> = graph["edges"]
         .as_array()
         .into_iter()
@@ -335,16 +356,15 @@ fn load_project(engine: &mut Engine, path: &Path) -> (Json, String, PathBuf) {
         .unwrap_or_else(|e| fail(&format!("cannot read {}: {e}", path.display())));
     let p: Json = serde_json::from_str(&text)
         .unwrap_or_else(|e| fail(&format!("{} is not a project: {e}", path.display())));
+    // pictures are stored under the id of the machine that saved them; remap to this engine's ids
+    let mut remap: std::collections::HashMap<String, String> = Default::default();
     for (id, img) in p["images"].as_object().into_iter().flatten() {
         let bytes = base64::engine::general_purpose::STANDARD
             .decode(img["base64"].as_str().unwrap_or(""))
             .unwrap_or_else(|_| fail(&format!("image {id} is damaged")));
         let got = engine.add_image(bytes).unwrap_or_else(|e| fail(&e));
-        if got["id"] != json!(id) {
-            eprintln!(
-                "note: image {id} was stored under a different id ({})",
-                got["id"]
-            );
+        if let Some(new) = got["id"].as_str() {
+            remap.insert(id.clone(), new.to_string());
         }
     }
     let g = &p["graph"];
@@ -354,7 +374,11 @@ fn load_project(engine: &mut Engine, path: &Path) -> (Json, String, PathBuf) {
         .flatten()
         .map(|n| {
             let d = if n["data"].is_object() { &n["data"] } else { n };
-            json!({"id": n["id"], "type": d["type"], "params": d["params"]})
+            let mut params = d["params"].clone();
+            if let Some(new) = params["image_id"].as_str().and_then(|i| remap.get(i)) {
+                params["image_id"] = json!(new);
+            }
+            json!({"id": n["id"], "type": d["type"], "params": params})
         })
         .collect();
     let edges: Vec<Json> = g["edges"]

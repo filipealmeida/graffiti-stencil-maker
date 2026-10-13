@@ -1,0 +1,413 @@
+//! The node catalogue: ids, ports, parameter definitions and docs. Execution lives in the parent module.
+
+use super::*;
+
+pub(super) type Outputs = Vec<(&'static str, Value)>;
+pub(super) type RunFn = fn(&Engine, &HashMap<String, Value>, &P) -> Result<Outputs, String>;
+
+pub(super) struct NodeDef {
+    pub(super) id: &'static str,
+    pub(super) label: &'static str,
+    pub(super) stage: &'static str,
+    pub(super) inputs: Vec<(&'static str, &'static str, bool)>,
+    pub(super) outputs: Vec<(&'static str, &'static str)>,
+    pub(super) params: Vec<Json>,
+    pub(super) doc: &'static str,
+    pub(super) run: RunFn,
+}
+
+pub(super) fn num(
+    name: &str,
+    label: &str,
+    default: f64,
+    lo: f64,
+    hi: f64,
+    step: f64,
+    group: Option<&str>,
+    int: bool,
+) -> Json {
+    json!({"name": name, "label": label, "kind": if int {"int"} else {"float"}, "default": default, "min": lo, "max": hi, "step": step, "group": group})
+}
+pub(super) fn flag(name: &str, label: &str, default: bool, group: Option<&str>) -> Json {
+    json!({"name": name, "label": label, "kind": "bool", "default": default, "group": group})
+}
+pub(super) fn choice(
+    name: &str,
+    label: &str,
+    default: &str,
+    choices: &[&str],
+    group: Option<&str>,
+) -> Json {
+    json!({"name": name, "label": label, "kind": "choice", "default": default, "choices": choices, "group": group})
+}
+
+pub(super) const THREAD_NAMES: [&str; 6] = ["M3", "M4", "M5", "M6", "M8", "M10"];
+
+pub(super) fn catalogue() -> Vec<NodeDef> {
+    vec![
+        NodeDef {
+            id: "source",
+            label: "Image",
+            stage: "trace",
+            inputs: vec![],
+            outputs: vec![("image", "image")],
+            params: vec![
+                json!({"name": "image_id", "label": "Image", "kind": "text", "default": "", "group": null}),
+                num("resolution", "Working resolution (px, longest side)", 500.0, 20.0, 2000.0, 10.0, None, true),
+            ],
+            doc: "The input picture, resized to the working resolution that every mask downstream is traced at.",
+            run: run_source,
+        },
+        NodeDef {
+            id: "threshold",
+            label: "Threshold",
+            stage: "trace",
+            inputs: vec![("image", "image", true)],
+            outputs: vec![("mask", "mask")],
+            params: vec![
+                num("threshold", "Threshold (256 = automatic)", 256.0, 0.0, 256.0, 1.0, None, true),
+                flag("invert", "Invert", false, None),
+            ],
+            doc: "Dark areas become paint (holes); invert to make light areas the holes.",
+            run: run_threshold,
+        },
+        NodeDef {
+            id: "reduce",
+            label: "Reduce colours",
+            stage: "trace",
+            inputs: vec![("image", "image", true)],
+            outputs: vec![("image", "image")],
+            params: vec![
+                num("colours", "Colours", 3.0, 2.0, 10.0, 1.0, None, true),
+                num("smooth", "Pre-blur (px)", 0.0, 0.0, 6.0, 0.5, None, false),
+            ],
+            doc: "Quantizes the picture to N colours (k-means in Lab space) so every region has exactly one flat colour.",
+            run: run_reduce,
+        },
+        NodeDef {
+            id: "split_colours",
+            label: "Split colours",
+            stage: "trace",
+            inputs: vec![("image", "image", true)],
+            outputs: split_outputs(),
+            params: vec![
+                flag("invert", "Invert order (lightest first)", false, None),
+                num("colours", "Colours if the input has more than this many (2-10)", 10.0, 2.0, 10.0, 1.0, None, true),
+                num("min_area", "Drop specks smaller than (% of image, 0 = keep)", 0.0, 0.0, 5.0, 0.05, None, false),
+            ],
+            doc: "Splits an image into one mask per flat colour, darkest first (colour 1), so each colour can feed its own Stencil. An image with more colours than the setting is reduced first. Every mask is true where that colour is (paint). Outputs beyond the number of colours are hidden.",
+            run: run_split,
+        },
+        NodeDef {
+            id: "tone_patterns",
+            label: "Tone patterns",
+            stage: "trace",
+            inputs: vec![("image", "image", true)],
+            outputs: vec![("mask", "mask"), ("tones", "image")],
+            params: tone_params(),
+            doc: "Ranks the colours of a reduced image by lightness. The darkest becomes solid paint, the lightest stays empty, and the tones between get patterns that thin out step by step. Dots leave islands that the stencil bridges. One tone per colour of the input (up to 10).",
+            run: run_tones,
+        },
+        NodeDef {
+            id: "trace",
+            label: "Trace",
+            stage: "trace",
+            inputs: vec![("mask", "mask", true)],
+            outputs: vec![("shapes", "shapes")],
+            params: vec![
+                num("smooth", "Smoothing (px)", 1.5, 0.0, 8.0, 0.25, None, false),
+                num("corner_deg", "Sharp corner angle (deg, 180 = round everything)", 60.0, 20.0, 180.0, 5.0, None, false),
+                num("tolerance", "Simplify tolerance (px)", 0.4, 0.05, 3.0, 0.05, None, false),
+                num("min_area", "Drop specks smaller than (px²)", 4.0, 0.0, 1000.0, 1.0, None, false),
+            ],
+            doc: "Turns a mask into vector shapes: closed Bézier outlines with holes, smooth curves and sharp corners kept. Feed it to a Vector stencil, so the outlines need no pixel smoothing.",
+            run: run_trace,
+        },
+        NodeDef {
+            id: "shapes_to_mask",
+            label: "Shapes to mask",
+            stage: "trace",
+            inputs: vec![("shapes", "shapes", true)],
+            outputs: vec![("mask", "mask")],
+            params: vec![num("resolution", "Resolution (px, longest side)", 1000.0, 20.0, 4000.0, 10.0, None, true)],
+            doc: "Rasterises vector shapes back to a mask at any resolution, so curves can feed the raster nodes.",
+            run: run_shapes_to_mask,
+        },
+        NodeDef {
+            id: "stencil",
+            label: "Stencil",
+            stage: "stencil",
+            inputs: vec![("mask", "mask", true)],
+            outputs: vec![("solid", "solid")],
+            params: stencil_params(false),
+            doc: "Turns a mask into a watertight, island-free 3D plate with bridges. Raised bridges keep the first layer true to the artwork: islands and all, with the paint filling underneath.",
+            run: run_stencil,
+        },
+        NodeDef {
+            id: "vector_stencil",
+            label: "Vector stencil",
+            stage: "stencil",
+            inputs: vec![("shapes", "shapes", true)],
+            outputs: vec![("solid", "solid")],
+            params: stencil_params(true),
+            doc: "Builds the plate directly from vector outlines with polygon booleans, bridges enclosed material islands, and extrudes the result. Mesh detail controls curve flattening accuracy. Raised bridges use the layered raster bridge engine to preserve their stepped Z profile.",
+            run: run_vector_stencil,
+        },
+        NodeDef {
+            id: "export",
+            label: "Tiles & mounting",
+            stage: "post",
+            inputs: vec![("solid", "solid", true)],
+            outputs: vec![("parts", "parts"), ("solid", "solid")],
+            params: vec![
+                num("max_x", "Largest tile width (mm, 0 = no tiling)", 0.0, 0.0, 2000.0, 5.0, Some("Tiles"), false),
+                num("max_y", "Largest tile height (mm, 0 = no tiling)", 0.0, 0.0, 2000.0, 5.0, Some("Tiles"), false),
+                choice("connector", "Connector shape", "hex", &["hex", "round"], Some("Tiles")),
+                choice("connector_d", "Connector diameter (mm)", "3", &["2.5", "3", "4", "5", "6"], Some("Tiles")),
+                num("clearance", "Connector hole clearance (mm)", 0.2, 0.0, 0.6, 0.05, Some("Tiles"), false),
+                num("segments", "Round segments (connectors, holes, threads)", 48.0, 24.0, 128.0, 4.0, Some("Tiles"), true),
+                num("pad_count", "Raised pads (0-4)", 0.0, 0.0, 4.0, 1.0, Some("Pads"), true),
+                choice("pad_thread", "Pad thread", "M8", &THREAD_NAMES, Some("Pads")),
+                num("pad_height", "Pad height (mm)", 6.0, 1.0, 30.0, 0.5, Some("Pads"), false),
+                num("thread_clearance", "Thread clearance (mm, radial)", 0.2, 0.0, 0.6, 0.05, Some("Pads"), false),
+                choice("mount_screw", "Mounting screw", "none", &["none", "M3", "M4", "M5", "M6", "M8", "M10"], Some("Mounting holes")),
+                num("mount_clearance", "Hole clearance (mm, diametral)", 0.3, 0.0, 1.0, 0.05, Some("Mounting holes"), false),
+                flag("mount_threaded", "Cut a real thread", true, Some("Mounting holes")),
+                num("mount_offset", "Distance from a seam to the hole (mm)", 10.0, 4.0, 60.0, 1.0, Some("Mounting holes"), false),
+                num("mount_extend", "Extender plate: outer row distance (mm)", 20.0, 8.0, 100.0, 1.0, Some("Mounting holes"), false),
+            ],
+            doc: "Splits the plate into printable tiles on a seam grid, with glued connector rods in blind seam holes. Adds raised threaded pads and threaded or plain mounting holes in the frame, and joiner and extender plates that bridge the seams. Download everything as a ZIP.",
+            run: run_export,
+        },
+        NodeDef {
+            id: "hardware",
+            label: "Screws, nuts & fit test",
+            stage: "post",
+            inputs: vec![],
+            outputs: vec![("parts", "parts")],
+            params: vec![
+                choice("screw", "Screw size", "M4", &THREAD_NAMES, Some("Screw and nut")),
+                num("length", "Screw length (mm)", 20.0, 4.0, 120.0, 1.0, Some("Screw and nut"), false),
+                num("nut_clearance", "Nut thread clearance (mm, radial)", 0.2, 0.0, 0.6, 0.05, Some("Screw and nut"), false),
+                flag("fit_test", "Connector fit-test strip", true, Some("Fit test")),
+                choice("connector", "Connector shape", "hex", &["hex", "round"], Some("Fit test")),
+                choice("connector_d", "Connector diameter (mm)", "3", &["2.5", "3", "4", "5", "6"], Some("Fit test")),
+                num("segments", "Round segments (threads, round holes)", 48.0, 24.0, 128.0, 4.0, None, true),
+            ],
+            doc: "Printable hex-head bolt and hex nut with real threads (M3 to M10), plus a calibration strip of connector holes with growing clearance: try the rod in each and keep the snuggest.",
+            run: run_hardware,
+        },
+    ]
+}
+
+pub(super) fn stencil_params(vector: bool) -> Vec<Json> {
+    let mut v = vec![
+        num(
+            "width_mm",
+            "Plate width (mm)",
+            100.0,
+            20.0,
+            2000.0,
+            1.0,
+            Some("Plate"),
+            false,
+        ),
+        num(
+            "thickness_mm",
+            "Thickness (mm)",
+            2.0,
+            0.2,
+            100.0,
+            0.2,
+            Some("Plate"),
+            false,
+        ),
+        num(
+            "margin_mm",
+            "Margin (mm)",
+            8.0,
+            1.0,
+            500.0,
+            1.0,
+            Some("Plate"),
+            false,
+        ),
+        flag("flip", "Print upside down", false, Some("Plate")),
+        num(
+            "bridge_mm",
+            "Bridge width (mm)",
+            1.6,
+            0.6,
+            50.0,
+            0.1,
+            Some("Bridges"),
+            false,
+        ),
+        flag("raised_bridges", "Raised bridges", false, Some("Bridges")),
+        choice(
+            "z_bridging",
+            "Z bridging",
+            "steps",
+            &["steps", "easy"],
+            Some("Bridges"),
+        ),
+        num(
+            "layer_height_mm",
+            "Layer height (mm)",
+            0.2,
+            0.05,
+            5.0,
+            0.05,
+            Some("Bridges"),
+            false,
+        ),
+        num(
+            "extra_top_layers",
+            "Extra top layers",
+            1.0,
+            0.0,
+            50.0,
+            1.0,
+            Some("Bridges"),
+            true,
+        ),
+        num(
+            "max_overhang_deg",
+            "Overhang check angle (deg, 0 = 45)",
+            0.0,
+            0.0,
+            89.0,
+            1.0,
+            Some("Bridges"),
+            false,
+        ),
+        num(
+            "min_island_mm2",
+            "Delete islands under (mm²)",
+            0.0,
+            0.0,
+            100000.0,
+            1.0,
+            Some("Bridges"),
+            false,
+        ),
+    ];
+    if vector {
+        v.insert(
+            0,
+            num(
+                "detail",
+                "Mesh detail (samples per mm)",
+                3.0,
+                0.5,
+                10.0,
+                0.5,
+                Some("Plate"),
+                false,
+            ),
+        );
+    }
+    v
+}
+
+pub(super) fn split_outputs() -> Vec<(&'static str, &'static str)> {
+    const NAMES: [&str; 10] = [
+        "colour_1",
+        "colour_2",
+        "colour_3",
+        "colour_4",
+        "colour_5",
+        "colour_6",
+        "colour_7",
+        "colour_8",
+        "colour_9",
+        "colour_10",
+    ];
+    NAMES
+        .iter()
+        .map(|n| (*n, "mask"))
+        .chain([("palette", "image")])
+        .collect()
+}
+
+pub(super) fn tone_params() -> Vec<Json> {
+    let kinds = [
+        "auto",
+        "lines",
+        "dots",
+        "crosshatch",
+        "checker",
+        "solid",
+        "empty",
+    ];
+    let mut v = vec![
+        num(
+            "plate_width_mm",
+            "Plate width (mm, match the Stencil node)",
+            100.0,
+            20.0,
+            2000.0,
+            1.0,
+            None,
+            true,
+        ),
+        flag(
+            "invert",
+            "Invert (lightest colour solid, darkest empty)",
+            false,
+            None,
+        ),
+        choice("kind", "Default pattern type", "auto", &kinds[..5], None),
+        num(
+            "spacing_mm",
+            "Default pattern spacing (mm, 0 = solid)",
+            2.5,
+            0.0,
+            20.0,
+            0.1,
+            None,
+            false,
+        ),
+        num(
+            "angle",
+            "Default pattern angle (deg)",
+            45.0,
+            0.0,
+            90.0,
+            5.0,
+            None,
+            true,
+        ),
+    ];
+    for k in 1..=colour::MAX_RUNGS {
+        let g = format!("Tone {k}");
+        v.push(choice(
+            &format!("kind_{k}"),
+            "Type",
+            "auto",
+            &kinds,
+            Some(&g),
+        ));
+        v.push(num(
+            &format!("spacing_{k}"),
+            "Spacing (mm, 0 = default)",
+            0.0,
+            0.0,
+            20.0,
+            0.1,
+            Some(&g),
+            false,
+        ));
+        v.push(num(
+            &format!("cover_{k}"),
+            "Coverage (%, 0 = automatic)",
+            0.0,
+            0.0,
+            95.0,
+            1.0,
+            Some(&g),
+            false,
+        ));
+    }
+    v
+}

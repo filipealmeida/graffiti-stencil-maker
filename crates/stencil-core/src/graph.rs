@@ -3,10 +3,13 @@
 use crate::colour::{self, Pattern, Tone, ToneParams};
 use crate::{otsu, stencil_from_paint, Params, ZBridging};
 use serde_json::{json, Map, Value as Json};
-use std::collections::hash_map::DefaultHasher;
 use std::collections::{HashMap, HashSet, VecDeque};
-use std::hash::{Hash, Hasher};
 use std::rc::Rc;
+
+mod catalogue;
+use catalogue::{catalogue, split_outputs, NodeDef, Outputs};
+#[cfg(test)]
+mod tests;
 
 const CACHE_LIMIT: usize = 64;
 
@@ -119,198 +122,6 @@ fn png(w: usize, h: usize, color: image::ColorType, data: &[u8]) -> Result<Vec<u
 
 // ---- node catalogue -----------------------------------------------------------------------------------------------
 
-type Outputs = Vec<(&'static str, Value)>;
-type RunFn = fn(&Engine, &HashMap<String, Value>, &P) -> Result<Outputs, String>;
-
-struct NodeDef {
-    id: &'static str,
-    label: &'static str,
-    stage: &'static str,
-    inputs: Vec<(&'static str, &'static str, bool)>,
-    outputs: Vec<(&'static str, &'static str)>,
-    params: Vec<Json>,
-    doc: &'static str,
-    run: RunFn,
-}
-
-fn num(
-    name: &str,
-    label: &str,
-    default: f64,
-    lo: f64,
-    hi: f64,
-    step: f64,
-    group: Option<&str>,
-    int: bool,
-) -> Json {
-    json!({"name": name, "label": label, "kind": if int {"int"} else {"float"}, "default": default, "min": lo, "max": hi, "step": step, "group": group})
-}
-fn flag(name: &str, label: &str, default: bool, group: Option<&str>) -> Json {
-    json!({"name": name, "label": label, "kind": "bool", "default": default, "group": group})
-}
-fn choice(name: &str, label: &str, default: &str, choices: &[&str], group: Option<&str>) -> Json {
-    json!({"name": name, "label": label, "kind": "choice", "default": default, "choices": choices, "group": group})
-}
-
-const THREAD_NAMES: [&str; 6] = ["M3", "M4", "M5", "M6", "M8", "M10"];
-
-fn catalogue() -> Vec<NodeDef> {
-    vec![
-        NodeDef {
-            id: "source",
-            label: "Image",
-            stage: "trace",
-            inputs: vec![],
-            outputs: vec![("image", "image")],
-            params: vec![
-                json!({"name": "image_id", "label": "Image", "kind": "text", "default": "", "group": null}),
-                num("resolution", "Working resolution (px, longest side)", 500.0, 20.0, 2000.0, 10.0, None, true),
-            ],
-            doc: "The input picture, resized to the working resolution that every mask downstream is traced at.",
-            run: run_source,
-        },
-        NodeDef {
-            id: "threshold",
-            label: "Threshold",
-            stage: "trace",
-            inputs: vec![("image", "image", true)],
-            outputs: vec![("mask", "mask")],
-            params: vec![
-                num("threshold", "Threshold (256 = automatic)", 256.0, 0.0, 256.0, 1.0, None, true),
-                flag("invert", "Invert", false, None),
-            ],
-            doc: "Dark areas become paint (holes); invert to make light areas the holes.",
-            run: run_threshold,
-        },
-        NodeDef {
-            id: "reduce",
-            label: "Reduce colours",
-            stage: "trace",
-            inputs: vec![("image", "image", true)],
-            outputs: vec![("image", "image")],
-            params: vec![
-                num("colours", "Colours", 3.0, 2.0, 10.0, 1.0, None, true),
-                num("smooth", "Pre-blur (px)", 0.0, 0.0, 6.0, 0.5, None, false),
-            ],
-            doc: "Quantizes the picture to N colours (k-means in Lab space) so every region has exactly one flat colour.",
-            run: run_reduce,
-        },
-        NodeDef {
-            id: "split_colours",
-            label: "Split colours",
-            stage: "trace",
-            inputs: vec![("image", "image", true)],
-            outputs: split_outputs(),
-            params: vec![
-                flag("invert", "Invert order (lightest first)", false, None),
-                num("colours", "Colours if the input has more than this many (2-10)", 10.0, 2.0, 10.0, 1.0, None, true),
-                num("min_area", "Drop specks smaller than (% of image, 0 = keep)", 0.0, 0.0, 5.0, 0.05, None, false),
-            ],
-            doc: "Splits an image into one mask per flat colour, darkest first (colour 1), so each colour can feed its own Stencil. An image with more colours than the setting is reduced first. Every mask is true where that colour is (paint). Outputs beyond the number of colours are hidden.",
-            run: run_split,
-        },
-        NodeDef {
-            id: "tone_patterns",
-            label: "Tone patterns",
-            stage: "trace",
-            inputs: vec![("image", "image", true)],
-            outputs: vec![("mask", "mask"), ("tones", "image")],
-            params: tone_params(),
-            doc: "Ranks the colours of a reduced image by lightness. The darkest becomes solid paint, the lightest stays empty, and the tones between get patterns that thin out step by step. Dots leave islands that the stencil bridges. One tone per colour of the input (up to 10).",
-            run: run_tones,
-        },
-        NodeDef {
-            id: "trace",
-            label: "Trace",
-            stage: "trace",
-            inputs: vec![("mask", "mask", true)],
-            outputs: vec![("shapes", "shapes")],
-            params: vec![
-                num("smooth", "Smoothing (px)", 1.5, 0.0, 8.0, 0.25, None, false),
-                num("corner_deg", "Sharp corner angle (deg, 180 = round everything)", 60.0, 20.0, 180.0, 5.0, None, false),
-                num("tolerance", "Simplify tolerance (px)", 0.4, 0.05, 3.0, 0.05, None, false),
-                num("min_area", "Drop specks smaller than (px²)", 4.0, 0.0, 1000.0, 1.0, None, false),
-            ],
-            doc: "Turns a mask into vector shapes: closed Bézier outlines with holes, smooth curves and sharp corners kept. Feed it to a Vector stencil, so the outlines need no pixel smoothing.",
-            run: run_trace,
-        },
-        NodeDef {
-            id: "shapes_to_mask",
-            label: "Shapes to mask",
-            stage: "trace",
-            inputs: vec![("shapes", "shapes", true)],
-            outputs: vec![("mask", "mask")],
-            params: vec![num("resolution", "Resolution (px, longest side)", 1000.0, 20.0, 4000.0, 10.0, None, true)],
-            doc: "Rasterises vector shapes back to a mask at any resolution, so curves can feed the raster nodes.",
-            run: run_shapes_to_mask,
-        },
-        NodeDef {
-            id: "stencil",
-            label: "Stencil",
-            stage: "stencil",
-            inputs: vec![("mask", "mask", true)],
-            outputs: vec![("solid", "solid")],
-            params: stencil_params(false),
-            doc: "Turns a mask into a watertight, island-free 3D plate with bridges. Raised bridges keep the first layer true to the artwork: islands and all, with the paint filling underneath.",
-            run: run_stencil,
-        },
-        NodeDef {
-            id: "vector_stencil",
-            label: "Vector stencil",
-            stage: "stencil",
-            inputs: vec![("shapes", "shapes", true)],
-            outputs: vec![("solid", "solid")],
-            params: stencil_params(true),
-            doc: "Builds the plate directly from vector outlines with polygon booleans, bridges enclosed material islands, and extrudes the result. Mesh detail controls curve flattening accuracy. Raised bridges use the layered raster bridge engine to preserve their stepped Z profile.",
-            run: run_vector_stencil,
-        },
-        NodeDef {
-            id: "export",
-            label: "Tiles & mounting",
-            stage: "post",
-            inputs: vec![("solid", "solid", true)],
-            outputs: vec![("parts", "parts"), ("solid", "solid")],
-            params: vec![
-                num("max_x", "Largest tile width (mm, 0 = no tiling)", 0.0, 0.0, 2000.0, 5.0, Some("Tiles"), false),
-                num("max_y", "Largest tile height (mm, 0 = no tiling)", 0.0, 0.0, 2000.0, 5.0, Some("Tiles"), false),
-                choice("connector", "Connector shape", "hex", &["hex", "round"], Some("Tiles")),
-                choice("connector_d", "Connector diameter (mm)", "3", &["2.5", "3", "4", "5", "6"], Some("Tiles")),
-                num("clearance", "Connector hole clearance (mm)", 0.2, 0.0, 0.6, 0.05, Some("Tiles"), false),
-                num("segments", "Round segments (connectors, holes, threads)", 48.0, 24.0, 128.0, 4.0, Some("Tiles"), true),
-                num("pad_count", "Raised pads (0-4)", 0.0, 0.0, 4.0, 1.0, Some("Pads"), true),
-                choice("pad_thread", "Pad thread", "M8", &THREAD_NAMES, Some("Pads")),
-                num("pad_height", "Pad height (mm)", 6.0, 1.0, 30.0, 0.5, Some("Pads"), false),
-                num("thread_clearance", "Thread clearance (mm, radial)", 0.2, 0.0, 0.6, 0.05, Some("Pads"), false),
-                choice("mount_screw", "Mounting screw", "none", &["none", "M3", "M4", "M5", "M6", "M8", "M10"], Some("Mounting holes")),
-                num("mount_clearance", "Hole clearance (mm, diametral)", 0.3, 0.0, 1.0, 0.05, Some("Mounting holes"), false),
-                flag("mount_threaded", "Cut a real thread", true, Some("Mounting holes")),
-                num("mount_offset", "Distance from a seam to the hole (mm)", 10.0, 4.0, 60.0, 1.0, Some("Mounting holes"), false),
-                num("mount_extend", "Extender plate: outer row distance (mm)", 20.0, 8.0, 100.0, 1.0, Some("Mounting holes"), false),
-            ],
-            doc: "Splits the plate into printable tiles on a seam grid, with glued connector rods in blind seam holes. Adds raised threaded pads and threaded or plain mounting holes in the frame, and joiner and extender plates that bridge the seams. Download everything as a ZIP.",
-            run: run_export,
-        },
-        NodeDef {
-            id: "hardware",
-            label: "Screws, nuts & fit test",
-            stage: "post",
-            inputs: vec![],
-            outputs: vec![("parts", "parts")],
-            params: vec![
-                choice("screw", "Screw size", "M4", &THREAD_NAMES, Some("Screw and nut")),
-                num("length", "Screw length (mm)", 20.0, 4.0, 120.0, 1.0, Some("Screw and nut"), false),
-                num("nut_clearance", "Nut thread clearance (mm, radial)", 0.2, 0.0, 0.6, 0.05, Some("Screw and nut"), false),
-                flag("fit_test", "Connector fit-test strip", true, Some("Fit test")),
-                choice("connector", "Connector shape", "hex", &["hex", "round"], Some("Fit test")),
-                choice("connector_d", "Connector diameter (mm)", "3", &["2.5", "3", "4", "5", "6"], Some("Fit test")),
-                num("segments", "Round segments (threads, round holes)", 48.0, 24.0, 128.0, 4.0, None, true),
-            ],
-            doc: "Printable hex-head bolt and hex nut with real threads (M3 to M10), plus a calibration strip of connector holes with growing clearance: try the rod in each and keep the snuggest.",
-            run: run_hardware,
-        },
-    ]
-}
-
 /// Parameters after defaults and clamping.
 pub struct P(Map<String, Json>);
 
@@ -400,116 +211,6 @@ fn run_threshold(_: &Engine, i: &HashMap<String, Value>, p: &P) -> Result<Output
             paint,
         })),
     )])
-}
-
-fn stencil_params(vector: bool) -> Vec<Json> {
-    let mut v = vec![
-        num(
-            "width_mm",
-            "Plate width (mm)",
-            100.0,
-            20.0,
-            2000.0,
-            1.0,
-            Some("Plate"),
-            false,
-        ),
-        num(
-            "thickness_mm",
-            "Thickness (mm)",
-            2.0,
-            0.2,
-            100.0,
-            0.2,
-            Some("Plate"),
-            false,
-        ),
-        num(
-            "margin_mm",
-            "Margin (mm)",
-            8.0,
-            1.0,
-            500.0,
-            1.0,
-            Some("Plate"),
-            false,
-        ),
-        flag("flip", "Print upside down", false, Some("Plate")),
-        num(
-            "bridge_mm",
-            "Bridge width (mm)",
-            1.6,
-            0.6,
-            50.0,
-            0.1,
-            Some("Bridges"),
-            false,
-        ),
-        flag("raised_bridges", "Raised bridges", false, Some("Bridges")),
-        choice(
-            "z_bridging",
-            "Z bridging",
-            "steps",
-            &["steps", "easy"],
-            Some("Bridges"),
-        ),
-        num(
-            "layer_height_mm",
-            "Layer height (mm)",
-            0.2,
-            0.05,
-            5.0,
-            0.05,
-            Some("Bridges"),
-            false,
-        ),
-        num(
-            "extra_top_layers",
-            "Extra top layers",
-            1.0,
-            0.0,
-            50.0,
-            1.0,
-            Some("Bridges"),
-            true,
-        ),
-        num(
-            "max_overhang_deg",
-            "Overhang check angle (deg, 0 = 45)",
-            0.0,
-            0.0,
-            89.0,
-            1.0,
-            Some("Bridges"),
-            false,
-        ),
-        num(
-            "min_island_mm2",
-            "Delete islands under (mm²)",
-            0.0,
-            0.0,
-            100000.0,
-            1.0,
-            Some("Bridges"),
-            false,
-        ),
-    ];
-    if vector {
-        v.insert(
-            0,
-            num(
-                "detail",
-                "Mesh detail (samples per mm)",
-                3.0,
-                0.5,
-                10.0,
-                0.5,
-                Some("Plate"),
-                false,
-            ),
-        );
-    }
-    v
 }
 
 fn stencil_params_from(p: &P) -> Params {
@@ -602,108 +303,6 @@ fn run_vector_stencil(_: &Engine, i: &HashMap<String, Value>, p: &P) -> Result<O
     }
     let paint = crate::trace::rasterise(s, gw.max(1), gh);
     finish_solid(stencil_from_paint(&paint, gw.max(1), gh, 0, &q)?, p)
-}
-
-fn split_outputs() -> Vec<(&'static str, &'static str)> {
-    const NAMES: [&str; 10] = [
-        "colour_1",
-        "colour_2",
-        "colour_3",
-        "colour_4",
-        "colour_5",
-        "colour_6",
-        "colour_7",
-        "colour_8",
-        "colour_9",
-        "colour_10",
-    ];
-    NAMES
-        .iter()
-        .map(|n| (*n, "mask"))
-        .chain([("palette", "image")])
-        .collect()
-}
-
-fn tone_params() -> Vec<Json> {
-    let kinds = [
-        "auto",
-        "lines",
-        "dots",
-        "crosshatch",
-        "checker",
-        "solid",
-        "empty",
-    ];
-    let mut v = vec![
-        num(
-            "plate_width_mm",
-            "Plate width (mm, match the Stencil node)",
-            100.0,
-            20.0,
-            2000.0,
-            1.0,
-            None,
-            true,
-        ),
-        flag(
-            "invert",
-            "Invert (lightest colour solid, darkest empty)",
-            false,
-            None,
-        ),
-        choice("kind", "Default pattern type", "auto", &kinds[..5], None),
-        num(
-            "spacing_mm",
-            "Default pattern spacing (mm, 0 = solid)",
-            2.5,
-            0.0,
-            20.0,
-            0.1,
-            None,
-            false,
-        ),
-        num(
-            "angle",
-            "Default pattern angle (deg)",
-            45.0,
-            0.0,
-            90.0,
-            5.0,
-            None,
-            true,
-        ),
-    ];
-    for k in 1..=colour::MAX_RUNGS {
-        let g = format!("Tone {k}");
-        v.push(choice(
-            &format!("kind_{k}"),
-            "Type",
-            "auto",
-            &kinds,
-            Some(&g),
-        ));
-        v.push(num(
-            &format!("spacing_{k}"),
-            "Spacing (mm, 0 = default)",
-            0.0,
-            0.0,
-            20.0,
-            0.1,
-            Some(&g),
-            false,
-        ));
-        v.push(num(
-            &format!("cover_{k}"),
-            "Coverage (%, 0 = automatic)",
-            0.0,
-            0.0,
-            95.0,
-            1.0,
-            Some(&g),
-            false,
-        ));
-    }
-    v
 }
 
 fn input_image<'a>(i: &'a HashMap<String, Value>) -> Result<&'a Rc<RgbImage>, String> {
@@ -941,6 +540,9 @@ fn run_export(_: &Engine, i: &HashMap<String, Value>, p: &P) -> Result<Outputs, 
 
 // ---- engine -------------------------------------------------------------------------------------------------------
 
+const MAX_IMAGE_BYTES: usize = 100 << 20;
+const MAX_IMAGE_PIXELS: u64 = 100_000_000;
+
 pub fn node_types() -> Json {
     Json::Array(
         catalogue()
@@ -965,12 +567,20 @@ pub struct Engine {
     fresh: Vec<(String, String)>,
 }
 
+/// FNV-1a over length-prefixed parts. Unlike `DefaultHasher` it gives the same id on 32-bit wasm and 64-bit native,
+/// so a project saved in the browser finds its pictures again in the CLI.
 fn hash_hex(parts: &[&[u8]]) -> String {
-    let mut h = DefaultHasher::new();
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+    let mut eat = |bytes: &[u8]| {
+        for &b in bytes {
+            h = (h ^ b as u64).wrapping_mul(0x0000_0100_0000_01b3);
+        }
+    };
     for p in parts {
-        p.hash(&mut h);
+        eat(&(p.len() as u64).to_le_bytes());
+        eat(p);
     }
-    format!("{:016x}", h.finish())
+    format!("{h:016x}")
 }
 
 impl Engine {
@@ -980,7 +590,13 @@ impl Engine {
 
     /// Registers a picture and returns `{id, width, height}`; the id is a hash of the bytes.
     pub fn add_image(&mut self, bytes: Vec<u8>) -> Result<Json, String> {
+        if bytes.len() > MAX_IMAGE_BYTES {
+            return Err("the picture file is larger than 100 MB".into());
+        }
         let (width, height) = crate::svg::size(&bytes)?;
+        if (width as u64) * (height as u64) > MAX_IMAGE_PIXELS {
+            return Err("the picture is larger than 100 megapixels".into());
+        }
         let id = hash_hex(&[&bytes]);
         let out = json!({"id": id, "width": width, "height": height});
         self.uploads.insert(id, bytes);
@@ -1237,214 +853,4 @@ fn plan(
         visit(i, &parents, &mut done, &mut open, &mut order)?;
     }
     Ok(order)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn test_png() -> Vec<u8> {
-        let img = image::GrayImage::from_fn(120, 120, |x, y| {
-            let d = (((x as f64 - 60.0).powi(2) + (y as f64 - 60.0).powi(2)).sqrt()) as u32;
-            image::Luma([if (30..40).contains(&d) { 0 } else { 255 }])
-        });
-        let mut out = std::io::Cursor::new(Vec::new());
-        img.write_to(&mut out, image::ImageFormat::Png).unwrap();
-        out.into_inner()
-    }
-
-    fn graph(image_id: &str, thickness: f64) -> Json {
-        json!({
-            "nodes": [
-                {"id": "s", "type": "source", "params": {"image_id": image_id, "resolution": 120}},
-                {"id": "t", "type": "threshold", "params": {}},
-                {"id": "st", "type": "stencil", "params": {"thickness_mm": thickness}},
-                {"id": "ex", "type": "export", "params": {}},
-            ],
-            "edges": [
-                {"from": ["s", "image"], "to": ["t", "image"]},
-                {"from": ["t", "mask"], "to": ["st", "mask"]},
-                {"from": ["st", "solid"], "to": ["ex", "solid"]},
-            ]
-        })
-    }
-
-    #[test]
-    fn svg_pictures_run_through_the_graph() {
-        let svg = br#"<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 40 40"><rect width="40" height="40" fill="white"/><circle cx="20" cy="20" r="12" fill="none" stroke="black" stroke-width="5"/></svg>"#.to_vec();
-        let mut e = Engine::new();
-        let added = e.add_image(svg).unwrap();
-        assert_eq!(added["width"], 40);
-        let g = graph(added["id"].as_str().unwrap(), 2.0);
-        let r = e.run(&g, None, &|| 0.0);
-        assert_eq!(r["nodes"]["st"]["state"], "done", "{r}");
-        let key = r["nodes"]["st"]["key"].as_str().unwrap().to_string();
-        let Some(Value::Solid(s)) = e.value(&key, "solid") else {
-            panic!()
-        };
-        assert_eq!(s.stats["islands_remaining"], 0);
-    }
-
-    #[test]
-    fn vector_polygon_path_builds_island_free_plate_and_detail_adds_triangles() {
-        let mut e = Engine::new();
-        let id = e.add_image(test_png()).unwrap()["id"]
-            .as_str()
-            .unwrap()
-            .to_string();
-        let run = |e: &mut Engine, detail: f64, raised_bridges: bool| {
-            let g = json!({
-                "nodes": [
-                    {"id": "s", "type": "source", "params": {"image_id": id, "resolution": 120}},
-                    {"id": "t", "type": "threshold", "params": {}},
-                    {"id": "tr", "type": "trace", "params": {}},
-                    {"id": "v", "type": "vector_stencil", "params": {"detail": detail, "raised_bridges": raised_bridges}},
-                ],
-                "edges": [
-                    {"from": ["s", "image"], "to": ["t", "image"]},
-                    {"from": ["t", "mask"], "to": ["tr", "mask"]},
-                    {"from": ["tr", "shapes"], "to": ["v", "shapes"]},
-                ]
-            });
-            let r = e.run(&g, None, &|| 0.0);
-            assert_eq!(r["nodes"]["v"]["state"], "done", "{r}");
-            let key = r["nodes"]["v"]["key"].as_str().unwrap().to_string();
-            let Some(Value::Solid(s)) = e.value(&key, "solid") else {
-                panic!()
-            };
-            let tris = s.stats["triangles"].as_u64().unwrap();
-            assert_eq!(s.stats["islands_remaining"], 0);
-            assert_eq!(s.stats["watertight"], true);
-            assert!(
-                s.stats["islands_found"].as_u64().unwrap() > 0,
-                "{:?}",
-                s.stats
-            );
-            assert!(
-                s.stats["bridge_pixels"].as_u64().unwrap() > 0,
-                "{:?}",
-                s.stats
-            );
-            (tris, s.stats["first_layer_islands"].as_u64().unwrap())
-        };
-        let (lo, _) = run(&mut e, 1.0, false);
-        let (hi, _) = run(&mut e, 4.0, false);
-        assert!(hi > lo, "{lo} -> {hi}");
-        let (_, first_layer_islands) = run(&mut e, 3.0, true);
-        assert!(first_layer_islands > 0);
-    }
-
-    #[test]
-    fn tiles_a_real_stencil_into_watertight_parts_and_zip() {
-        let mut e = Engine::new();
-        let id = e.add_image(test_png()).unwrap()["id"]
-            .as_str()
-            .unwrap()
-            .to_string();
-        let mut g = graph(&id, 6.0);
-        g["nodes"][3]["params"] = json!({"max_x": 60.0, "max_y": 60.0});
-        let t0 = std::time::Instant::now();
-        let r = e.run(&g, None, &|| 0.0);
-        assert_eq!(r["nodes"]["ex"]["state"], "done", "{r}");
-        eprintln!("tiling took {:?}", t0.elapsed());
-        let key = r["nodes"]["ex"]["key"].as_str().unwrap().to_string();
-        let Some(Value::Parts(p)) = e.value(&key, "parts") else {
-            panic!()
-        };
-        assert!(
-            p.files.len() >= 5,
-            "{:?}",
-            p.files.iter().map(|f| &f.0).collect::<Vec<_>>()
-        );
-        assert!(p.meta["tiling"]["connectors"].as_u64().unwrap() > 0);
-        let (mime, z) = Value::Parts(p.clone()).encode().unwrap();
-        assert_eq!(mime, "application/zip");
-        assert_eq!(&z[..4], &[0x50, 0x4b, 3, 4]);
-    }
-
-    #[test]
-    fn mounting_pads_threads_and_hardware_nodes_run() {
-        let mut e = Engine::new();
-        let id = e.add_image(test_png()).unwrap()["id"]
-            .as_str()
-            .unwrap()
-            .to_string();
-        let mut g = graph(&id, 8.0);
-        g["nodes"][2]["params"] =
-            json!({"thickness_mm": 8.0, "margin_mm": 12.0, "width_mm": 120.0});
-        g["nodes"][3]["params"] = json!({"max_x": 70.0, "max_y": 0.0, "pad_count": 2, "pad_thread": "M6", "mount_screw": "M4", "mount_offset": 16.0});
-        g["nodes"]
-            .as_array_mut()
-            .unwrap()
-            .push(json!({"id": "hw", "type": "hardware", "params": {"screw": "M8"}}));
-        let r = e.run(&g, None, &|| 0.0);
-        assert_eq!(r["nodes"]["ex"]["state"], "done", "{r}");
-        assert_eq!(r["nodes"]["hw"]["state"], "done", "{r}");
-        let key = r["nodes"]["ex"]["key"].as_str().unwrap().to_string();
-        let Some(Value::Parts(p)) = e.value(&key, "parts") else {
-            panic!()
-        };
-        let names: Vec<_> = p.files.iter().map(|f| f.0.clone()).collect();
-        assert!(names.iter().any(|n| n.starts_with("joiner_")), "{names:?}");
-        assert_eq!(p.meta["pads"]["pads"], 2);
-    }
-
-    #[test]
-    fn runs_caches_and_reruns_only_what_changed() {
-        let mut e = Engine::new();
-        let id = e.add_image(test_png()).unwrap()["id"]
-            .as_str()
-            .unwrap()
-            .to_string();
-        let now = || 0.0;
-        let r = e.run(&graph(&id, 2.0), None, &now);
-        assert_eq!(r["status"], "done");
-        assert_eq!(r["nodes"]["st"]["state"], "done");
-        assert_eq!(r["nodes"]["st"]["cached"], false);
-        let key = r["nodes"]["st"]["key"].as_str().unwrap();
-        let Some(Value::Solid(s)) = e.value(key, "solid") else {
-            panic!("no solid")
-        };
-        assert_eq!(s.stats["islands_remaining"], 0);
-        assert_eq!(s.stats["watertight"], true);
-
-        let again = e.run(&graph(&id, 2.0), None, &now);
-        assert_eq!(again["nodes"]["st"]["cached"], true);
-        let changed = e.run(&graph(&id, 3.0), None, &now);
-        assert_eq!(changed["nodes"]["t"]["cached"], true);
-        assert_eq!(changed["nodes"]["st"]["cached"], false);
-    }
-
-    #[test]
-    fn targets_limit_evaluation_and_errors_stay_local() {
-        let mut e = Engine::new();
-        let id = e.add_image(test_png()).unwrap()["id"]
-            .as_str()
-            .unwrap()
-            .to_string();
-        let r = e.run(&graph(&id, 2.0), Some(&["t".to_string()]), &|| 0.0);
-        assert_eq!(r["nodes"]["t"]["state"], "done");
-        assert_eq!(r["nodes"]["st"]["state"], "pending");
-
-        let missing = e.run(&graph("nope", 2.0), None, &|| 0.0);
-        assert_eq!(missing["nodes"]["s"]["state"], "error");
-        assert_eq!(
-            missing["nodes"]["st"]["error"],
-            "waiting on a failed node upstream"
-        );
-    }
-
-    #[test]
-    fn rejects_bad_connections_and_cycles() {
-        let mut e = Engine::new();
-        let bad = json!({"nodes": [{"id": "a", "type": "threshold"}, {"id": "b", "type": "threshold"}],
-            "edges": [{"from": ["a", "mask"], "to": ["b", "image"]}]});
-        assert_eq!(e.run(&bad, None, &|| 0.0)["status"], "error");
-        let cyc = json!({"nodes": [{"id": "a", "type": "export"}, {"id": "b", "type": "export"}],
-            "edges": [{"from": ["a", "solid"], "to": ["b", "solid"]}, {"from": ["b", "solid"], "to": ["a", "solid"]}]});
-        assert!(e.run(&cyc, None, &|| 0.0)["error"]
-            .as_str()
-            .unwrap()
-            .contains("cycle"));
-    }
 }

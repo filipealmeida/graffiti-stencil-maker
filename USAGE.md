@@ -23,8 +23,10 @@ stencil tiled.png --tile-width 60 --tile-height 60 --connector hex --pads 4 --pa
 stencil --project saved-studio-graph.json -o output/
 ```
 
-Images can be PNG, JPG, BMP, or SVG. The CLI prints a JSON summary and exits unsuccessfully if stencil validation
-fails. A single output part is written as an STL; multi-part exports also produce a ZIP archive.
+Images can be PNG, JPG, BMP, or SVG (at most 100 MB and 100 megapixels). The CLI prints a `verified:` line with the
+island and watertight check results and exits unsuccessfully if stencil validation fails. A single output part is
+written as an STL; multi-part exports also produce a ZIP archive. Projects saved from the studio can be run with
+`--project`; picture ids are remapped automatically, including for projects saved by older versions.
 
 ## Studio
 

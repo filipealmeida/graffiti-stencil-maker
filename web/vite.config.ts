@@ -6,5 +6,7 @@ export default defineConfig({
   base: './',
   plugins: [react()],
   worker: { format: 'es' },
+  // three.js is split into its own lazily loaded chunk
+  build: { chunkSizeWarningLimit: 600 },
   server: { port: 5174 },
 })

@@ -86,8 +86,11 @@ function Canvas() {
     const a = document.createElement('a')
     a.href = url
     a.download = `${pname || 'project'}.stencil.json`
+    a.hidden = true
+    document.body.appendChild(a)
     a.click()
-    URL.revokeObjectURL(url)
+    a.remove()
+    setTimeout(() => URL.revokeObjectURL(url), 10_000)
   }
   const open = async (f: File) => {
     try {
@@ -131,7 +134,7 @@ function Canvas() {
         <label className="btn">Open project…<input type="file" accept=".json" hidden onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) open(f) }} /></label>
         <input className="pname" value={pname} onChange={(e) => setPname(e.target.value)} aria-label="Project name" />
         <button onClick={save}>Save project</button>
-        <button onClick={() => { s.load([], []); localStorage.removeItem(STORE_KEY) }}>New</button>
+        <button onClick={() => { if (s.nodes.length && !window.confirm('Discard the current graph? Save the project first to keep it.')) return; s.load([], []); localStorage.removeItem(STORE_KEY) }}>New</button>
         {s.busy && s.progress.total > 0 && <span className="gbar" title={`${s.progress.done}/${s.progress.total} nodes`}><i style={{ width: `${(s.progress.done / s.progress.total) * 100}%` }} /></span>}
         <button className={s.consoleOpen ? 'on' : ''} onClick={() => s.setConsole(!s.consoleOpen)}>Console{s.logs.some((l) => l.level === 'error') ? ' ⚠' : ''}</button>
         <span className={`status${s.busy ? ' busy' : ''}`}>{s.error ? `⚠ ${s.error}` : s.busy ? 'working…' : 'ready'}</span>

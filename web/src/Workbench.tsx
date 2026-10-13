@@ -1,10 +1,10 @@
-import { useEffect, useState } from 'react'
+import { Suspense, lazy, useEffect, useState } from 'react'
 import { api, artifactUrl, partUrl } from './api'
 import Console from './Console'
 import ImageView from './ImageView'
 import ParamForm from './ParamForm'
 import { useStudio } from './store'
-import Viewer3D from './Viewer3D'
+const Viewer3D = lazy(() => import('./Viewer3D'))
 
 const STATS = ['islands_found', 'bridges_added', 'islands_remaining', 'watertight', 'triangles', 'overhang_area_mm2', 'layers', 'size_mm']
 
@@ -96,8 +96,10 @@ export default function Workbench() {
             <ImageView key={`${cur.id}`} src={artifactUrl(cur.key, cur.out)} kind={cur.kind === 'mask' ? 'mask' : 'image'}
               under={cur.kind === 'mask' && cur.id.startsWith('out:') ? imageFor(cur.key) : undefined} />
           )}
-          {cur?.kind === 'solid' && <Viewer3D parts={solidParts()} />}
-          {cur?.kind === 'parts' && <Viewer3D parts={partsList()} />}
+          <Suspense fallback={<div className="mut center">loading 3D viewer…</div>}>
+            {cur?.kind === 'solid' && <Viewer3D parts={solidParts()} />}
+            {cur?.kind === 'parts' && <Viewer3D parts={partsList()} />}
+          </Suspense>
         </section>
       </div>
       <div className="bench-foot">

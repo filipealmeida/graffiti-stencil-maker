@@ -377,3 +377,124 @@ pub(crate) fn build(shapes: &Shapes, detail: f64, p: &Params) -> Result<Output, 
     };
     Ok(Output { stl, stats })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::trace::{trace, TraceParams};
+    use crate::ZBridging;
+
+    struct Lcg(u64);
+    impl Lcg {
+        fn next(&mut self) -> f64 {
+            self.0 = self
+                .0
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
+            (self.0 >> 33) as f64 / (1u64 << 31) as f64
+        }
+    }
+
+    /// Random discs, rings and rectangles: nested shapes and loose pieces both create islands.
+    fn blobs(rng: &mut Lcg, n: usize) -> Vec<bool> {
+        let mut m = vec![false; n * n];
+        for _ in 0..(3 + (rng.next() * 6.0) as usize) {
+            let (cx, cy) = (rng.next() * n as f64, rng.next() * n as f64);
+            let r = 4.0 + rng.next() * n as f64 * 0.25;
+            let hole = if rng.next() < 0.5 {
+                rng.next() * 0.7
+            } else {
+                0.0
+            };
+            let rect = rng.next() < 0.3;
+            for y in 0..n {
+                for x in 0..n {
+                    let (dx, dy) = (x as f64 + 0.5 - cx, y as f64 + 0.5 - cy);
+                    let d = if rect {
+                        dx.abs().max(dy.abs())
+                    } else {
+                        dx.hypot(dy)
+                    };
+                    if d < r && d >= r * hole {
+                        m[y * n + x] = true;
+                    }
+                }
+            }
+        }
+        m
+    }
+
+    #[test]
+    fn random_shapes_always_build_island_free_watertight_plates() {
+        let tp = TraceParams {
+            smooth_px: 1.0,
+            corner_deg: 60.0,
+            tolerance_px: 0.4,
+            min_area_px: 4.0,
+        };
+        let mut built = 0;
+        for seed in 0..24u64 {
+            let mut rng = Lcg(seed * 7919 + 1);
+            let n = 90;
+            let mask = blobs(&mut rng, n);
+            let shapes = trace(&mask, n, n, &tp);
+            for (raised, z) in [
+                (false, ZBridging::Steps),
+                (true, ZBridging::Steps),
+                (true, ZBridging::Easy),
+            ] {
+                let p = Params {
+                    width_mm: 80.0,
+                    margin_mm: 4.0,
+                    raised_bridges: raised,
+                    z_bridging: z,
+                    ..Params::default()
+                };
+                match build(&shapes, 2.0, &p) {
+                    Ok(o) => {
+                        assert_eq!(o.stats.islands_remaining, 0, "seed {seed} raised {raised}");
+                        assert!(o.stats.watertight, "seed {seed} raised {raised}");
+                        built += 1;
+                    }
+                    Err(e) => assert!(shapes.loops.is_empty() || !e.is_empty(), "seed {seed}: {e}"),
+                }
+            }
+        }
+        assert!(built >= 40, "only {built} plates built");
+    }
+
+    #[test]
+    fn rejects_degenerate_input() {
+        let empty = Shapes {
+            w: 10,
+            h: 10,
+            loops: vec![],
+        };
+        assert!(build(&empty, 2.0, &Params::default()).is_err());
+        let tp = TraceParams {
+            smooth_px: 1.0,
+            corner_deg: 60.0,
+            tolerance_px: 0.4,
+            min_area_px: 1.0,
+        };
+        let mut m = vec![false; 400];
+        for y in 5..15 {
+            for x in 5..15 {
+                m[y * 20 + x] = true;
+            }
+        }
+        let s = trace(&m, 20, 20, &tp);
+        assert!(build(&s, 0.0, &Params::default()).is_err());
+        assert!(build(&s, f64::NAN, &Params::default()).is_err());
+        assert!(build(
+            &s,
+            2.0,
+            &Params {
+                width_mm: 5.0,
+                margin_mm: 4.0,
+                ..Params::default()
+            }
+        )
+        .is_err());
+    }
+}
