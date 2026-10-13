@@ -26,7 +26,8 @@ stencil --project saved-studio-graph.json -o output/
 Images can be PNG, JPG, BMP, or SVG (at most 100 MB and 100 megapixels). The CLI prints a `verified:` line with the
 island and watertight check results and exits unsuccessfully if stencil validation fails. A single output part is
 written as an STL; multi-part exports also produce a ZIP archive. Projects saved from the studio can be run with
-`--project`; picture ids are remapped automatically, including for projects saved by older versions.
+`--project`; native builds cut tiles on all CPU cores (set `RAYON_NUM_THREADS` to limit it; output is identical);
+picture ids are remapped automatically, including for projects saved by older versions.
 
 ## Studio
 
@@ -45,6 +46,9 @@ The graph is arranged into three stages:
 Use the Vector template for the traced-outline workflow. Use the Colour template for multi-colour/tone-pattern
 workflows. Double-click a node to open its workbench. Save and reopen the graph and its embedded images with the
 project controls.
+
+Edits can be undone with **Undo**/**Redo** in the toolbar or Ctrl+Z / Ctrl+Shift+Z (Ctrl+Y). Edits made within
+half a second, such as a slider drag, count as one step; the last 100 steps are kept for the session.
 
 ## Island handling and output
 

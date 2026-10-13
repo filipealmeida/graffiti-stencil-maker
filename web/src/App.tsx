@@ -6,7 +6,7 @@ import Console from './Console'
 import Workbench from './Workbench'
 import StudioEdge from './StudioEdge'
 import StudioNodeView, { KIND_COLOR } from './StudioNode'
-import { LANE_X, runGraph, signature, useStudio, type StudioNode } from './store'
+import { LANE_X, redo, resetHistory, runGraph, signature, undo, useStudio, type StudioNode } from './store'
 
 const nodeTypes = { studio: StudioNodeView }
 const edgeTypes = { default: StudioEdge }
@@ -26,7 +26,14 @@ function Canvas() {
   const bar = useRef<HTMLDivElement>(null)
   useEffect(() => {
     const away = (e: MouseEvent) => { if (!bar.current?.contains(e.target as Node)) setMenu(null) }
-    const esc = (e: KeyboardEvent) => e.key === 'Escape' && setMenu(null)
+    const esc = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') return setMenu(null)
+      const t = e.target as HTMLElement
+      if (t.closest?.('input, textarea, select, [contenteditable]') || !(e.ctrlKey || e.metaKey)) return
+      const k = e.key.toLowerCase()
+      if (k === 'z' && !e.shiftKey) { e.preventDefault(); undo() }
+      else if ((k === 'z' && e.shiftKey) || k === 'y') { e.preventDefault(); redo() }
+    }
     window.addEventListener('mousedown', away); window.addEventListener('keydown', esc)
     return () => { window.removeEventListener('mousedown', away); window.removeEventListener('keydown', esc) }
   }, [])
@@ -37,6 +44,7 @@ function Canvas() {
       try {
         const saved = JSON.parse(localStorage.getItem(STORE_KEY) ?? 'null')
         if (saved) s.load(saved.nodes, saved.edges)
+        resetHistory()
       } catch { /* ignore a corrupt autosave */ }
     })
   }, [])
@@ -130,6 +138,8 @@ function Canvas() {
           const src = s.nodes.find((n) => n.data.type === 'source')
           if (src) s.vectorStarter(String(src.data.params.image_id), String(src.data.title ?? 'image'))
         }}>Vector template</button>
+        <button title="Undo (Ctrl+Z)" disabled={!s.canUndo} onClick={undo}>↶ Undo</button>
+        <button title="Redo (Ctrl+Shift+Z)" disabled={!s.canRedo} onClick={redo}>↷ Redo</button>
         <span className="spacer" />
         <label className="btn">Open project…<input type="file" accept=".json" hidden onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) open(f) }} /></label>
         <input className="pname" value={pname} onChange={(e) => setPname(e.target.value)} aria-label="Project name" />

@@ -47,9 +47,12 @@ interface State {
   vectorStarter: (imageId: string, title: string) => void
   graph: () => GraphJson
   setRuns: (r: Record<string, NodeRun>, busy: boolean, error?: string | null) => void
+  canUndo: boolean
+  canRedo: boolean
 }
 
 export const useStudio = create<State>((set, get) => ({
+  canUndo: false, canRedo: false,
   types: {}, nodes: [], edges: [], runs: {}, selected: null, busy: false, error: null,
   logs: [], consoleOpen: true, bench: null, progress: { done: 0, total: 0 },
   addLogs: (l) => set((s) => ({ logs: [...s.logs, ...l.map((x, i) => ({ ...x, id: s.logs.length + i + Math.random() }))].slice(-500) })),
@@ -131,6 +134,68 @@ export const useStudio = create<State>((set, get) => ({
   }),
   setRuns: (runs, busy, error = null) => set({ runs, busy, error }),
 }))
+
+interface Snap { nodes: StudioNode[]; edges: Edge[]; key: string }
+const snapKey = (nodes: StudioNode[], edges: Edge[]) =>
+  JSON.stringify([nodes.map((n) => [n.id, n.data.type, n.data.params, n.data.title, Math.round(n.position.x), Math.round(n.position.y)]),
+    edges.map((e) => [e.source, e.sourceHandle, e.target, e.targetHandle])])
+const snap = (): Snap => {
+  const { nodes, edges } = useStudio.getState()
+  return { nodes, edges, key: snapKey(nodes, edges) }
+}
+const HISTORY_LIMIT = 100
+const history = { past: [] as Snap[], future: [] as Snap[], base: null as Snap | null, timer: 0 as ReturnType<typeof setTimeout> | 0 }
+const flags = () => useStudio.setState({ canUndo: history.past.length > 0 || pending(), canRedo: history.future.length > 0 })
+const pending = () => !!history.base && snap().key !== history.base.key
+
+/** Edits that settle within 400 ms (a slider drag, a node drag) become one undo step. */
+function commit() {
+  if (history.timer) clearTimeout(history.timer)
+  history.timer = 0
+  const cur = snap()
+  if (!history.base) history.base = cur
+  else if (cur.key !== history.base.key) {
+    history.past.push(history.base)
+    if (history.past.length > HISTORY_LIMIT) history.past.shift()
+    history.base = cur
+    history.future = []
+  }
+  flags()
+}
+export function resetHistory() {
+  if (history.timer) clearTimeout(history.timer)
+  history.timer = 0
+  history.past = []; history.future = []; history.base = snap()
+  flags()
+}
+function restore(to: Snap) {
+  history.base = to
+  useStudio.setState({ nodes: to.nodes, edges: to.edges, selected: null })
+  flags()
+}
+export function undo() {
+  commit()
+  const prev = history.past.pop()
+  if (!prev || !history.base) return flags()
+  history.future.push(history.base)
+  restore(prev)
+}
+export function redo() {
+  commit()
+  const next = history.future.pop()
+  if (!next || !history.base) return flags()
+  history.past.push(history.base)
+  restore(next)
+}
+let seen: [StudioNode[], Edge[]] = [[], []]
+useStudio.subscribe((s) => {
+  if (s.nodes === seen[0] && s.edges === seen[1]) return
+  seen = [s.nodes, s.edges]
+  if (!history.base) history.base = snap()
+  if (history.timer) clearTimeout(history.timer)
+  history.timer = setTimeout(commit, 400)
+  useStudio.setState((p) => (p.canUndo === true ? p : { canUndo: true }))
+})
 
 /** Parameters, wiring and node types decide what a run computes; positions and selection never trigger one. */
 export const signature = (s: Pick<State, 'nodes' | 'edges'>) =>
