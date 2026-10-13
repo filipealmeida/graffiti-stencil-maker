@@ -24,7 +24,7 @@ export default function ParamForm({ node, type }: { node: StudioNode; type: Node
         <fieldset key={g}>
           {g && <legend>{g}</legend>}
           {type.params.filter((p) => (p.group ?? '') === g).map((p) => (
-            <Field key={p.name} p={p} value={node.data.params[p.name]} onChange={(v) => setParam(node.id, p.name, v)} />
+            <Field key={p.name} p={p} value={node.data.params[p.name] ?? p.default} onChange={(v) => setParam(node.id, p.name, v)} />
           ))}
         </fieldset>
       ))}

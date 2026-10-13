@@ -43,6 +43,7 @@ pub fn make(
         thickness_mm,
         margin_mm,
         bridge_mm,
+        bridges_per_island: 1,
         resolution,
         threshold: if (0..=255).contains(&threshold) {
             Some(threshold as u8)

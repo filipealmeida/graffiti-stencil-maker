@@ -243,6 +243,16 @@ pub(super) fn stencil_params(vector: bool) -> Vec<Json> {
             Some("Bridges"),
             false,
         ),
+        num(
+            "bridges_per_island",
+            "Bridges per island",
+            1.0,
+            1.0,
+            5.0,
+            1.0,
+            Some("Bridges"),
+            true,
+        ),
         flag("raised_bridges", "Raised bridges", false, Some("Bridges")),
         choice(
             "z_bridging",

@@ -217,7 +217,12 @@ pub(crate) fn fix_diagonals(g: &mut Grid) {
 
 /// Connect every island to the frame by the cheapest path (hole pixels cost 1, plate pixels 0).
 /// `rise` gets, on every new bridge pixel, a value in (0,1): 0 at the island, 1 at the frame.
-pub(crate) fn bridge_islands(g: &mut Grid, radius: i64, rise: &mut [f32]) -> usize {
+pub(crate) fn bridge_islands(
+    g: &mut Grid,
+    radius: i64,
+    rise: &mut [f32],
+    per_island: usize,
+) -> usize {
     let (w, h) = (g.w, g.h);
     let (islands, label) = label_islands(g);
     if islands == 0 {
@@ -266,6 +271,7 @@ pub(crate) fn bridge_islands(g: &mut Grid, radius: i64, rise: &mut [f32]) -> usi
     starts.sort_unstable();
     let original = g.m.clone();
     let mut carved = 0;
+    let mut primary: Vec<(u32, Vec<usize>)> = Vec::new();
     for start in starts {
         let mut path = Vec::new();
         let mut i = start;
@@ -274,27 +280,144 @@ pub(crate) fn bridge_islands(g: &mut Grid, radius: i64, rise: &mut [f32]) -> usi
             i = parent[i] as usize;
         }
         let holes: Vec<usize> = path.into_iter().filter(|&q| !original[q]).collect();
-        let n = holes.len() as f32;
-        for (j, &q) in holes.iter().enumerate() {
-            let r = (j as f32 + 1.0) / (n + 1.0);
-            let (x, y) = ((q % w) as i64, (q / w) as i64);
-            for dy in 0..radius {
-                for dx in 0..radius {
-                    let (cx, cy) = (x + dx - radius / 2, y + dy - radius / 2);
-                    if cx >= 0 && cy >= 0 && cx < w as i64 && cy < h as i64 {
-                        let t = cy as usize * w + cx as usize;
-                        if !original[t] {
-                            if !g.m[t] {
-                                g.m[t] = true;
-                                carved += 1;
-                            }
-                            if rise[t].is_nan() || r < rise[t] {
-                                rise[t] = r;
-                            }
+        carved += carve(g, &original, rise, &holes, radius).len();
+        primary.push((label[start], holes));
+    }
+    if per_island > 1 {
+        carved += extra_bridges(
+            g, &original, &label, frame, radius, rise, &primary, per_island,
+        );
+    }
+    carved
+}
+
+/// Paint one bridge along `holes` (ordered from the island to the frame); returns the pixels that became plate.
+fn carve(
+    g: &mut Grid,
+    original: &[bool],
+    rise: &mut [f32],
+    holes: &[usize],
+    radius: i64,
+) -> Vec<usize> {
+    let (w, h) = (g.w, g.h);
+    let mut added = Vec::new();
+    let n = holes.len() as f32;
+    for (j, &q) in holes.iter().enumerate() {
+        let r = (j as f32 + 1.0) / (n + 1.0);
+        let (x, y) = ((q % w) as i64, (q / w) as i64);
+        for dy in 0..radius {
+            for dx in 0..radius {
+                let (cx, cy) = (x + dx - radius / 2, y + dy - radius / 2);
+                if cx >= 0 && cy >= 0 && cx < w as i64 && cy < h as i64 {
+                    let t = cy as usize * w + cx as usize;
+                    if !original[t] {
+                        if !g.m[t] {
+                            g.m[t] = true;
+                            added.push(t);
+                        }
+                        if rise[t].is_nan() || r < rise[t] {
+                            rise[t] = r;
                         }
                     }
                 }
             }
+        }
+    }
+    added
+}
+
+/// Square neighbourhood of half-width `r` around every pixel in `px`, inserted into `set`.
+fn mark_near(set: &mut [bool], px: &[usize], r: i64, w: usize, h: usize) {
+    for &q in px {
+        let (x, y) = ((q % w) as i64, (q / w) as i64);
+        for cy in (y - r).max(0)..=(y + r).min(h as i64 - 1) {
+            for cx in (x - r).max(0)..=(x + r).min(w as i64 - 1) {
+                set[cy as usize * w + cx as usize] = true;
+            }
+        }
+    }
+}
+
+/// Up to `per_island - 1` more bridges for every island: each is the shortest hole path to the frame that stays
+/// clear of every other bridge and leaves the island away from its own bridges, so they run in different directions.
+#[allow(clippy::too_many_arguments)]
+fn extra_bridges(
+    g: &mut Grid,
+    original: &[bool],
+    label: &[u32],
+    frame: u32,
+    radius: i64,
+    rise: &mut [f32],
+    primary: &[(u32, Vec<usize>)],
+    per_island: usize,
+) -> usize {
+    let (w, h) = (g.w, g.h);
+    let mut pixels: HashMap<u32, Vec<usize>> = HashMap::new();
+    for (i, &l) in label.iter().enumerate() {
+        if g.m[i] && original[i] && l != frame && l != 0 {
+            pixels.entry(l).or_default().push(i);
+        }
+    }
+    let mut blocked = vec![false; w * h];
+    let all: Vec<usize> = (0..w * h).filter(|&i| g.m[i] && !original[i]).collect();
+    mark_near(&mut blocked, &all, radius + 1, w, h);
+    let mut stamp = vec![0u32; w * h];
+    let mut parent = vec![u32::MAX; w * h];
+    let mut gen = 0u32;
+    let mut carved = 0;
+    for (l, holes) in primary {
+        let Some(src) = pixels.get(l) else { continue };
+        let limit = 4 * holes.len().max(radius as usize) + 4 * radius as usize;
+        let mut own = vec![false; w * h];
+        mark_near(&mut own, holes, 2 * radius + 2, w, h);
+        for _ in 1..per_island {
+            gen += 1;
+            let mut frontier: Vec<usize> = src.clone();
+            for &i in &frontier {
+                stamp[i] = gen;
+                parent[i] = u32::MAX;
+            }
+            let mut hit = None;
+            let mut layer = 0;
+            'bfs: while !frontier.is_empty() && layer < limit {
+                layer += 1;
+                let mut next = Vec::new();
+                for &i in &frontier {
+                    let (x, y) = ((i % w) as i64, (i / w) as i64);
+                    for (dx, dy) in [(1, 0), (-1, 0), (0, 1), (0, -1)] {
+                        let (nx, ny) = (x + dx, y + dy);
+                        if nx < 0 || ny < 0 || nx >= w as i64 || ny >= h as i64 {
+                            continue;
+                        }
+                        let j = ny as usize * w + nx as usize;
+                        if stamp[j] == gen {
+                            continue;
+                        }
+                        if original[j] {
+                            if label[j] == frame && parent[i] != u32::MAX {
+                                hit = Some(i);
+                                break 'bfs;
+                            }
+                        } else if !g.m[j] && !blocked[j] && !own[j] {
+                            stamp[j] = gen;
+                            parent[j] = i as u32;
+                            next.push(j);
+                        }
+                    }
+                }
+                frontier = next;
+            }
+            let Some(mut i) = hit else { break };
+            let mut path = Vec::new();
+            while parent[i] != u32::MAX {
+                path.push(i);
+                i = parent[i] as usize;
+            }
+            path.reverse();
+            let added = carve(g, original, rise, &path, radius);
+            mark_near(&mut blocked, &added, radius + 1, w, h);
+            mark_near(&mut own, &path, 2 * radius + 2, w, h);
+            carved += added.len();
         }
     }
     carved

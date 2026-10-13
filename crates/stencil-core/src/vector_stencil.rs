@@ -313,6 +313,7 @@ pub(crate) fn build(shapes: &Shapes, detail: f64, p: &Params) -> Result<Output, 
     let main_boundaries: Vec<Vec<Pt>> = material[main].iter().map(|c| to_mm(c)).collect();
     let mut deleted = 0usize;
     let mut bridges = Vec::new();
+    let per_island = p.bridges_per_island.clamp(1, 5) as usize;
     let mut keep = vec![true; material.len()];
     for i in 0..material.len() {
         if i == main {
@@ -333,6 +334,36 @@ pub(crate) fn build(shapes: &Shapes, detail: f64, p: &Params) -> Result<Output, 
             .min_by(|(a0, b0), (a1, b1)| distance_sq(*a0, *b0).total_cmp(&distance_sq(*a1, *b1)))
             .ok_or("frame has no boundary")?;
         bridges.push(to_int(&bridge_polygon(a, b, p.bridge_mm)));
+        let mut chosen = vec![a];
+        let reach = 4.0 * distance_sq(a, b).sqrt().max(p.bridge_mm) + 4.0 * p.bridge_mm;
+        let spacing = 3.0 * p.bridge_mm.max(1.0);
+        let step = (outline.len() / 256).max(1);
+        // further bridges: the shortest remaining links that leave the island away from the earlier ones
+        let mut options: Vec<(f64, Pt, Pt)> = (0..outline.len())
+            .step_by(step)
+            .filter_map(|k| {
+                main_boundaries
+                    .iter()
+                    .flat_map(|bd| (0..bd.len()).map(move |j| (bd[j], bd[(j + 1) % bd.len()])))
+                    .map(|(c, d)| closest_on_segment(outline[k], c, d))
+                    .map(|c| (distance_sq(outline[k], c), outline[k], c))
+                    .min_by(|x, y| x.0.total_cmp(&y.0))
+            })
+            .filter(|o| o.0.sqrt() <= reach)
+            .collect();
+        options.sort_by(|x, y| x.0.total_cmp(&y.0));
+        for (_, from, to) in options {
+            if chosen.len() >= per_island {
+                break;
+            }
+            let apart = chosen
+                .iter()
+                .all(|c| distance_sq(*c, from) >= spacing * spacing);
+            if apart {
+                chosen.push(from);
+                bridges.push(to_int(&bridge_polygon(from, to, p.bridge_mm)));
+            }
+        }
     }
     material = material
         .into_iter()
@@ -446,6 +477,7 @@ mod tests {
                 let p = Params {
                     width_mm: 80.0,
                     margin_mm: 4.0,
+                    bridges_per_island: 1 + (seed as u32 % 5),
                     raised_bridges: raised,
                     z_bridging: z,
                     ..Params::default()
@@ -461,6 +493,34 @@ mod tests {
             }
         }
         assert!(built >= 40, "only {built} plates built");
+    }
+
+    #[test]
+    fn extra_bridges_leave_an_island_in_different_directions() {
+        let tp = TraceParams {
+            smooth_px: 1.0,
+            corner_deg: 60.0,
+            tolerance_px: 0.4,
+            min_area_px: 4.0,
+        };
+        let n = 120;
+        let mask: Vec<bool> = (0..n * n)
+            .map(|i| {
+                let (x, y) = ((i % n) as f64 - 60.0, (i / n) as f64 - 60.0);
+                (30.0..40.0).contains(&x.hypot(y))
+            })
+            .collect();
+        let shapes = trace(&mask, n, n, &tp);
+        let count = |k| {
+            let p = Params {
+                width_mm: 80.0,
+                margin_mm: 4.0,
+                bridges_per_island: k,
+                ..Params::default()
+            };
+            build(&shapes, 2.0, &p).unwrap().stats.bridge_pixels
+        };
+        assert_eq!((count(1), count(3), count(5)), (1, 3, 5));
     }
 
     #[test]

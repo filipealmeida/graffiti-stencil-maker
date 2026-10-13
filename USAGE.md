@@ -17,6 +17,7 @@ Examples:
 ```sh
 stencil logo.png -o logo.stl
 stencil artwork.svg --width 120 --thickness 3 --margin 10 --bridge 2 -o plate.stl
+stencil artwork.svg --vector --bridges-per-island 3 -o plate.stl   # three bridges for every island
 stencil portrait.jpg --threshold 110 --invert
 stencil logo.png --vector --detail 4
 stencil tiled.png --tile-width 60 --tile-height 60 --connector hex --pads 4 --pad-thread M6
@@ -38,7 +39,7 @@ The graph is arranged into three stages:
 
 1. **Trace:** Image, Threshold, Reduce colours, Split colours, Tone patterns, Trace, and Shapes to mask.
 2. **Stencil:** Stencil accepts a raster mask; Vector stencil accepts traced outlines and builds polygon geometry
-   directly. Both support bridge width and island handling. Raised bridges use stepped Z geometry to retain the
+   directly. Both support bridge width, bridges per island (1–5) and island handling. Raised bridges use stepped Z geometry to retain the
    original artwork on the first layer.
 3. **Post-process:** Tiles & mounting splits plates, adds optional hardware features, and exports parts as a ZIP.
    The Hardware node can produce fasteners and connector fit-test parts.

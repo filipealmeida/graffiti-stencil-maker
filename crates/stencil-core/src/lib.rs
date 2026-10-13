@@ -27,6 +27,8 @@ pub struct Params {
     pub thickness_mm: f64,
     pub margin_mm: f64,
     pub bridge_mm: f64,
+    /// Bridges from every island to the rest of the plate (1-5).
+    pub bridges_per_island: u32,
     /// Pixels on the longest side of the traced image.
     pub resolution: u32,
     pub threshold: Option<u8>,
@@ -61,6 +63,7 @@ impl Default for Params {
             thickness_mm: 2.0,
             margin_mm: 8.0,
             bridge_mm: 1.6,
+            bridges_per_island: 1,
             resolution: 600,
             threshold: None,
             invert: false,
@@ -179,7 +182,12 @@ pub fn stencil_from_paint(
     let original = grid.m.clone();
     let radius = ((p.bridge_mm / s).round() as i64).max(1);
     let mut rise = vec![f32::NAN; w * h];
-    stats.bridge_pixels = bridge_islands(&mut grid, radius, &mut rise);
+    stats.bridge_pixels = bridge_islands(
+        &mut grid,
+        radius,
+        &mut rise,
+        p.bridges_per_island.clamp(1, 5) as usize,
+    );
 
     let l = layers as u32;
     let mut kmin = vec![l; w * h];
@@ -329,6 +337,27 @@ mod tests {
         assert_eq!(o.stats.first_layer_islands, 1);
         assert_eq!(o.stats.islands_remaining, 0);
         assert!(o.stats.watertight);
+    }
+
+    #[test]
+    fn more_bridges_per_island_add_bridges_and_stay_island_free() {
+        let mut last = 0;
+        for n in [1, 3, 5] {
+            let p = Params {
+                resolution: 120,
+                bridges_per_island: n,
+                ..Params::default()
+            };
+            let o = make_stencil(&ring(), &p).unwrap();
+            assert_eq!(o.stats.islands_remaining, 0);
+            assert!(o.stats.watertight);
+            assert!(
+                o.stats.bridge_pixels > last,
+                "{n} bridges: {}",
+                o.stats.bridge_pixels
+            );
+            last = o.stats.bridge_pixels;
+        }
     }
 
     #[test]

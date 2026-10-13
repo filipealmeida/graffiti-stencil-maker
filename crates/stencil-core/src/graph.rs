@@ -219,6 +219,7 @@ fn stencil_params_from(p: &P) -> Params {
         thickness_mm: p.f("thickness_mm"),
         margin_mm: p.f("margin_mm"),
         bridge_mm: p.f("bridge_mm"),
+        bridges_per_island: p.f("bridges_per_island") as u32,
         flip: p.b("flip"),
         raised_bridges: p.b("raised_bridges"),
         z_bridging: if p.s("z_bridging") == "easy" {
