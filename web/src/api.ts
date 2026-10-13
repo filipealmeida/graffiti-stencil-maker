@@ -1,0 +1,165 @@
+export type Kind = 'image' | 'mask' | 'shapes' | 'solid' | 'parts' | 'any'
+export type Stage = 'trace' | 'stencil' | 'post'
+
+export interface ParamDef {
+  name: string
+  label: string
+  kind: 'int' | 'float' | 'bool' | 'choice' | 'text'
+  default: number | boolean | string
+  min?: number
+  max?: number
+  step?: number
+  choices?: string[]
+  group?: string | null
+}
+export interface NodeType {
+  id: string
+  label: string
+  stage: Stage
+  inputs: { name: string; type: Kind; required: boolean }[]
+  outputs: { name: string; type: Kind }[]
+  params: ParamDef[]
+  doc: string
+}
+export interface NodeRun {
+  state: 'pending' | 'running' | 'done' | 'error'
+  key?: string
+  cached?: boolean
+  progress?: number
+  message?: string
+  error?: string
+  ms?: number
+  stale?: boolean
+  outputs?: Record<string, { type: Kind; available: boolean }>
+}
+export interface LogLine { ts: string; ms: number | null; t: number; level: 'info' | 'error'; node: string; type: string; msg: string }
+export interface GraphJson {
+  nodes: { id: string; type: string; params: Record<string, unknown> }[]
+  edges: { from: [string, string]; to: [string, string] }[]
+}
+
+type Info = Record<string, any>
+
+let worker: Worker | null = null
+let seq = 0
+const pending = new Map<number, { ok: (v: any) => void; err: (e: Error) => void }>()
+
+function call<T>(msg: Record<string, unknown>, transfer: Transferable[] = []): Promise<T> {
+  if (!worker) {
+    worker = new Worker(new URL('./engine.worker.ts', import.meta.url), { type: 'module' })
+    worker.onmessage = (ev) => {
+      const p = pending.get(ev.data.id)
+      if (!p) return
+      pending.delete(ev.data.id)
+      if (ev.data.error !== undefined) p.err(new Error(ev.data.error))
+      else p.ok(ev.data.ok)
+    }
+  }
+  const id = ++seq
+  return new Promise<T>((ok, err) => {
+    pending.set(id, { ok, err })
+    worker!.postMessage({ id, ...msg }, transfer)
+  })
+}
+
+// Results live in the browser: artifacts are blobs, infos are cached JSON.
+const blobs = new Map<string, string>()
+const infos = new Map<string, Info>()
+const jobs = new Map<string, { status: string; nodes: Record<string, NodeRun>; error?: string; log: LogLine[]; n: number }>()
+let jobSeq = 0
+
+const IDB = 'stencil-studio'
+function db(): Promise<IDBDatabase> {
+  return new Promise((ok, err) => {
+    const r = indexedDB.open(IDB, 1)
+    r.onupgradeneeded = () => r.result.createObjectStore('images')
+    r.onsuccess = () => ok(r.result)
+    r.onerror = () => err(r.error)
+  })
+}
+async function idb<T>(mode: IDBTransactionMode, f: (s: IDBObjectStore) => IDBRequest<T>): Promise<T> {
+  const d = await db()
+  return new Promise((ok, err) => {
+    const r = f(d.transaction('images', mode).objectStore('images'))
+    r.onsuccess = () => ok(r.result)
+    r.onerror = () => err(r.error)
+  })
+}
+
+export interface StoredImage { name: string; bytes: ArrayBuffer }
+
+const pad = (n: number, w = 2) => String(n).padStart(w, '0')
+const stamp = (t: number) => {
+  const d = new Date(t)
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}.${pad(d.getMilliseconds(), 3)}`
+}
+
+const b64 = (b: ArrayBuffer) => {
+  let s = ''
+  const u = new Uint8Array(b)
+  for (let i = 0; i < u.length; i += 0x8000) s += String.fromCharCode(...u.subarray(i, i + 0x8000))
+  return btoa(s)
+}
+const unb64 = (s: string) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0)).buffer
+
+export const api = {
+  nodeTypes: () => call<NodeType[]>({ op: 'types' }),
+  async upload(f: File) {
+    const bytes = await f.arrayBuffer()
+    const info = await call<{ id: string; width: number; height: number }>({ op: 'image', bytes: bytes.slice(0) }, [])
+    await idb('readwrite', (s) => s.put({ name: f.name, bytes } satisfies StoredImage, info.id))
+    return { ...info, name: f.name }
+  },
+  /** Gives the engine every image kept from earlier sessions. */
+  async restoreImages() {
+    const keys = (await idb('readonly', (s) => s.getAllKeys())) as string[]
+    for (const k of keys) {
+      const img = (await idb('readonly', (s) => s.get(k))) as StoredImage | undefined
+      if (img) await call({ op: 'image', bytes: img.bytes.slice(0) })
+    }
+  },
+  async run(graph: GraphJson, targets?: string[]) {
+    const job = `j${++jobSeq}`
+    const r = await call<{ result: any; artifacts: any[] }>({ op: 'run', graph: JSON.stringify(graph), targets: targets ? JSON.stringify(targets) : '' })
+    for (const a of r.artifacts) {
+      if (a.bytes.length) blobs.set(`${a.key}/${a.out}`, URL.createObjectURL(new Blob([a.bytes as BlobPart], { type: a.mime })))
+      for (const [name, bytes] of Object.entries<Uint8Array>(a.parts)) blobs.set(`${a.key}/${a.out}/${name}`, URL.createObjectURL(new Blob([bytes as BlobPart], { type: 'model/stl' })))
+      if (a.info) infos.set(`${a.key}/${a.out}`, a.info)
+    }
+    const log: LogLine[] = r.result.log.map((l: any) => ({ ts: stamp(l.at), ms: l.ms ?? null, t: l.t, level: l.level, node: l.node, type: l.type, msg: l.msg }))
+    jobs.set(job, { status: r.result.status, nodes: r.result.nodes, error: r.result.error, log, n: log.length })
+    return { job }
+  },
+  async job(id: string, _since = 0) {
+    const j = jobs.get(id)
+    if (!j) throw new Error('unknown job')
+    jobs.delete(id)
+    return j
+  },
+  cancel: async (_id: string) => {},
+  info: async (key: string, out: string) => infos.get(`${key}/${out}`) ?? {},
+
+  /** Projects are files: the graph plus the pictures it uses. */
+  async exportProject(graph: unknown) {
+    const used = new Set<string>()
+    for (const n of (graph as any).nodes ?? []) if (n.data?.params?.image_id) used.add(String(n.data.params.image_id))
+    const images: Record<string, { name: string; base64: string }> = {}
+    for (const id of used) {
+      const img = (await idb('readonly', (s) => s.get(id))) as StoredImage | undefined
+      if (img) images[id] = { name: img.name, base64: b64(img.bytes) }
+    }
+    return { version: 2, graph, images }
+  },
+  async importProject(p: any) {
+    for (const [id, img] of Object.entries<{ name: string; base64: string }>(p.images ?? {})) {
+      const bytes = unb64(img.base64)
+      const got = await call<{ id: string }>({ op: 'image', bytes: bytes.slice(0) })
+      await idb('readwrite', (s) => s.put({ name: img.name, bytes } satisfies StoredImage, got.id ?? id))
+    }
+    return p.graph as { nodes: any[]; edges: any[] }
+  },
+}
+
+const missing = ''
+export const artifactUrl = (key: string, out: string, _size = 0) => blobs.get(`${key}/${out}`) ?? missing
+export const partUrl = (key: string, out: string, name: string) => blobs.get(`${key}/${out}/${name}`) ?? missing

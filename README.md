@@ -1,34 +1,56 @@
 # Graffiti Stencil Maker
 
-Converts png/jpg/bmp/svg into a printable stencil STL. Dark areas (or light, with invert) become holes.
-Material pieces that would float free ("islands", e.g. the centre of an O) are detected and tied to the
-frame with narrow bridges, so the stencil is always one connected, watertight piece.
-    python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
-    .venv/bin/python -m stencil input.png -o out.stl [--width 100 --thickness 2 --bridge 1.6 --invert --threshold 128 --smooth 0.5 --raised-bridges]
-    .venv/bin/python -m stencil --serve      # web UI on http://127.0.0.1:5000 (drag & drop, 3D preview)
+Create island-free, watertight stencil STLs from PNG, JPG, BMP, or SVG images. The Rust engine powers both a
+command-line tool and a browser-based node-graph studio. The studio runs locally or on a static host; image
+processing happens in WebAssembly in your browser.
 
-CLI exits non-zero if islands remain or the mesh isn't watertight.
+## Quick start
 
-**Installing:** see [INSTALL.md](INSTALL.md) (Windows, Linux, macOS). **Using:** see [USAGE.md](USAGE.md).
+### CLI
 
-## Stencil studio (v2, node graph)
+Install the [Rust toolchain](https://www.rust-lang.org/tools/install), then run:
 
-A Blender-style node editor: image → trace nodes (Threshold, Reduce colours, Split colours, Tone patterns) → stencil node (the engine above) → export. Multi-stencil sets are just several branches. See [USAGE.md](USAGE.md#stencil-studio-node-graph-interface) for the full guide.
+```sh
+cargo build --release -p stencil-cli
+./target/release/stencil picture.svg --width 120 --thickness 3 -o plate.stl
+```
 
-    .venv/bin/pip install -r requirements.txt
-    (cd app/web && npm install && npm run build)
-    .venv/bin/python -m app --port 5056      # http://127.0.0.1:5056
-    # dev: python -m app, and `npm run dev` in app/web (port 5173, proxies /api)
+On Windows, use `.\target\release\stencil.exe`. Run `./target/release/stencil --help` for all options.
 
-Highlights: drop an image to get a starter graph; add/delete nodes and edges; double-click a node for a live
-workbench (zoom/pan raster, orbit 3D view with layer clipping and exploded tiles, parameters, per-node log);
-trace nodes update almost live; a console and progress bars show runs; the **Colour template** button builds
-Image → Reduce colours (2–10) → Tone patterns → Stencil → Tiles & mounting (tiling, pads, frame mounting holes, joiner/extender plates); projects are saved under `projects/`.
+### Web studio
 
-Layout: `stencil/` geometry library + CLI, `webui/` legacy single-page UI (`python -m stencil --serve`),
-`app/` studio backend (FastAPI), `app/web/` studio frontend (React + Vite + @xyflow/react + three.js),
-`tests/` pytest. Mask convention: painted = hole.
+See [INSTALL.md](INSTALL.md) for prerequisites and the initial build. Once the WASM package is built, start the
+studio for local development with:
+
+```sh
+cd web
+npm run dev
+```
+
+Drop an image onto the canvas, connect trace and stencil nodes, and export an STL or tiled ZIP. See [USAGE.md](USAGE.md)
+for the CLI flags and studio workflow.
+
+## Features
+
+- Raster and direct polygon-vector stencil generation, with automatic island bridges and watertightness checks.
+- Image thresholding, colour reduction and splitting, tone patterns, and editable traced curves.
+- Optional raised bridges that preserve islands on the first layer.
+- Tiling, connector rods, threaded pads and mounting holes, joiner/extender plates, and ZIP export.
+- Real M3, M4, M5, M6, M8 and M10 thread geometry.
+- SVG input and saved graph projects in the CLI.
+
+## Workspace
+
+| Path | Purpose |
+|---|---|
+| `crates/stencil-core/` | Rust geometry engine, graph, raster/vector stencils, tiling, and hardware |
+| `crates/stencil-cli/` | `stencil` command-line application |
+| `crates/stencil-wasm/` | WebAssembly bindings |
+| `web/` | React node-graph studio and Web Worker |
+| `.github/workflows/ci.yml` | Tests, builds, and GitHub Pages deployment |
+
+The Python implementation remains available in the historical [`v1.0.0` release](https://github.com/filipealmeida/graffiti-stencil-maker/tree/v1.0.0).
 
 ## License
 
-[The Unlicense](LICENSE) (public domain), except `webui/static/vendor/`, which is three.js under the MIT license (see `webui/static/vendor/LICENSE`).
+[The Unlicense](LICENSE).

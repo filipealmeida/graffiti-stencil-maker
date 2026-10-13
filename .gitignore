@@ -1,10 +1,14 @@
 .venv/
 __pycache__/
 *.pyc
+.pytest_cache/
 *.stl
 sandbox/
 .vscode/
 prompts/
 projects/
 node_modules/
-app/web/dist/
+/target/
+/web/pkg/
+/web/dist/
+/web/node_modules/
