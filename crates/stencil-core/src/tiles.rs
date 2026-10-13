@@ -235,30 +235,44 @@ pub fn tile(solid: &Mesh, p: &TileParams) -> Result<Tiled, String> {
     } else {
         solid.subtract(&cutters)?
     };
+    let cells: Vec<(usize, usize)> = (0..ny)
+        .rev()
+        .flat_map(|j| (0..nx).map(move |i| (i, j)))
+        .collect();
+    let cut = |&(i, j): &(usize, usize)| -> Result<Option<Tile>, String> {
+        let xa = if i > 0 { xs[i] } else { xs[i] - 1.0 };
+        let xb = if i < nx - 1 {
+            xs[i + 1]
+        } else {
+            xs[i + 1] + 1.0
+        };
+        let ya = if j > 0 { ys[j] } else { ys[j] - 1.0 };
+        let yb = if j < ny - 1 {
+            ys[j + 1]
+        } else {
+            ys[j + 1] + 1.0
+        };
+        let mut m = drilled.intersect(&Mesh::cuboid([xa, ya, -1.0], [xb, yb, top + 1.0]))?;
+        if m.t.is_empty() {
+            return Ok(None);
+        }
+        m.translate([-xs[i], -ys[j], 0.0]);
+        Ok(Some(Tile {
+            name: format!("stencil_r{}c{}", ny - j, i + 1),
+            mesh: m,
+        }))
+    };
+    #[cfg(not(target_arch = "wasm32"))]
+    let cut_all: Vec<Result<Option<Tile>, String>> = {
+        use rayon::prelude::*;
+        cells.par_iter().map(cut).collect()
+    };
+    #[cfg(target_arch = "wasm32")]
+    let cut_all: Vec<Result<Option<Tile>, String>> = cells.iter().map(cut).collect();
     let mut tiles = Vec::new();
-    for j in (0..ny).rev() {
-        for i in 0..nx {
-            let xa = if i > 0 { xs[i] } else { xs[i] - 1.0 };
-            let xb = if i < nx - 1 {
-                xs[i + 1]
-            } else {
-                xs[i + 1] + 1.0
-            };
-            let ya = if j > 0 { ys[j] } else { ys[j] - 1.0 };
-            let yb = if j < ny - 1 {
-                ys[j + 1]
-            } else {
-                ys[j + 1] + 1.0
-            };
-            let mut m = drilled.intersect(&Mesh::cuboid([xa, ya, -1.0], [xb, yb, top + 1.0]))?;
-            if m.t.is_empty() {
-                continue;
-            }
-            m.translate([-xs[i], -ys[j], 0.0]);
-            tiles.push(Tile {
-                name: format!("stencil_r{}c{}", ny - j, i + 1),
-                mesh: m,
-            });
+    for t in cut_all {
+        if let Some(t) = t? {
+            tiles.push(t);
         }
     }
     let info = serde_json::json!({
