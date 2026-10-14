@@ -223,3 +223,64 @@ fn picture_ids_are_stable_across_platforms() {
         .unwrap();
     assert_eq!(id["id"], "2dfafcadf659590b");
 }
+
+#[test]
+fn morphology_node_runs_each_operation_and_reports_bad_input() {
+    let mut e = Engine::new();
+    let id = e.add_image(test_png()).unwrap()["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let run = |e: &mut Engine, params: Json| {
+        let g = json!({
+            "nodes": [
+                {"id": "s", "type": "source", "params": {"image_id": id, "resolution": 120}},
+                {"id": "t", "type": "threshold", "params": {}},
+                {"id": "m", "type": "morphology", "params": params},
+            ],
+            "edges": [
+                {"from": ["s", "image"], "to": ["t", "image"]},
+                {"from": ["t", "mask"], "to": ["m", "mask"]},
+            ]
+        });
+        let r = e.run(&g, None, &|| 0.0);
+        let state = r["nodes"]["m"]["state"].clone();
+        let count = r["nodes"]["m"]["key"]
+            .as_str()
+            .and_then(|k| match e.value(k, "mask") {
+                Some(Value::Mask(m)) => Some(m.paint.iter().filter(|&&v| v).count()),
+                _ => None,
+            });
+        (state, count)
+    };
+    let (_, base) = run(
+        &mut e,
+        json!({"op": "dilate", "radius": 1, "kernel": "square", "iterations": 1}),
+    );
+    let base = base.unwrap();
+    let (s, eroded) = run(&mut e, json!({"op": "erode", "radius": 2}));
+    assert_eq!(s, "done");
+    let (_, dilated) = run(&mut e, json!({"op": "dilate", "radius": 2}));
+    assert!(eroded.unwrap() < base && base < dilated.unwrap());
+    for op in [
+        "open",
+        "close",
+        "gradient",
+        "white_hat",
+        "black_hat",
+        "thin",
+        "skeleton",
+    ] {
+        let (s, c) = run(&mut e, json!({"op": op, "radius": 2}));
+        assert_eq!(s, "done", "{op}");
+        assert!(c.is_some(), "{op}");
+    }
+    let (s, ends) = run(&mut e, json!({"op": "hit_or_miss", "pattern": "isolated"}));
+    assert_eq!(s, "done");
+    assert_eq!(ends, Some(0));
+    let (s, _) = run(
+        &mut e,
+        json!({"op": "hit_or_miss", "pattern": "custom", "custom": "11"}),
+    );
+    assert_eq!(s, "error");
+}

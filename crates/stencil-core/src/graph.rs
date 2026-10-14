@@ -186,6 +186,38 @@ fn run_source(e: &Engine, _: &HashMap<String, Value>, p: &P) -> Result<Outputs, 
     Ok(vec![("image", Value::Image(Rc::new(rgb)))])
 }
 
+fn run_morphology(_: &Engine, i: &HashMap<String, Value>, p: &P) -> Result<Outputs, String> {
+    use crate::morphology as m;
+    let Some(Value::Mask(src)) = i.get("mask") else {
+        return Err("input 'mask' missing".into());
+    };
+    let (w, h, a) = (src.w, src.h, &src.paint[..]);
+    let shape = m::Shape::parse(p.s("kernel")).ok_or("unknown kernel shape")?;
+    let k = m::kernel(shape, p.f("radius") as u32, p.f("angle"));
+    let passes = p.f("iterations") as u32;
+    let n = passes.max(1);
+    let paint = match p.s("op") {
+        "erode" => m::erode(w, h, a, &k, n),
+        "dilate" => m::dilate(w, h, a, &k, n),
+        "open" => m::open(w, h, a, &k, n),
+        "close" => m::close(w, h, a, &k, n),
+        "gradient" => m::gradient(w, h, a, &k, n),
+        "white_hat" => m::white_hat(w, h, a, &k, n),
+        "black_hat" => m::black_hat(w, h, a, &k, n),
+        "thin" => m::thin(w, h, a, passes),
+        "skeleton" => m::skeleton(w, h, a),
+        "hit_or_miss" => {
+            let patterns = match p.s("pattern") {
+                "custom" => m::custom_patterns(p.s("custom"), p.b("rotate"))?,
+                name => m::preset(name).ok_or("unknown pattern")?,
+            };
+            m::hit_or_miss(w, h, a, &patterns)
+        }
+        other => return Err(format!("unknown operation '{other}'")),
+    };
+    Ok(vec![("mask", Value::Mask(Rc::new(Mask { w, h, paint })))])
+}
+
 fn run_threshold(_: &Engine, i: &HashMap<String, Value>, p: &P) -> Result<Outputs, String> {
     let Some(Value::Image(img)) = i.get("image") else {
         return Err("input 'image' missing".into());

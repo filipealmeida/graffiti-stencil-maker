@@ -15,6 +15,7 @@ pub mod hardware;
 mod islands;
 mod layered;
 pub mod mesh;
+pub mod morphology;
 pub mod svg;
 pub mod tiles;
 pub mod trace;

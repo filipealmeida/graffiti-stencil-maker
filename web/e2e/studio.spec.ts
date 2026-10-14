@@ -83,3 +83,13 @@ test('undo returns to the previous value', async ({ page }) => {
   await expect(page.locator('aside input[type=range]').first()).not.toHaveValue('700')
   await settled(page)
 })
+
+test('the Morphology node can be added from the menu and shows its parameters', async ({ page }) => {
+  await open(page)
+  await page.getByRole('button', { name: '+ trace' }).click()
+  await page.getByRole('button', { name: 'Morphology' }).click()
+  await expect(page.locator('.react-flow__node').filter({ hasText: 'Morphology' })).toBeVisible()
+  await page.locator('.react-flow__node').filter({ hasText: 'Morphology' }).dispatchEvent('click')
+  await expect(page.locator('aside')).toContainText('Operation')
+  await expect(page.locator('aside select').first()).toHaveValue('open')
+})

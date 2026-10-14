@@ -37,7 +37,7 @@ the starter templates. The graph is evaluated in a Web Worker; node outputs can 
 
 The graph is arranged into three stages:
 
-1. **Trace:** Image, Threshold, Reduce colours, Split colours, Tone patterns, Trace, and Shapes to mask.
+1. **Trace:** Image, Threshold, Reduce colours, Split colours, Tone patterns, Morphology, Trace, and Shapes to mask.
 2. **Stencil:** Stencil accepts a raster mask; Vector stencil accepts traced outlines and builds polygon geometry
    directly. Both support bridge width, bridges per island (1–5) and island handling. Raised bridges use stepped Z geometry to retain the
    original artwork on the first layer.
