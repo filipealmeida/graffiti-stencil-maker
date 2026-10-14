@@ -42,6 +42,9 @@ The graph is arranged into three stages:
    directly. Both support bridge width, bridges per island (1–5) and island handling. Raised bridges use stepped Z geometry to retain the
    original artwork on the first layer.
 3. **Post-process:** Tiles & mounting splits plates, adds optional hardware features, and exports parts as a ZIP.
+   Pieces that a seam cuts off from the rest of their tile are bridged again per tile (same bridge width, count and
+   raised-bridge settings as the stencil); `bridged_tiles` in the tiling info counts them. If a tile still has loose
+   pieces the export fails with a clear error instead of emitting islands.
    The Hardware node can produce fasteners and connector fit-test parts.
 
 Use the Vector template for the traced-outline workflow. Use the Colour template for multi-colour/tone-pattern

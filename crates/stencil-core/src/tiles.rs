@@ -27,6 +27,8 @@ pub struct TileParams {
     pub segments: usize,
     /// Plate thickness without raised pads; 0 uses the mesh height.
     pub thickness: f64,
+    /// Bridge rules of the source stencil; pieces cut off from their tile are bridged with them.
+    pub bridge: Option<crate::tile_bridge::BridgeParams>,
 }
 
 pub struct Tile {
@@ -239,6 +241,7 @@ pub fn tile(solid: &Mesh, p: &TileParams) -> Result<Tiled, String> {
         .rev()
         .flat_map(|j| (0..nx).map(move |i| (i, j)))
         .collect();
+    let bridged = std::sync::atomic::AtomicUsize::new(0);
     let cut = |&(i, j): &(usize, usize)| -> Result<Option<Tile>, String> {
         let xa = if i > 0 { xs[i] } else { xs[i] - 1.0 };
         let xb = if i < nx - 1 {
@@ -252,9 +255,38 @@ pub fn tile(solid: &Mesh, p: &TileParams) -> Result<Tiled, String> {
         } else {
             ys[j + 1] + 1.0
         };
-        let mut m = drilled.intersect(&Mesh::cuboid([xa, ya, -1.0], [xb, yb, top + 1.0]))?;
+        let bbox = Mesh::cuboid([xa, ya, -1.0], [xb, yb, top + 1.0]);
+        let mut m = drilled.intersect(&bbox)?;
         if m.t.is_empty() {
             return Ok(None);
+        }
+        if let Some(bp) = &p.bridge {
+            if crate::tile_bridge::components(&m).0 > 1 {
+                let (ml, mh) = m.bounds();
+                let avoid: Vec<(P3, P3)> = holes
+                    .iter()
+                    .filter(|h| {
+                        h.lo[0] < mh[0] && h.hi[0] > ml[0] && h.lo[1] < mh[1] && h.hi[1] > ml[1]
+                    })
+                    .map(|h| (h.lo, h.hi))
+                    .collect();
+                if let Some(b) = crate::tile_bridge::bridge_mesh(&m, &avoid, bp)? {
+                    let clip = Mesh::cuboid([ml[0], ml[1], -1.0], [mh[0], mh[1], top + 1.0]);
+                    m = m.union(&b)?.intersect(&clip)?;
+                    if !cutters.t.is_empty() {
+                        m = m.subtract(&cutters)?;
+                    }
+                    bridged.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                }
+                let left = crate::tile_bridge::components(&m).0;
+                if left > 1 {
+                    return Err(format!(
+                        "tile r{}c{} still has {left} separate pieces after bridging: use a larger bridge width or different tile sizes",
+                        ny - j,
+                        i + 1
+                    ));
+                }
+            }
         }
         m.translate([-xs[i], -ys[j], 0.0]);
         Ok(Some(Tile {
@@ -277,7 +309,7 @@ pub fn tile(solid: &Mesh, p: &TileParams) -> Result<Tiled, String> {
     }
     let info = serde_json::json!({
         "tiles": tiles.len(), "grid": [nx, ny], "connectors": holes.len(), "rows": zs.len(),
-        "thin_wall_holes": thin, "positions_without_room": missed,
+        "bridged_tiles": bridged.load(std::sync::atomic::Ordering::Relaxed), "thin_wall_holes": thin, "positions_without_room": missed,
         "hole_depth_mm": POCKET_DEPTH_MM, "rod_length_mm": ROD_LENGTH_MM,
     });
     Ok(Tiled {
@@ -305,6 +337,7 @@ mod tests {
             clearance: 0.2,
             segments: 32,
             thickness: 0.0,
+            bridge: None,
         };
         let t = tile(&plate, &p).unwrap();
         assert_eq!(t.tiles.len(), 2);
@@ -313,6 +346,60 @@ mod tests {
         assert!(whole < plate.volume() && whole > plate.volume() - 20.0 * 6.0 * 3.0 * 0.5 * 4.0);
         assert!(t.info["connectors"].as_u64().unwrap() >= 2);
         assert!(t.rod.unwrap().is_watertight());
+    }
+
+    fn split_plate() -> Mesh {
+        let cb = |a: [f64; 2], b: [f64; 2]| Mesh::cuboid([a[0], a[1], 0.0], [b[0], b[1], 6.0]);
+        let mut m = cb([0.0, 0.0], [60.0, 60.0]);
+        for part in [
+            cb([60.0, 15.0], [80.0, 45.0]),
+            cb([72.0, 10.0], [90.0, 50.0]),
+            cb([100.0, 0.0], [140.0, 60.0]),
+            cb([0.0, 0.0], [140.0, 4.0]),
+        ] {
+            m = m.union(&part).unwrap();
+        }
+        m
+    }
+
+    fn params(bridge: bool, flip: bool) -> TileParams {
+        TileParams {
+            max_x: 70.0,
+            max_y: 0.0,
+            shape: Shape::Hex,
+            diameter: 3.0,
+            clearance: 0.2,
+            segments: 32,
+            thickness: 6.0,
+            bridge: bridge.then_some(crate::tile_bridge::BridgeParams {
+                bridge_mm: 2.0,
+                per_island: 1,
+                raised: false,
+                easy: false,
+                base_layers: 30,
+                layer_height: 0.2,
+                plate_top: 6.0,
+                flip,
+            }),
+        }
+    }
+
+    #[test]
+    fn tiles_get_their_own_bridges() {
+        let plate = split_plate();
+        let off = tile(&plate, &params(false, false)).unwrap();
+        assert!(off
+            .tiles
+            .iter()
+            .any(|x| crate::tile_bridge::components(&x.mesh).0 > 1));
+        for flip in [false, true] {
+            let on = tile(&plate, &params(true, flip)).unwrap();
+            assert!(on.info["bridged_tiles"].as_u64().unwrap() >= 1);
+            for x in &on.tiles {
+                assert!(x.mesh.is_watertight(), "{}", x.name);
+                assert_eq!(crate::tile_bridge::components(&x.mesh).0, 1, "{}", x.name);
+            }
+        }
     }
 
     #[test]
@@ -326,6 +413,7 @@ mod tests {
             clearance: 0.2,
             segments: 32,
             thickness: 0.0,
+            bridge: None,
         };
         assert!(tile(&plate, &p).is_err());
     }

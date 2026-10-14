@@ -1,6 +1,6 @@
 //! Island analysis on the material grid: labelling, distance transform, diagonal repair and bridging.
 
-use std::collections::{HashMap, VecDeque};
+use std::collections::HashMap;
 
 /// Material grid, row 0 at the bottom (y up). `true` = plate, `false` = hole (paint).
 pub(crate) struct Grid {
@@ -223,22 +223,39 @@ pub(crate) fn bridge_islands(
     rise: &mut [f32],
     per_island: usize,
 ) -> usize {
-    let (w, h) = (g.w, g.h);
     let (islands, label) = label_islands(g);
     if islands == 0 {
         return 0;
     }
     let frame = label[0];
+    bridge_labelled(g, &label, frame, radius, rise, per_island, None)
+}
+
+/// Like `bridge_islands`, for pieces already labelled by the caller (0 = empty) and a chosen frame piece. Pixels in
+/// `avoid` are crossed only when nothing else connects a piece.
+pub(crate) fn bridge_labelled(
+    g: &mut Grid,
+    label: &[u32],
+    frame: u32,
+    radius: i64,
+    rise: &mut [f32],
+    per_island: usize,
+    avoid: Option<&[bool]>,
+) -> usize {
+    let (w, h) = (g.w, g.h);
     let mut cost = vec![u32::MAX; w * h];
     let mut parent = vec![u32::MAX; w * h];
-    let mut dq = VecDeque::new();
+    let mut dq = std::collections::BinaryHeap::new();
     for i in 0..w * h {
         if label[i] == frame {
             cost[i] = 0;
-            dq.push_back(i);
+            dq.push(std::cmp::Reverse((0u32, i)));
         }
     }
-    while let Some(i) = dq.pop_front() {
+    while let Some(std::cmp::Reverse((c, i))) = dq.pop() {
+        if c > cost[i] {
+            continue;
+        }
         let (x, y) = ((i % w) as i64, (i / w) as i64);
         for (dx, dy) in [(1, 0), (-1, 0), (0, 1), (0, -1)] {
             let (nx, ny) = (x + dx, y + dy);
@@ -246,15 +263,17 @@ pub(crate) fn bridge_islands(
                 continue;
             }
             let j = ny as usize * w + nx as usize;
-            let step = if g.m[j] { 0 } else { 1 };
+            let step = if g.m[j] {
+                0
+            } else if avoid.is_some_and(|a| a[j]) {
+                40
+            } else {
+                1
+            };
             if cost[i] + step < cost[j] {
                 cost[j] = cost[i] + step;
                 parent[j] = i as u32;
-                if step == 0 {
-                    dq.push_front(j)
-                } else {
-                    dq.push_back(j)
-                }
+                dq.push(std::cmp::Reverse((cost[j], j)));
             }
         }
     }
@@ -285,7 +304,7 @@ pub(crate) fn bridge_islands(
     }
     if per_island > 1 {
         carved += extra_bridges(
-            g, &original, &label, frame, radius, rise, &primary, per_island,
+            g, &original, label, frame, radius, rise, &primary, per_island, avoid,
         );
     }
     carved
@@ -350,6 +369,7 @@ fn extra_bridges(
     rise: &mut [f32],
     primary: &[(u32, Vec<usize>)],
     per_island: usize,
+    avoid: Option<&[bool]>,
 ) -> usize {
     let (w, h) = (g.w, g.h);
     let mut pixels: HashMap<u32, Vec<usize>> = HashMap::new();
@@ -358,7 +378,7 @@ fn extra_bridges(
             pixels.entry(l).or_default().push(i);
         }
     }
-    let mut blocked = vec![false; w * h];
+    let mut blocked = avoid.map_or_else(|| vec![false; w * h], <[bool]>::to_vec);
     let all: Vec<usize> = (0..w * h).filter(|&i| g.m[i] && !original[i]).collect();
     mark_near(&mut blocked, &all, radius + 1, w, h);
     let mut stamp = vec![0u32; w * h];

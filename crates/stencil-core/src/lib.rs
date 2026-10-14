@@ -17,6 +17,7 @@ mod layered;
 pub mod mesh;
 pub mod morphology;
 pub mod svg;
+mod tile_bridge;
 pub mod tiles;
 pub mod trace;
 mod vector_stencil;

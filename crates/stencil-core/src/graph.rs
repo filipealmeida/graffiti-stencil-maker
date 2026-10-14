@@ -276,6 +276,11 @@ fn finish_solid(o: crate::Output, p: &P) -> Result<Outputs, String> {
     stats["flip"] = json!(p.b("flip"));
     stats["thickness_mm"] = json!(p.f("thickness_mm"));
     stats["layer_height_mm"] = json!(p.f("layer_height_mm"));
+    stats["plate_top_mm"] = json!(o.stats.thickness_mm);
+    stats["bridge_mm"] = json!(p.f("bridge_mm"));
+    stats["bridges_per_island"] = json!(p.f("bridges_per_island"));
+    stats["raised_bridges"] = json!(p.b("raised_bridges"));
+    stats["z_bridging"] = json!(p.s("z_bridging"));
     Ok(vec![(
         "solid",
         Value::Solid(Rc::new(Solid { stl: o.stl, stats })),
@@ -467,6 +472,19 @@ fn run_export(_: &Engine, i: &HashMap<String, Value>, p: &P) -> Result<Outputs, 
         clearance: p.f("clearance"),
         segments: p.f("segments") as usize,
         thickness: s.stats["thickness_mm"].as_f64().unwrap_or(0.0),
+        bridge: s.stats["plate_top_mm"].as_f64().map(|top| {
+            let lh = s.stats["layer_height_mm"].as_f64().unwrap_or(0.2);
+            crate::tile_bridge::BridgeParams {
+                bridge_mm: s.stats["bridge_mm"].as_f64().unwrap_or(1.6),
+                per_island: s.stats["bridges_per_island"].as_f64().unwrap_or(1.0) as usize,
+                raised: s.stats["raised_bridges"].as_bool().unwrap_or(false),
+                easy: s.stats["z_bridging"].as_str() == Some("easy"),
+                base_layers: (s.stats["thickness_mm"].as_f64().unwrap_or(top) / lh).round() as u32,
+                layer_height: lh,
+                plate_top: top,
+                flip: s.stats["flip"].as_bool().unwrap_or(false),
+            }
+        }),
     };
     let (pads, mount) = (p.f("pad_count") as usize, p.s("mount_screw") != "none");
     let tiled = tp.max_x > 0.0 || tp.max_y > 0.0;
