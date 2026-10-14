@@ -232,11 +232,13 @@ pub fn tile(solid: &Mesh, p: &TileParams) -> Result<Tiled, String> {
         }
     }
 
+    crate::progress::step("place connector holes", 0.3);
     let drilled = if cutters.t.is_empty() {
         solid.clone()
     } else {
         solid.subtract(&cutters)?
     };
+    crate::progress::step("drill holes", 0.5);
     let cells: Vec<(usize, usize)> = (0..ny)
         .rev()
         .flat_map(|j| (0..nx).map(move |i| (i, j)))

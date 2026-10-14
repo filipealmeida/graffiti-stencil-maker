@@ -73,6 +73,7 @@ pub fn make(
 #[wasm_bindgen]
 pub struct Engine {
     inner: stencil_core::graph::Engine,
+    progress: Option<js_sys::Function>,
 }
 
 #[wasm_bindgen]
@@ -81,6 +82,7 @@ impl Engine {
     pub fn new() -> Engine {
         Engine {
             inner: stencil_core::graph::Engine::new(),
+            progress: None,
         }
     }
 
@@ -99,6 +101,11 @@ impl Engine {
         self.inner.has_image(id)
     }
 
+    /// Installs a `(label, fraction)` callback that long nodes call between phases while `run` is working.
+    pub fn set_progress(&mut self, f: Option<js_sys::Function>) {
+        self.progress = f;
+    }
+
     // targets_json is a JSON array of node ids, or an empty string for the whole graph.
     pub fn run(&mut self, graph_json: &str, targets_json: &str) -> Result<String, JsError> {
         let graph: serde_json::Value =
@@ -108,10 +115,21 @@ impl Engine {
         } else {
             Some(serde_json::from_str(targets_json).map_err(|e| JsError::new(&e.to_string()))?)
         };
-        Ok(self
+        if let Some(f) = self.progress.clone() {
+            stencil_core::progress::set_hook(Some(std::rc::Rc::new(move |label, frac| {
+                let _ = f.call2(
+                    &JsValue::NULL,
+                    &JsValue::from_str(label),
+                    &JsValue::from_f64(frac),
+                );
+            })));
+        }
+        let out = self
             .inner
             .run(&graph, targets.as_deref(), &js_sys::Date::now)
-            .to_string())
+            .to_string();
+        stencil_core::progress::set_hook(None);
+        Ok(out)
     }
 
     pub fn mime(&self, key: &str, out: &str) -> String {

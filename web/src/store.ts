@@ -228,7 +228,7 @@ export async function runGraph() {
       const prev = merged[step.node]
       merged[step.node] = step.state.state === 'running' && prev?.key ? { ...step.state, key: prev.key, outputs: prev.outputs, stale: true } : step.state
       if (step.log.length) useStudio.getState().addLogs(step.log)
-      useStudio.setState({ runs: { ...merged }, progress: { done: step.n, total: step.total || g.nodes.length } })
+      useStudio.setState({ runs: { ...merged }, progress: { done: step.n + (step.state.state === 'running' ? step.state.progress ?? 0 : 0), total: step.total || g.nodes.length } })
     })
     if (mine !== token) return
     runningSig = null

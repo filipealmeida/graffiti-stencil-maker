@@ -16,6 +16,7 @@ mod islands;
 mod layered;
 pub mod mesh;
 pub mod morphology;
+pub mod progress;
 pub mod smooth;
 pub mod svg;
 mod tile_bridge;
@@ -174,8 +175,10 @@ pub fn stencil_from_paint(
     stats.layers = layers;
     stats.thickness_mm = layers as f64 * lh;
 
+    progress::step("prepare grid", 0.05);
     fix_diagonals(&mut grid);
     let (islands, label) = label_islands(&grid);
+    progress::step("find islands", 0.15);
     stats.islands_found = islands;
     if p.min_island_mm2 > 0.0 {
         stats.islands_deleted =
@@ -192,6 +195,7 @@ pub fn stencil_from_paint(
         p.bridges_per_island.clamp(1, 5) as usize,
     );
 
+    progress::step("bridge islands", 0.4);
     let l = layers as u32;
     let mut kmin = vec![l; w * h];
     for i in 0..w * h {
@@ -225,6 +229,7 @@ pub fn stencil_from_paint(
         m: kmin.iter().map(|&k| k == 0).collect(),
     };
     stats.first_layer_islands = label_islands(&first).0;
+    progress::step("layer map", 0.5);
     stats.overhang_area_mm2 = overhang_area(&kmin, w, h, l, s, lh, p.max_overhang_deg, p.flip);
 
     let mut mesh = layered_mesh(&kmin, w, h, l, s, lh)?;
@@ -235,10 +240,12 @@ pub fn stencil_from_paint(
             v[2] = tt - v[2];
         }
     }
+    progress::step("build mesh", 0.9);
     stats.watertight = mesh.is_watertight();
     stats.triangles = mesh.tris.len();
     let stl = mesh.to_stl();
     stats.stl_bytes = stl.len();
+    progress::step("write STL", 1.0);
     Ok(Output { stl, stats })
 }
 

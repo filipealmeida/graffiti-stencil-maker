@@ -57,7 +57,9 @@ half a second, such as a slider drag, count as one step; the last 100 steps are 
 Each settled edit starts one run, which evaluates the graph node by node; results appear as nodes finish and older
 results stay visible (marked stale) until replaced. A new edit stops the run in progress at the next node boundary. If a
 node has been computing for more than about 300 ms, the worker is restarted instead, which stops it at once (upstream nodes are
-then recomputed). To run the browser tests: `cd web && npm run build && npx playwright install chromium-headless-shell && npm run e2e`.
+then recomputed). Long nodes (Stencil, Vector stencil, Smooth mask, Tiles & mounting) report their phases: the console shows
+`↳ phase` lines with the time each took, the node's bar shows the current phase, and the top progress bar advances by the
+fraction of the running node. The tile cutting phase is one step, because it runs on several threads. To run the browser tests: `cd web && npm run build && npx playwright install chromium-headless-shell && npm run e2e`.
 
 ## Island handling and output
 

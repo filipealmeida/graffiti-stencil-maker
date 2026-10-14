@@ -517,6 +517,7 @@ fn run_export(_: &Engine, i: &HashMap<String, Value>, p: &P) -> Result<Outputs, 
     let flip = s.stats["flip"].as_bool().unwrap_or(false);
     let layer = s.stats["layer_height_mm"].as_f64().unwrap_or(0.2);
     let mut mesh = crate::mesh::Mesh::from_stl(&s.stl)?;
+    crate::progress::step("read plate", 0.02);
     let (lo, hi) = mesh.bounds();
     let (w, h) = (hi[0] - lo[0], hi[1] - lo[1]);
     let mut meta = json!({});
@@ -532,6 +533,7 @@ fn run_export(_: &Engine, i: &HashMap<String, Value>, p: &P) -> Result<Outputs, 
         };
         let (m, info) = hw::add_pads(&mesh, &pp, margin, layer)?;
         mesh = m;
+        crate::progress::step("add pads", 0.05);
         meta["pads"] = info;
         let r = hw::pad_diameter(p.s("pad_thread"))? / 2.0;
         pad_r = hw::pad_centres(pads, w, h, margin)
@@ -555,10 +557,13 @@ fn run_export(_: &Engine, i: &HashMap<String, Value>, p: &P) -> Result<Outputs, 
         };
         let (m, mounts, info) = hw::drill_mounts(&mesh, &mp, margin, &xs, &ys, &pad_r)?;
         mesh = m;
+        crate::progress::step("drill mounting holes", 0.08);
         pairs = mounts.pairs.len();
         meta["mounting"] = info;
     }
+    crate::progress::step("hardware", 0.1);
     let t = tiles::tile(&mesh, &tp)?;
+    crate::progress::step("cut tiles", 0.9);
     if tiled {
         meta["tiling"] = t.info.clone();
     }

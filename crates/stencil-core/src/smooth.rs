@@ -58,8 +58,12 @@ pub fn smooth(
     if radius_px <= 0.0 {
         return Ok((nw, nh, up.iter().map(|&v| v > 0.5).collect()));
     }
+    crate::progress::step("supersample", 0.15);
     let k = kernel(radius_px * f as f32);
-    let blurred = blur_pass(&blur_pass(&up, nw, nh, &k, true), nw, nh, &k, false);
+    let across = blur_pass(&up, nw, nh, &k, true);
+    crate::progress::step("blur rows", 0.55);
+    let blurred = blur_pass(&across, nw, nh, &k, false);
+    crate::progress::step("blur columns", 0.95);
     Ok((nw, nh, blurred.iter().map(|&v| v > 0.5).collect()))
 }
 

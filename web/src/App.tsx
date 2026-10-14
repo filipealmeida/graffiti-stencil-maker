@@ -144,7 +144,7 @@ function Canvas() {
         <input className="pname" value={pname} onChange={(e) => setPname(e.target.value)} aria-label="Project name" />
         <button onClick={save}>Save project</button>
         <button onClick={() => { if (s.nodes.length && !window.confirm('Discard the current graph? Save the project first to keep it.')) return; s.load([], []); localStorage.removeItem(STORE_KEY) }}>New</button>
-        {s.busy && s.progress.total > 0 && <span className="gbar" title={`${s.progress.done}/${s.progress.total} nodes`}><i style={{ width: `${(s.progress.done / s.progress.total) * 100}%` }} /></span>}
+        {s.busy && s.progress.total > 0 && <span className="gbar" title={`${Math.floor(s.progress.done)}/${s.progress.total} nodes`}><i style={{ width: `${(s.progress.done / s.progress.total) * 100}%` }} /></span>}
         <button className={s.consoleOpen ? 'on' : ''} onClick={() => s.setConsole(!s.consoleOpen)}>Console{s.logs.some((l) => l.level === 'error') ? ' ⚠' : ''}</button>
         <span className={`status${s.busy ? ' busy' : ''}`}>{s.error ? `⚠ ${s.error}` : s.busy ? 'working…' : 'ready'}</span>
       </header>

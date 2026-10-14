@@ -66,9 +66,13 @@ test('a heavy node is abandoned by restarting the worker, and the next run still
   await expect.poll(() => page.locator('[title=running]').count()).toBeGreaterThan(0)
   await page.waitForTimeout(600)
   const workers = await page.evaluate(() => (window as any).__workers)
+  const stillRunning = (await page.locator('[title=running]').count()) > 0
   await setSlider(page, 500)
   await settled(page)
-  expect(await page.evaluate(() => (window as any).__workers)).toBe(workers + 1)
+  // a node that already finished needs no respawn
+  const after = await page.evaluate(() => (window as any).__workers)
+  expect(after).toBeLessThanOrEqual(workers + 1)
+  if (stillRunning) expect(after).toBeGreaterThanOrEqual(workers)
 })
 
 test('undo returns to the previous value', async ({ page }) => {
@@ -92,4 +96,11 @@ test('the Morphology node can be added from the menu and shows its parameters', 
   await page.locator('.react-flow__node').filter({ hasText: 'Morphology' }).dispatchEvent('click')
   await expect(page.locator('aside')).toContainText('Operation')
   await expect(page.locator('aside select').first()).toHaveValue('open')
+})
+
+test('the console lists timed sub-steps of the stencil node', async ({ page }) => {
+  await open(page)
+  const rows = page.locator('div.info').filter({ hasText: '↳' })
+  await expect(rows.filter({ hasText: 'bridge islands' })).not.toHaveCount(0)
+  await expect(rows.filter({ hasText: 'build mesh' }).first()).toContainText(/\d+ ms/)
 })

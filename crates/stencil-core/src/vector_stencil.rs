@@ -376,6 +376,7 @@ pub(crate) fn build(shapes: &Shapes, detail: f64, p: &Params) -> Result<Output, 
                 .as_slice()
                 .overlay(bridges.as_slice(), OverlayRule::Union, FillRule::NonZero);
     }
+    crate::progress::step("bridge islands", 0.5);
     // A tiny union makes point-touching outlines share a manifold boundary.
     material = repair_point_contacts(&material);
     if material.len() != 1 {
@@ -390,6 +391,7 @@ pub(crate) fn build(shapes: &Shapes, detail: f64, p: &Params) -> Result<Output, 
     let layers = base_layers + p.extra_top_layers as usize;
     let thickness = layers as f64 * layer_height;
     let mesh = polygon_mesh(&material, p.width_mm, thickness, p.flip)?;
+    crate::progress::step("extrude mesh", 0.9);
     let stl = mesh.to_stl();
     let stats = Stats {
         width_mm: p.width_mm,

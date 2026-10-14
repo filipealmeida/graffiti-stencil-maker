@@ -101,7 +101,15 @@ async function runGraph(m: Extract<Req, { op: 'run' }>) {
     post(m.id, { node: id, state: { state: 'running' }, log: [], n, total: order.length })
     await turn()
     if (mine !== runToken) return { error: 'superseded' }
-    const r = JSON.parse(e.run(m.graph, JSON.stringify([id])))
+    let last = performance.now()
+    e.set_progress((label: string, frac: number) => {
+      const now = performance.now()
+      const line = { at: Date.now(), t: (Date.now() - t0) / 1000, level: 'info', node: id, type: node.type, msg: `↳ ${label}`, ms: Math.round(now - last) }
+      last = now
+      post(m.id, { node: id, state: { state: 'running', progress: frac, message: label }, log: [line], n, total: order.length })
+    })
+    let r: any
+    try { r = JSON.parse(e.run(m.graph, JSON.stringify([id]))) } finally { e.set_progress(undefined) }
     if (r.status === 'error') return { ok: { status: 'error', error: r.error, log: [] } }
     const state = r.nodes[id]
     if (state.state === 'error') failed.add(id)
