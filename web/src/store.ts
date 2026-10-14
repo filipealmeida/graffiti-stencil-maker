@@ -202,47 +202,42 @@ export const signature = (s: Pick<State, 'nodes' | 'edges'>) =>
   JSON.stringify([s.nodes.map((n) => [n.id, n.data.type, n.data.params]), s.edges.map((e) => [e.source, e.sourceHandle, e.target, e.targetHandle])])
 
 let token = 0
-let curJob: string | null = null
+let runningSig: string | null = null
+let doneSig: string | null = null
 
-/** 'trace' evaluates only the trace-stage nodes (cheap, used for live feedback); 'all' evaluates everything. */
-export async function runGraph(scope: 'all' | 'trace' = 'all') {
+/** Evaluates the whole graph. A run for a graph that is already running or already evaluated is skipped. */
+export async function runGraph() {
   const st = useStudio.getState()
   const g = st.graph()
+  if (!g.nodes.length) { token++; runningSig = doneSig = null; api.cancel(); return st.setRuns({}, false) }
+  const sig = signature(st)
+  if (sig === runningSig || (sig === doneSig && !st.error)) return
   const mine = ++token
-  if (curJob) api.cancel(curJob).catch(() => {})
-  curJob = null
-  const targets = scope === 'trace' ? g.nodes.filter((n) => st.types[n.type]?.stage === 'trace').map((n) => n.id) : undefined
-  if (!g.nodes.length) return st.setRuns({}, false)
-  if (targets && !targets.length) return
-  useStudio.setState({ busy: true })
+  runningSig = sig
+  doneSig = null
+  // results of the previous run stay on screen, marked stale, until each node has its new one
+  const merged: Record<string, NodeRun> = {}
+  for (const n of g.nodes) {
+    const prev = st.runs[n.id]
+    merged[n.id] = prev ? { ...prev, stale: true } : { state: 'pending' }
+  }
+  useStudio.setState({ runs: merged, busy: true, error: null, progress: { done: 0, total: g.nodes.length } })
   try {
-    const { job } = await api.run(g, targets)
-    if (mine !== token) return void api.cancel(job)
-    curJob = job
-    let since = 0
-    for (;;) {
-      const r = await api.job(job, since)
+    const r = await api.run(g, undefined, (step) => {
       if (mine !== token) return
-      since = r.n
-      const s = useStudio.getState()
-      if (r.log.length) s.addLogs(r.log)
-      // a node that has not been reached yet keeps its previous result (marked stale) so the canvas does not flicker
-      const merged: Record<string, NodeRun> = {}
-      for (const [id, n] of Object.entries(r.nodes)) {
-        const prev = s.runs[id]
-        merged[id] = n.state === 'pending' && prev ? { ...prev, stale: true }
-          : n.state === 'running' && prev?.key ? { ...n, key: prev.key, outputs: prev.outputs, stale: true } : n
-      }
-      const all = Object.values(r.nodes)
-      useStudio.setState({
-        runs: merged, busy: r.status === 'running', error: r.error ?? null,
-        progress: { done: all.filter((n) => n.state === 'done' || n.state === 'error').length, total: all.length },
-      })
-      if (r.status !== 'running') { curJob = null; return }
-      await new Promise((res) => setTimeout(res, 100))
-    }
+      const prev = merged[step.node]
+      merged[step.node] = step.state.state === 'running' && prev?.key ? { ...step.state, key: prev.key, outputs: prev.outputs, stale: true } : step.state
+      if (step.log.length) useStudio.getState().addLogs(step.log)
+      useStudio.setState({ runs: { ...merged }, progress: { done: step.n, total: step.total || g.nodes.length } })
+    })
+    if (mine !== token) return
+    runningSig = null
+    if (r.status === 'done') doneSig = sig
+    useStudio.setState({ busy: false, error: r.error ?? null })
   } catch (e) {
-    if (mine === token && !(e instanceof Error && e.message === 'superseded')) useStudio.setState({ busy: false, error: String(e instanceof Error ? e.message : e) })
+    if (mine !== token) return
+    runningSig = null
+    if (!(e instanceof Error && e.message === 'superseded')) useStudio.setState({ busy: false, error: String(e instanceof Error ? e.message : e) })
   }
 }
 export { LANE_X }

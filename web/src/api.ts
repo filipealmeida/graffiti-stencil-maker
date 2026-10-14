@@ -32,6 +32,7 @@ export interface NodeRun {
   stale?: boolean
   outputs?: Record<string, { type: Kind; available: boolean }>
 }
+export interface NodeStep { node: string; state: NodeRun; n: number; total: number; log: LogLine[] }
 export interface LogLine { ts: string; ms: number | null; t: number; level: 'info' | 'error'; node: string; type: string; msg: string }
 export interface GraphJson {
   nodes: { id: string; type: string; params: Record<string, unknown> }[]
@@ -42,14 +43,15 @@ type Info = Record<string, any>
 
 let worker: Worker | null = null
 let seq = 0
-const pending = new Map<number, { ok: (v: any) => void; err: (e: Error) => void }>()
+const pending = new Map<number, { ok: (v: any) => void; err: (e: Error) => void; step?: (s: any) => void }>()
 
-function call<T>(msg: Record<string, unknown>, transfer: Transferable[] = []): Promise<T> {
+function call<T>(msg: Record<string, unknown>, transfer: Transferable[] = [], step?: (s: any) => void): Promise<T> {
   if (!worker) {
     worker = new Worker(new URL('./engine.worker.ts', import.meta.url), { type: 'module' })
     worker.onmessage = (ev) => {
       const p = pending.get(ev.data.id)
       if (!p) return
+      if (ev.data.step) return p.step?.(ev.data.step)
       pending.delete(ev.data.id)
       if (ev.data.error !== undefined) p.err(new Error(ev.data.error))
       else p.ok(ev.data.ok)
@@ -57,7 +59,7 @@ function call<T>(msg: Record<string, unknown>, transfer: Transferable[] = []): P
   }
   const id = ++seq
   return new Promise<T>((ok, err) => {
-    pending.set(id, { ok, err })
+    pending.set(id, { ok, err, step })
     worker!.postMessage({ id, ...msg }, transfer)
   })
 }
@@ -77,8 +79,6 @@ function retain(key: string) {
   }
 }
 const infos = new Map<string, Info>()
-const jobs = new Map<string, { status: string; nodes: Record<string, NodeRun>; error?: string; log: LogLine[]; n: number }>()
-let jobSeq = 0
 
 const IDB = 'stencil-studio'
 function db(): Promise<IDBDatabase> {
@@ -114,18 +114,6 @@ const b64 = (b: ArrayBuffer) => {
 }
 const unb64 = (s: string) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0)).buffer
 
-let waiting: { graph: GraphJson; targets?: string[]; ok: (r: any) => void; err: (e: Error) => void } | null = null
-let working = false
-function pump() {
-  if (working || !waiting) return
-  const w = waiting
-  waiting = null
-  working = true
-  call<{ result: any; artifacts: any[] }>({ op: 'run', graph: JSON.stringify(w.graph), targets: w.targets ? JSON.stringify(w.targets) : '' })
-    .then(w.ok, w.err)
-    .finally(() => { working = false; pump() })
-}
-
 export const api = {
   nodeTypes: () => call<NodeType[]>({ op: 'types' }),
   async upload(f: File) {
@@ -142,33 +130,30 @@ export const api = {
       if (img) await call({ op: 'image', bytes: img.bytes.slice(0) })
     }
   },
-  /** The worker is synchronous, so runs go one at a time and a waiting run is replaced by a newer request. */
-  async run(graph: GraphJson, targets?: string[]) {
-    const r = await new Promise<{ result: any; artifacts: any[] }>((ok, err) => {
-      waiting?.err(new Error('superseded'))
-      waiting = { graph, targets, ok, err }
-      pump()
-    })
-    const job = `j${++jobSeq}`
-    for (const a of r.artifacts) {
-      retain(a.key)
-      const prev = blobs.get(`${a.key}/${a.out}`)
-      if (prev) URL.revokeObjectURL(prev)
-      if (a.bytes.length) blobs.set(`${a.key}/${a.out}`, URL.createObjectURL(new Blob([a.bytes as BlobPart], { type: a.mime })))
-      for (const [name, bytes] of Object.entries<Uint8Array>(a.parts)) blobs.set(`${a.key}/${a.out}/${name}`, URL.createObjectURL(new Blob([bytes as BlobPart], { type: 'model/stl' })))
-      if (a.info) infos.set(`${a.key}/${a.out}`, a.info)
-    }
-    const log: LogLine[] = r.result.log.map((l: any) => ({ ts: stamp(l.at), ms: l.ms ?? null, t: l.t, level: l.level, node: l.node, type: l.type, msg: l.msg }))
-    jobs.set(job, { status: r.result.status, nodes: r.result.nodes, error: r.result.error, log, n: log.length })
-    return { job }
+  /**
+   * Starts a run in the worker, which evaluates node by node and reports each one through `onStep` as it finishes.
+   * A newer run (or `cancel`) stops an older one at its next node boundary and rejects it with 'superseded'.
+   */
+  async run(graph: GraphJson, targets: string[] | undefined, onStep: (s: NodeStep) => void) {
+    const r = await call<{ status: string; error?: string }>(
+      { op: 'run', graph: JSON.stringify(graph), targets: targets ? JSON.stringify(targets) : '' }, [],
+      (s) => {
+        for (const a of s.artifacts as any[]) {
+          retain(a.key)
+          const prev = blobs.get(`${a.key}/${a.out}`)
+          if (prev) URL.revokeObjectURL(prev)
+          if (a.bytes.length) blobs.set(`${a.key}/${a.out}`, URL.createObjectURL(new Blob([a.bytes as BlobPart], { type: a.mime })))
+          for (const [name, bytes] of Object.entries<Uint8Array>(a.parts)) blobs.set(`${a.key}/${a.out}/${name}`, URL.createObjectURL(new Blob([bytes as BlobPart], { type: 'model/stl' })))
+          if (a.info) infos.set(`${a.key}/${a.out}`, a.info)
+        }
+        onStep({
+          node: s.node, state: s.state, n: s.n, total: s.total,
+          log: (s.log as any[]).map((l) => ({ ts: stamp(l.at), ms: l.ms ?? null, t: l.t, level: l.level, node: l.node, type: l.type, msg: l.msg })),
+        })
+      })
+    return r
   },
-  async job(id: string, _since = 0) {
-    const j = jobs.get(id)
-    if (!j) throw new Error('unknown job')
-    jobs.delete(id)
-    return j
-  },
-  cancel: async (_id: string) => {},
+  cancel: () => { if (worker) worker.postMessage({ id: ++seq, op: 'cancel' }) },
   info: async (key: string, out: string) => infos.get(`${key}/${out}`) ?? {},
 
   /** Projects are files: the graph plus the pictures it uses. */

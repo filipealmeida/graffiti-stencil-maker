@@ -55,11 +55,10 @@ function Canvas() {
   useEffect(() => {
     if (!Object.keys(s.types).length) return
     localStorage.setItem(STORE_KEY, JSON.stringify({ nodes: s.nodes, edges: s.edges }))
-    // trace nodes answer almost live; the heavier stages follow once the edits settle
-    const quick = first.current ? undefined : setTimeout(() => runGraph('trace'), 100)
-    const full = setTimeout(() => runGraph('all'), first.current ? 0 : 700)
+    // one run per settled edit; it evaluates node by node, so the trace stage shows up first
+    const full = setTimeout(runGraph, first.current ? 0 : 350)
     first.current = false
-    return () => { clearTimeout(quick); clearTimeout(full) }
+    return () => clearTimeout(full)
   }, [sig, Object.keys(s.types).length])
 
   const addFile = useCallback(async (f: File, at?: { x: number; y: number }) => {

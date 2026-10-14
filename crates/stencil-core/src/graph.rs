@@ -616,7 +616,7 @@ impl Engine {
             .map(|(_, v)| v)
     }
 
-    /// Outputs computed since the last call, as `(key, output)`.
+    /// Outputs computed by the last run, as `(key, output)`.
     pub fn take_fresh(&mut self) -> Vec<(String, String)> {
         std::mem::take(&mut self.fresh)
     }
@@ -624,6 +624,8 @@ impl Engine {
     /// Evaluates the graph, or only the ancestors of `targets`. `now` returns epoch milliseconds.
     pub fn run(&mut self, graph: &Json, targets: Option<&[String]>, now: &dyn Fn() -> f64) -> Json {
         let defs: HashMap<&str, NodeDef> = catalogue().into_iter().map(|d| (d.id, d)).collect();
+        // `fresh` reports only what this call computed; otherwise every run would re-export all earlier results
+        self.fresh.clear();
         let mut log: Vec<Json> = Vec::new();
         let t0 = now();
         let mut say = |level: &str, node: &str, ty: &str, msg: String, ms: Option<f64>| {
