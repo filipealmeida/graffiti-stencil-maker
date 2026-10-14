@@ -51,6 +51,11 @@ project controls.
 Edits can be undone with **Undo**/**Redo** in the toolbar or Ctrl+Z / Ctrl+Shift+Z (Ctrl+Y). Edits made within
 half a second, such as a slider drag, count as one step; the last 100 steps are kept for the session.
 
+Each settled edit starts one run, which evaluates the graph node by node; results appear as nodes finish and older
+results stay visible (marked stale) until replaced. A new edit stops the run in progress at the next node boundary. If a
+node has been computing for more than about 300 ms, the worker is restarted instead, which stops it at once (upstream nodes are
+then recomputed). To run the browser tests: `cd web && npm run build && npx playwright install chromium-headless-shell && npm run e2e`.
+
 ## Island handling and output
 
 Normal bridges connect stencil material islands to the frame so the printed part is connected. With raised bridges,

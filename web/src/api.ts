@@ -45,23 +45,49 @@ let worker: Worker | null = null
 let seq = 0
 const pending = new Map<number, { ok: (v: any) => void; err: (e: Error) => void; step?: (s: any) => void }>()
 
+/** A node that has been computing this long (ms) is worth a worker restart; shorter ones finish on their own and keep the cache. */
+export const HARD_CANCEL_MS = 300
+let active: { id: number; since: number | null } | null = null
+// after a restart the new worker must be given the pictures again before it can run anything
+let warm: Promise<unknown> | null = null
+
 function call<T>(msg: Record<string, unknown>, transfer: Transferable[] = [], step?: (s: any) => void): Promise<T> {
   if (!worker) {
     worker = new Worker(new URL('./engine.worker.ts', import.meta.url), { type: 'module' })
     worker.onmessage = (ev) => {
       const p = pending.get(ev.data.id)
       if (!p) return
-      if (ev.data.step) return p.step?.(ev.data.step)
+      if (ev.data.step) {
+        const a = active as { id: number; since: number | null } | null
+        if (a && a.id === ev.data.id) a.since = ev.data.step.state?.state === 'running' ? Date.now() : null
+        return p.step?.(ev.data.step)
+      }
+      if (active?.id === ev.data.id) active = null
       pending.delete(ev.data.id)
       if (ev.data.error !== undefined) p.err(new Error(ev.data.error))
       else p.ok(ev.data.ok)
     }
   }
   const id = ++seq
+  if (msg.op === 'run') active = { id, since: null }
   return new Promise<T>((ok, err) => {
     pending.set(id, { ok, err, step })
     worker!.postMessage({ id, ...msg }, transfer)
   })
+}
+
+/** Stops the current run. A node caught mid-computation can't hear a message, so the worker is replaced instead. */
+function stopRun() {
+  if (!worker || !active) return
+  if (active.since !== null && Date.now() - active.since > HARD_CANCEL_MS) {
+    worker.terminate()
+    worker = null
+    active = null
+    const dead = [...pending.values()]
+    pending.clear()
+    for (const p of dead) p.err(new Error('superseded'))
+    warm = api.restoreImages().finally(() => { warm = null })
+  } else worker.postMessage({ id: ++seq, op: 'cancel' })
 }
 
 // Results live in the browser: artifacts are blobs, infos are cached JSON.
@@ -135,6 +161,8 @@ export const api = {
    * A newer run (or `cancel`) stops an older one at its next node boundary and rejects it with 'superseded'.
    */
   async run(graph: GraphJson, targets: string[] | undefined, onStep: (s: NodeStep) => void) {
+    stopRun()
+    if (warm) await warm
     const r = await call<{ status: string; error?: string }>(
       { op: 'run', graph: JSON.stringify(graph), targets: targets ? JSON.stringify(targets) : '' }, [],
       (s) => {
@@ -153,7 +181,7 @@ export const api = {
       })
     return r
   },
-  cancel: () => { if (worker) worker.postMessage({ id: ++seq, op: 'cancel' }) },
+  cancel: stopRun,
   info: async (key: string, out: string) => infos.get(`${key}/${out}`) ?? {},
 
   /** Projects are files: the graph plus the pictures it uses. */
