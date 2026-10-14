@@ -12,3 +12,10 @@ stencil-core = { path = "../stencil-core" }
 clap = { version = "4", features = ["derive"] }
 serde_json = "1"
 base64 = "0.22"
+rust-embed = { version = "8", features = ["mime-guess"], optional = true }
+tiny_http = { version = "0.12", optional = true }
+open = { version = "5", optional = true }
+
+[features]
+# Embeds web/dist (build the studio first) and adds `stencil studio`.
+studio = ["dep:rust-embed", "dep:tiny_http", "dep:open"]

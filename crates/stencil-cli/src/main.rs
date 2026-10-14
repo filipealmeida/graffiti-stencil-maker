@@ -1,3 +1,5 @@
+mod studio;
+
 use base64::Engine as _;
 use clap::Parser;
 use serde_json::{json, Map, Value as Json};
@@ -108,6 +110,11 @@ struct Args {
 }
 
 fn main() {
+    let argv: Vec<String> = std::env::args().collect();
+    if argv.get(1).map(String::as_str) == Some("studio") {
+        studio::run(&argv[2..]);
+        return;
+    }
     let a = Args::parse();
     let t = Instant::now();
     let mut engine = Engine::new();

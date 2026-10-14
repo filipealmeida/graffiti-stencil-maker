@@ -32,6 +32,9 @@ picture ids are remapped automatically, including for projects saved by older ve
 
 ## Studio
 
+With a binary built with the `studio` feature, `stencil studio [--port N] [--no-open]` serves the studio locally and
+opens it in your browser; everything still runs in the browser tab. Stop it with Ctrl+C.
+
 Build and run the studio as described in [INSTALL.md](INSTALL.md). Drop an image onto the canvas, or choose one of
 the starter templates. The graph is evaluated in a Web Worker; node outputs can be inspected in the side panel.
 New nodes are placed in the first free spot of their lane (Trace / Stencil / Post-process). Drag the grip on a lane's right edge to resize it; widths are remembered between visits. Existing nodes do not move when a lane is resized.

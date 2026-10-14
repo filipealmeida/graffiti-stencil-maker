@@ -17,6 +17,16 @@ cargo build --release -p stencil-cli
 
 On Windows, use `.\target\release\stencil.exe`. Run `./target/release/stencil --help` for all options.
 
+### Studio as a single binary
+
+Build the studio into the CLI (see [INSTALL.md](INSTALL.md)), then run:
+
+```sh
+./target/release/stencil studio
+```
+
+It serves the studio on `http://127.0.0.1:5173/` and opens your browser. Options: `--port N`, `--no-open`.
+
 ### Web studio
 
 See [INSTALL.md](INSTALL.md) for prerequisites and the initial build. Once the WASM package is built, start the
