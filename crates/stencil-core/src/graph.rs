@@ -218,6 +218,20 @@ fn run_morphology(_: &Engine, i: &HashMap<String, Value>, p: &P) -> Result<Outpu
     Ok(vec![("mask", Value::Mask(Rc::new(Mask { w, h, paint })))])
 }
 
+fn run_smooth(_: &Engine, i: &HashMap<String, Value>, p: &P) -> Result<Outputs, String> {
+    let Some(Value::Mask(src)) = i.get("mask") else {
+        return Err("input 'mask' missing".into());
+    };
+    let (w, h, paint) = crate::smooth::smooth(
+        src.w,
+        src.h,
+        &src.paint,
+        p.f("radius") as f32,
+        p.f("supersample") as usize,
+    )?;
+    Ok(vec![("mask", Value::Mask(Rc::new(Mask { w, h, paint })))])
+}
+
 fn run_threshold(_: &Engine, i: &HashMap<String, Value>, p: &P) -> Result<Outputs, String> {
     let Some(Value::Image(img)) = i.get("image") else {
         return Err("input 'image' missing".into());

@@ -284,3 +284,37 @@ fn morphology_node_runs_each_operation_and_reports_bad_input() {
     );
     assert_eq!(s, "error");
 }
+
+#[test]
+fn smooth_node_scales_the_mask_and_feeds_the_stencil() {
+    let mut e = Engine::new();
+    let id = e.add_image(test_png()).unwrap()["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let g = json!({
+        "nodes": [
+            {"id": "s", "type": "source", "params": {"image_id": id, "resolution": 120}},
+            {"id": "t", "type": "threshold", "params": {}},
+            {"id": "m", "type": "smooth", "params": {"radius": 1.5, "supersample": 2}},
+            {"id": "st", "type": "stencil", "params": {"width_mm": 100}},
+        ],
+        "edges": [
+            {"from": ["s", "image"], "to": ["t", "image"]},
+            {"from": ["t", "mask"], "to": ["m", "mask"]},
+            {"from": ["m", "mask"], "to": ["st", "mask"]},
+        ]
+    });
+    let r = e.run(&g, None, &|| 0.0);
+    assert_eq!(r["nodes"]["m"]["state"], "done");
+    assert_eq!(r["nodes"]["st"]["state"], "done", "{r}");
+    let size = |n: &str| {
+        let k = r["nodes"][n]["key"].as_str().unwrap();
+        match e.value(k, "mask") {
+            Some(Value::Mask(m)) => (m.w, m.h),
+            _ => panic!(),
+        }
+    };
+    let (a, b) = (size("t"), size("m"));
+    assert_eq!((a.0 * 2, a.1 * 2), b);
+}

@@ -16,6 +16,7 @@ mod islands;
 mod layered;
 pub mod mesh;
 pub mod morphology;
+pub mod smooth;
 pub mod svg;
 mod tile_bridge;
 pub mod tiles;

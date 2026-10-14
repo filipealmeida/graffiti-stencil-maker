@@ -109,6 +109,19 @@ pub(super) fn catalogue() -> Vec<NodeDef> {
             run: run_tones,
         },
         NodeDef {
+            id: "smooth",
+            label: "Smooth mask",
+            stage: "trace",
+            inputs: vec![("mask", "mask", true)],
+            outputs: vec![("mask", "mask")],
+            params: vec![
+                num("radius", "Smoothing (px)", 1.5, 0.0, 10.0, 0.25, None, false),
+                num("supersample", "Supersample (x)", 2.0, 1.0, 4.0, 1.0, None, true),
+            ],
+            doc: "Rounds the pixel staircase of a mask. The mask is enlarged by the supersample factor, blurred by the smoothing radius (in source pixels) and cut at half strength, so edges become curves and sharp corners round off. Very thin strokes can vanish at large radii. Feed the result to a Stencil node: bridging still runs on it, so it stays island-free. The output is supersample-times larger in each direction, and the stencil grid grows with it.",
+            run: run_smooth,
+        },
+        NodeDef {
             id: "morphology",
             label: "Morphology",
             stage: "trace",
