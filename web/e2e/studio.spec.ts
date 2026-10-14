@@ -67,7 +67,7 @@ test('a heavy node is abandoned by restarting the worker, and the next run still
   await page.waitForTimeout(600)
   const workers = await page.evaluate(() => (window as any).__workers)
   const stillRunning = (await page.locator('[title=running]').count()) > 0
-  await setSlider(page, 500)
+  await setSlider(page, 130)
   await settled(page)
   // a node that already finished needs no respawn
   const after = await page.evaluate(() => (window as any).__workers)
@@ -103,4 +103,30 @@ test('the console lists timed sub-steps of the stencil node', async ({ page }) =
   const rows = page.locator('div.info').filter({ hasText: '↳' })
   await expect(rows.filter({ hasText: 'bridge islands' })).not.toHaveCount(0)
   await expect(rows.filter({ hasText: 'build mesh' }).first()).toContainText(/\d+ ms/)
+})
+
+test('new nodes avoid existing ones and panels can be resized', async ({ page }) => {
+  await open(page)
+  for (let i = 0; i < 3; i++) {
+    await page.getByRole('button', { name: '+ trace' }).click()
+    await page.getByRole('button', { name: 'Morphology' }).click()
+  }
+  const boxes = await page.locator('.react-flow__node').evaluateAll((l) => l.map((e) => { const r = e.getBoundingClientRect(); return [r.x, r.y, r.width, r.height] }))
+  expect(boxes.length).toBe(7)
+  for (let i = 0; i < boxes.length; i++) for (let j = i + 1; j < boxes.length; j++) {
+    const [a, b] = [boxes[i], boxes[j]]
+    const overlap = a[0] < b[0] + b[2] && b[0] < a[0] + a[2] && a[1] < b[1] + b[3] && b[1] < a[1] + a[3]
+    expect(overlap, `nodes ${i} and ${j}`).toBe(false)
+  }
+  const lane = page.locator('.lane-stencil')
+  const before = (await lane.boundingBox())!
+  const grip = page.locator('.lane-trace .lane-grip')
+  const g = (await grip.boundingBox())!
+  await page.mouse.move(g.x + g.width / 2, 130)
+  await page.mouse.down()
+  await page.mouse.move(g.x + g.width / 2 + 120, 130, { steps: 5 })
+  await page.mouse.up()
+  const after = (await lane.boundingBox())!
+  expect(after.x).toBeGreaterThan(before.x + 60)
+  expect(after.width).toBeLessThan(before.width - 60)
 })

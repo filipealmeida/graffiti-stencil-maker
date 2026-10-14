@@ -19,6 +19,7 @@ main{flex:1;display:flex;min-height:0}
 .react-flow{z-index:1;background:transparent!important}
 .react-flow__viewport{}
 .lane{position:absolute;top:-60px;height:3200px;padding:8px 14px;font-size:15px;font-weight:600;border-left:1px dashed var(--line)}
+.lane-grip{position:absolute;top:0;right:-5px;width:10px;height:100%;cursor:col-resize;pointer-events:auto;z-index:0}.lane-grip:hover{background:#ffffff14}
 .lane-trace{color:var(--trace);background:#4aa3ff08}.lane-stencil{color:var(--stencil);background:#5fd38d08}.lane-post{color:var(--post);background:#c28bff08}
 .hint,.dropzone{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none;font-size:20px;color:var(--mut);z-index:5}
 .dropzone{background:#ff8a1f22;border:3px dashed var(--acc);color:var(--acc)}

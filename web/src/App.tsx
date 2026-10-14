@@ -6,14 +6,14 @@ import Console from './Console'
 import Workbench from './Workbench'
 import StudioEdge from './StudioEdge'
 import StudioNodeView, { KIND_COLOR } from './StudioNode'
-import { LANE_X, redo, resetHistory, runGraph, signature, undo, useStudio, type StudioNode } from './store'
+import { laneSpan, redo, resizeLane, resetHistory, runGraph, signature, undo, useStudio, type StudioNode } from './store'
 
 const nodeTypes = { studio: StudioNodeView }
 const edgeTypes = { default: StudioEdge }
-const LANES: { stage: Stage; title: string; x: number; w: number }[] = [
-  { stage: 'trace', title: '1 · Trace — image to masks', x: 0, w: 1150 },
-  { stage: 'stencil', title: '2 · Stencil — mask to 3D plate', x: LANE_X.stencil, w: 530 },
-  { stage: 'post', title: '3 · Post-process — parts', x: LANE_X.post, w: 400 },
+const LANES: { stage: Stage; title: string; edge: 'stencil' | 'post' | 'end' }[] = [
+  { stage: 'trace', title: '1 · Trace — image to masks', edge: 'stencil' },
+  { stage: 'stencil', title: '2 · Stencil — mask to 3D plate', edge: 'post' },
+  { stage: 'post', title: '3 · Post-process — parts', edge: 'end' },
 ]
 const STORE_KEY = 'studio.graph.v1'
 
@@ -110,9 +110,30 @@ function Canvas() {
   }
 
   const stageNodes = (st: Stage) => Object.values(s.types).filter((t) => t.stage === st)
-  const lane = (l: (typeof LANES)[number]) => (
-    <div key={l.stage} className={`lane lane-${l.stage}`} style={{ left: l.x, width: l.w }}>{l.title}</div>
-  )
+  const lane = (l: (typeof LANES)[number]) => {
+    const { x, w } = laneSpan(s.lanes, l.stage)
+    // dragging a handle moves the boundary that follows this lane, so the next lane keeps its right edge
+    const drag = (e: React.PointerEvent<HTMLDivElement>) => {
+      e.preventDefault()
+      e.stopPropagation()
+      const el = e.currentTarget
+      el.setPointerCapture(e.pointerId)
+      const startX = e.clientX
+      const zoom = rf.getViewport().zoom
+      const base = s.lanes
+      const at = l.edge === 'stencil' ? base.stencil : l.edge === 'post' ? base.post : base.end
+      const move = (ev: PointerEvent) => useStudio.getState().setLanes(resizeLane(base, l.edge, at + (ev.clientX - startX) / zoom))
+      const up = () => { el.removeEventListener('pointermove', move); el.removeEventListener('pointerup', up) }
+      el.addEventListener('pointermove', move)
+      el.addEventListener('pointerup', up)
+    }
+    return (
+      <div key={l.stage} className={`lane lane-${l.stage}`} style={{ left: x, width: w }}>
+        {l.title}
+        <div className="lane-grip" title="Drag to resize this panel" onPointerDown={drag} />
+      </div>
+    )
+  }
 
   return (
     <div className="app" onDragOver={(e) => { e.preventDefault(); setDrag(true) }} onDragLeave={() => setDrag(false)} onDrop={onDrop}>
@@ -123,7 +144,7 @@ function Canvas() {
             <div key={st} className="pal">
               <button className={`stage-${st}${menu === st ? ' on' : ''}`} onClick={() => setMenu(menu === st ? null : st)}>+ {st}</button>
               {menu === st && <div className="menu">{stageNodes(st).map((t) => (
-                <button key={t.id} title={t.doc} onClick={() => { const c = rf.screenToFlowPosition({ x: window.innerWidth * 0.3, y: 160 }); s.addNode(t.id, {}, { x: st === 'trace' ? c.x : LANE_X[st] + 30, y: c.y }); setMenu(null) }}>{t.label}</button>
+                <button key={t.id} title={t.doc} onClick={() => { const c = rf.screenToFlowPosition({ x: window.innerWidth * 0.3, y: 160 }); const sp = laneSpan(s.lanes, st); s.addNode(t.id, {}, { x: st === 'trace' ? c.x : sp.x + 30, y: c.y }); setMenu(null) }}>{t.label}</button>
               ))}</div>}
             </div>
           ))}
