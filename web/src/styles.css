@@ -103,3 +103,4 @@ header>.pal .menu{position:absolute;top:30px;left:0;z-index:20;background:var(--
 .crash{max-width:640px;margin:12vh auto;padding:24px;color:var(--fg);font-family:system-ui,sans-serif}
 .crash pre{white-space:pre-wrap;background:#0006;padding:10px;border-radius:6px;color:#ff9b9b}
 .crash-actions{display:flex;gap:8px;flex-wrap:wrap}
+.menu{max-height:calc(100vh - 56px);overflow-y:auto;overscroll-behavior:contain}

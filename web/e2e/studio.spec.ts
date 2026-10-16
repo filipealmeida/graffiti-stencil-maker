@@ -286,3 +286,14 @@ test('templates menu rebuilds the graph around the picture', async ({ page }) =>
   await page.locator('.menu button').filter({ hasText: 'Vector' }).click()
   await expect(page.locator('.react-flow__node').filter({ hasText: 'Vector stencil' })).toBeVisible()
 })
+
+test('a long palette menu scrolls inside itself, not the page', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 420 })
+  await open(page)
+  await page.getByRole('button', { name: '+ trace' }).click()
+  const m = page.locator('.menu').first()
+  const b = (await m.boundingBox())!
+  expect(b.y + b.height).toBeLessThanOrEqual(420)
+  expect(await m.evaluate((e) => e.scrollHeight > e.clientHeight)).toBe(true)
+  expect(await page.evaluate(() => document.documentElement.scrollHeight <= window.innerHeight)).toBe(true)
+})
