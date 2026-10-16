@@ -181,3 +181,21 @@ test('the preview image zooms and pans on a bounded canvas', async ({ page }) =>
   expect(size[0]).toBeLessThan(5000)
   await expect(page.locator('.imgbar')).toContainText(/\d{3,4}%/)
 })
+
+test('releasing the preview image right after a move does not crash the app', async ({ page }) => {
+  const errors: string[] = []
+  page.on('pageerror', (e) => errors.push(e.message))
+  await open(page)
+  await page.locator('.react-flow__node').filter({ hasText: 'Threshold' }).first().dispatchEvent('dblclick')
+  const stage = page.locator('.imgstage')
+  await expect(stage.locator('canvas')).toBeVisible()
+  await stage.evaluate((el) => {
+    const r = el.getBoundingClientRect()
+    const fire = (t: string, x: number) => el.dispatchEvent(new PointerEvent(t, { bubbles: true, clientX: r.x + x, clientY: r.y + 50, pointerId: 1, button: 0 }))
+    for (let i = 0; i < 20; i++) { fire('pointerdown', 100); fire('pointermove', 140 + i); fire('pointerup', 140 + i) }
+  })
+  await page.waitForTimeout(300)
+  expect(errors).toEqual([])
+  await expect(page.locator('.bench')).toBeVisible()
+  await expect(stage.locator('canvas')).toBeVisible()
+})

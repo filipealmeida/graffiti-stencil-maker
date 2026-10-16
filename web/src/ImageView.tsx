@@ -78,7 +78,7 @@ export default function ImageView({ src, under, kind }: Props) {
       <div
         ref={host} className="imgstage" onWheel={onWheel} onDoubleClick={() => setView({ k: 1, x: 0, y: 0 })}
         onPointerDown={(e) => { drag.current = { x: e.clientX - view.x, y: e.clientY - view.y }; (e.target as Element).setPointerCapture?.(e.pointerId) }}
-        onPointerMove={(e) => drag.current && setView((v) => ({ ...v, x: e.clientX - drag.current!.x, y: e.clientY - drag.current!.y }))}
+        onPointerMove={(e) => { const d = drag.current; if (d) setView((v) => ({ ...v, x: e.clientX - d.x, y: e.clientY - d.y })) }}
         onPointerUp={() => (drag.current = null)} onPointerCancel={() => (drag.current = null)}
       >
         <canvas ref={canvas} className="imgcanvas" />
