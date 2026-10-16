@@ -218,6 +218,21 @@ fn run_morphology(_: &Engine, i: &HashMap<String, Value>, p: &P) -> Result<Outpu
     Ok(vec![("mask", Value::Mask(Rc::new(Mask { w, h, paint })))])
 }
 
+fn run_transform(_: &Engine, i: &HashMap<String, Value>, p: &P) -> Result<Outputs, String> {
+    let params = crate::transform::Params {
+        left: p.f("crop_left") / 100.0,
+        top: p.f("crop_top") / 100.0,
+        right: p.f("crop_right") / 100.0,
+        bottom: p.f("crop_bottom") / 100.0,
+        flip_h: p.b("flip_h"),
+        flip_v: p.b("flip_v"),
+        quarter_turns: p.s("turn").parse::<u32>().unwrap_or(0) / 90,
+        angle: p.f("angle"),
+    };
+    let r = crate::transform::transform(input_image(i)?, &params)?;
+    Ok(vec![("image", Value::Image(Rc::new(r)))])
+}
+
 fn run_smooth(_: &Engine, i: &HashMap<String, Value>, p: &P) -> Result<Outputs, String> {
     let Some(Value::Mask(src)) = i.get("mask") else {
         return Err("input 'mask' missing".into());

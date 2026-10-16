@@ -34,6 +34,7 @@ picture ids are remapped automatically, including for projects saved by older ve
 
 With a binary built with the `studio` feature, `stencil studio [--port N] [--no-open]` serves the studio locally and
 opens it in your browser; everything still runs in the browser tab. Stop it with Ctrl+C.
+The **Crop & rotate** node (Trace lane, image in, image out) crops each side by a percentage, flips, turns by 90° steps and rotates freely by up to ±45° (the canvas grows to fit and the corners are white, i.e. no paint). Place it right after the Image node.
 The 3D viewers (Stencil and Post-process outputs) show the model size (width × depth × height in mm) in the corner, and per-file sizes in the file list; for tiled output the corner shows the assembled plate. The Trace node's output has an **Export SVG** button (workbench footer and inspector) that saves the vector outlines.
 
 Build and run the studio as described in [INSTALL.md](INSTALL.md). Drop an image onto the canvas, or choose one of

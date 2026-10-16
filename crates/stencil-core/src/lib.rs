@@ -22,6 +22,7 @@ pub mod svg;
 mod tile_bridge;
 pub mod tiles;
 pub mod trace;
+pub mod transform;
 mod vector_stencil;
 pub mod zip;
 

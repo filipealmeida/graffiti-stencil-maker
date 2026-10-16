@@ -318,3 +318,35 @@ fn smooth_node_scales_the_mask_and_feeds_the_stencil() {
     let (a, b) = (size("t"), size("m"));
     assert_eq!((a.0 * 2, a.1 * 2), b);
 }
+
+#[test]
+fn transform_node_crops_and_rotates_before_tracing() {
+    let mut e = Engine::new();
+    let id = e.add_image(test_png()).unwrap()["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let g = json!({
+        "nodes": [
+            {"id": "s", "type": "source", "params": {"image_id": id, "resolution": 120}},
+            {"id": "x", "type": "transform", "params": {"crop_left": 10, "crop_right": 10, "turn": "90"}},
+            {"id": "t", "type": "threshold", "params": {}},
+            {"id": "st", "type": "stencil", "params": {"width_mm": 100}},
+        ],
+        "edges": [
+            {"from": ["s", "image"], "to": ["x", "image"]},
+            {"from": ["x", "image"], "to": ["t", "image"]},
+            {"from": ["t", "mask"], "to": ["st", "mask"]},
+        ]
+    });
+    let r = e.run(&g, None, &|| 0.0);
+    assert_eq!(r["nodes"]["x"]["state"], "done", "{r}");
+    assert_eq!(r["nodes"]["st"]["state"], "done", "{r}");
+    let dims = |n: &str| match e.value(r["nodes"][n]["key"].as_str().unwrap(), "image") {
+        Some(Value::Image(i)) => (i.w, i.h),
+        _ => panic!(),
+    };
+    let (a, b) = (dims("s"), dims("x"));
+    assert_eq!(b.1, a.0 - 2 * (a.0 as f64 * 0.1).round() as usize);
+    assert_eq!(b.0, a.1);
+}
