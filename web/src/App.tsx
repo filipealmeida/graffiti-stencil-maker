@@ -175,7 +175,7 @@ function Canvas() {
             nodes={s.nodes} edges={s.edges} nodeTypes={nodeTypes} edgeTypes={edgeTypes}
             onNodesChange={s.onNodesChange} onEdgesChange={s.onEdgesChange} onConnect={s.connect}
             isValidConnection={isValid} onNodeClick={(_, n) => s.select(n.id)} onPaneClick={() => s.select(null)} onNodeDoubleClick={(_, n) => s.openBench(n.id)}
-            deleteKeyCode={['Delete', 'Backspace']} colorMode="dark" fitView={false} minZoom={0.1} proOptions={{ hideAttribution: true }}
+            deleteKeyCode={['Delete', 'Backspace']} colorMode="dark" fitView={false} minZoom={0.1} autoPanOnNodeDrag={false} translateExtent={[[-800, -600], [s.lanes.end + 800, 3600]]} proOptions={{ hideAttribution: true }}
             defaultViewport={{ x: 20, y: 60, zoom: 0.7 }} defaultEdgeOptions={{ style: { stroke: KIND_COLOR.any, strokeWidth: 2 } }}
           >
             <ViewportPortal><div className="lanes">{LANES.map(lane)}</div></ViewportPortal>

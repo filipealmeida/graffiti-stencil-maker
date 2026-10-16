@@ -165,3 +165,19 @@ test('the Crop & rotate node can be added and rotates the picture', async ({ pag
   await expect(page.locator('aside')).toContainText('Crop left')
   await expect(page.locator('aside select').first()).toHaveValue('0')
 })
+
+test('the preview image zooms and pans on a bounded canvas', async ({ page }) => {
+  await open(page)
+  await page.locator('.react-flow__node').filter({ hasText: 'Threshold' }).first().dispatchEvent('dblclick')
+  const stage = page.locator('.imgstage')
+  await expect(stage.locator('canvas')).toBeVisible()
+  const b = (await stage.boundingBox())!
+  await page.mouse.move(b.x + b.width / 2, b.y + b.height / 2)
+  for (let i = 0; i < 15; i++) await page.mouse.wheel(0, -100)
+  await page.mouse.down()
+  await page.mouse.move(b.x + 100, b.y + 100, { steps: 5 })
+  await page.mouse.up()
+  const size = await stage.locator('canvas').evaluate((c: HTMLCanvasElement) => [c.width, c.height])
+  expect(size[0]).toBeLessThan(5000)
+  await expect(page.locator('.imgbar')).toContainText(/\d{3,4}%/)
+})
