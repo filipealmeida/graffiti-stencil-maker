@@ -91,7 +91,7 @@ test('undo returns to the previous value', async ({ page }) => {
 test('the Morphology node can be added from the menu and shows its parameters', async ({ page }) => {
   await open(page)
   await page.getByRole('button', { name: '+ trace' }).click()
-  await page.getByRole('button', { name: 'Morphology' }).click()
+  await page.locator('.menu button').filter({ hasText: 'Morphology' }).click()
   await expect(page.locator('.react-flow__node').filter({ hasText: 'Morphology' })).toBeVisible()
   await page.locator('.react-flow__node').filter({ hasText: 'Morphology' }).dispatchEvent('click')
   await expect(page.locator('aside')).toContainText('Operation')
@@ -109,7 +109,7 @@ test('new nodes avoid existing ones and panels can be resized', async ({ page })
   await open(page)
   for (let i = 0; i < 3; i++) {
     await page.getByRole('button', { name: '+ trace' }).click()
-    await page.getByRole('button', { name: 'Morphology' }).click()
+    await page.locator('.menu button').filter({ hasText: 'Morphology' }).click()
   }
   const boxes = await page.locator('.react-flow__node').evaluateAll((l) => l.map((e) => { const r = e.getBoundingClientRect(); return [r.x, r.y, r.width, r.height] }))
   expect(boxes.length).toBe(7)
@@ -122,9 +122,10 @@ test('new nodes avoid existing ones and panels can be resized', async ({ page })
   const before = (await lane.boundingBox())!
   const grip = page.locator('.lane-trace .lane-grip')
   const g = (await grip.boundingBox())!
-  await page.mouse.move(g.x + g.width / 2, 130)
+  const gy = g.y + 40
+  await page.mouse.move(g.x + g.width / 2, gy)
   await page.mouse.down()
-  await page.mouse.move(g.x + g.width / 2 + 120, 130, { steps: 5 })
+  await page.mouse.move(g.x + g.width / 2 + 120, gy, { steps: 5 })
   await page.mouse.up()
   const after = (await lane.boundingBox())!
   expect(after.x).toBeGreaterThan(before.x + 60)
@@ -138,7 +139,7 @@ test('3D views show dimensions and the trace node exports SVG', async ({ page })
   await page.getByRole('button', { name: /Close/ }).click()
 
   await page.getByRole('button', { name: '+ trace' }).click()
-  await page.getByRole('button', { name: 'Trace', exact: true }).click()
+  await page.locator('.menu button').filter({ has: page.locator('b', { hasText: /^Trace$/ }) }).click()
   const trace = page.locator('.react-flow__node').filter({ hasText: 'Trace' }).last()
   const from = page.locator('.react-flow__node').filter({ hasText: 'Threshold' }).first().locator('.source').first()
   const to = trace.locator('.target').first()
@@ -198,4 +199,90 @@ test('releasing the preview image right after a move does not crash the app', as
   expect(errors).toEqual([])
   await expect(page.locator('.bench')).toBeVisible()
   await expect(stage.locator('canvas')).toBeVisible()
+})
+
+test('after dropping an image the whole starter graph is in view', async ({ page }) => {
+  await open(page)
+  await page.waitForTimeout(800)
+  const canvas = (await page.locator('.canvas').boundingBox())!
+  for (const n of await page.locator('.react-flow__node').all()) {
+    const b = (await n.boundingBox())!
+    expect(b.x).toBeGreaterThanOrEqual(canvas.x - 2)
+    expect(b.x + b.width).toBeLessThanOrEqual(canvas.x + canvas.width + 2)
+  }
+})
+
+test('number boxes, reset and reset-all edit parameters', async ({ page }) => {
+  await open(page)
+  await page.locator('.react-flow__node').filter({ hasText: 'Stencil' }).first().dispatchEvent('click')
+  const box = page.locator('aside input.numbox').first()
+  const before = await box.inputValue()
+  await box.fill('150')
+  await expect(page.locator('aside .row').first()).toContainText('150')
+  await expect(page.locator('aside button.reset').first()).toBeVisible()
+  await box.fill('99999')
+  await box.blur()
+  await expect(box).not.toHaveValue('99999')
+  await page.locator('aside button.reset').first().click()
+  await expect(box).toHaveValue(before)
+  await box.fill('120')
+  await page.locator('aside button.reset-all').click()
+  await expect(box).toHaveValue(before)
+})
+
+test('copy, paste and duplicate create independent nodes', async ({ page }) => {
+  await open(page)
+  const nodes = page.locator('.react-flow__node')
+  const th = nodes.filter({ hasText: 'Threshold' })
+  await th.first().click()
+  await page.keyboard.press('Control+d')
+  await expect(nodes).toHaveCount(5)
+  await expect(th).toHaveCount(2)
+  await page.keyboard.press('Control+c')
+  await page.keyboard.press('Control+v')
+  await expect(nodes).toHaveCount(6)
+  await th.first().locator('button[title^="Duplicate"]').click()
+  await expect(nodes).toHaveCount(7)
+  const boxes = await nodes.evaluateAll((l) => l.map((e) => { const r = e.getBoundingClientRect(); return [r.x, r.y, r.width, r.height] }))
+  for (let i = 0; i < boxes.length; i++) for (let j = i + 1; j < boxes.length; j++) {
+    const [a, b] = [boxes[i], boxes[j]]
+    expect(a[0] < b[0] + b[2] && b[0] < a[0] + a[2] && a[1] < b[1] + b[3] && b[1] < a[1] + a[3], `nodes ${i} and ${j}`).toBe(false)
+  }
+  await page.keyboard.press('Control+z')
+  await expect(page.locator('.crash')).toHaveCount(0)
+})
+
+test('the Text node renders letters and can feed a stencil', async ({ page }) => {
+  await open(page)
+  await page.getByRole('button', { name: '+ trace' }).click()
+  await page.locator('.menu button').filter({ hasText: /^Text/ }).click()
+  const text = page.locator('.react-flow__node').filter({ hasText: 'Text' }).last()
+  await text.dispatchEvent('dblclick')
+  const bench = page.locator('.bench')
+  await expect(bench.locator('canvas')).toBeVisible({ timeout: 30_000 })
+  await bench.locator('textarea').fill('HELLO\nWORLD')
+  await expect(bench.locator('.bench-foot')).toContainText(/\d+×\d+px/, { timeout: 30_000 })
+  await expect(bench.locator('.bench-foot')).toContainText('paint')
+})
+
+test('a render crash shows a recovery page instead of a black window', async ({ page }) => {
+  await page.addInitScript(() => {
+    if (!sessionStorage.getItem('seeded')) {
+      sessionStorage.setItem('seeded', '1')
+      localStorage.setItem('studio.graph.v1', JSON.stringify({ nodes: [{ id: 'x', type: 'studio', position: { x: 0, y: 0 } }], edges: [] }))
+    }
+  })
+  await page.goto('/')
+  await expect(page.locator('.crash')).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Download the autosaved graph' })).toBeVisible()
+  page.once('dialog', (d) => d.accept())
+  await page.getByRole('button', { name: /Discard autosave/ }).click()
+  await expect(page.locator('.hint')).toBeVisible()
+})
+
+test('templates menu rebuilds the graph around the picture', async ({ page }) => {
+  await open(page)
+  await page.getByRole('button', { name: /Templates/ }).click()
+  await page.locator('.menu button').filter({ hasText: 'Vector' }).click()
+  await expect(page.locator('.react-flow__node').filter({ hasText: 'Vector stencil' })).toBeVisible()
 })

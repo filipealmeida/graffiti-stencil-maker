@@ -1,16 +1,48 @@
+import { useEffect, useState } from 'react'
 import type { NodeType, ParamDef } from './api'
 import { useStudio, type StudioNode } from './store'
 
+const same = (a: unknown, b: unknown) => a === b || (typeof a === 'number' && typeof b === 'number' && Math.abs(a - b) < 1e-9)
+
+/** A number box beside the slider: typing commits values in range at once, and the value is clamped when the box loses focus. */
+function NumberBox({ p, value, onChange }: { p: ParamDef; value: number; onChange: (v: number) => void }) {
+  const [draft, setDraft] = useState(String(value))
+  useEffect(() => { if (parseFloat(draft) !== value) setDraft(String(value)) }, [value])
+  const inRange = (v: number) => Number.isFinite(v) && v >= (p.min ?? -Infinity) && v <= (p.max ?? Infinity)
+  return (
+    <input
+      className="numbox" type="number" min={p.min} max={p.max} step={p.step} value={draft} aria-label={p.label}
+      onChange={(e) => { setDraft(e.target.value); const v = parseFloat(e.target.value); if (inRange(v)) onChange(v) }}
+      onBlur={() => {
+        const v = parseFloat(draft)
+        const c = Number.isFinite(v) ? Math.min(p.max ?? v, Math.max(p.min ?? v, v)) : value
+        setDraft(String(c))
+        if (c !== value) onChange(c)
+      }}
+    />
+  )
+}
+
+function Reset({ p, value, onChange }: { p: ParamDef; value: unknown; onChange: (v: unknown) => void }) {
+  if (same(value, p.default)) return null
+  return <button className="reset" title={`Reset to ${String(p.default)}`} onClick={(e) => { e.preventDefault(); onChange(p.default) }}>↺</button>
+}
+
 function Field({ p, value, onChange }: { p: ParamDef; value: unknown; onChange: (v: unknown) => void }) {
   if (p.kind === 'bool')
-    return <label className="row chk"><input type="checkbox" checked={!!value} onChange={(e) => onChange(e.target.checked)} />{p.label}</label>
+    return <label className="row chk"><input type="checkbox" checked={!!value} onChange={(e) => onChange(e.target.checked)} />{p.label}<Reset p={p} value={value} onChange={onChange} /></label>
   if (p.kind === 'choice')
-    return <label className="row"><span>{p.label}</span><select value={String(value)} onChange={(e) => onChange(e.target.value)}>{p.choices!.map((c) => <option key={c}>{c}</option>)}</select></label>
+    return <label className="row"><span>{p.label}<Reset p={p} value={value} onChange={onChange} /></span><select value={String(value)} onChange={(e) => onChange(e.target.value)}>{p.choices!.map((c) => <option key={c}>{c}</option>)}</select></label>
+  if (p.kind === 'string')
+    return <label className="row"><span>{p.label}<Reset p={p} value={value} onChange={onChange} /></span><textarea rows={2} value={String(value)} onChange={(e) => onChange(e.target.value)} /></label>
   if (p.kind === 'text') return null
   return (
     <label className="row">
-      <span>{p.label} <em>{String(value)}</em></span>
-      <input type="range" min={p.min} max={p.max} step={p.step} value={Number(value)} onChange={(e) => onChange(+e.target.value)} />
+      <span>{p.label} <em>{String(value)}</em><Reset p={p} value={value} onChange={onChange} /></span>
+      <span className="sliderrow">
+        <input type="range" min={p.min} max={p.max} step={p.step} value={Number(value)} onChange={(e) => onChange(+e.target.value)} />
+        <NumberBox p={p} value={Number(value)} onChange={onChange} />
+      </span>
     </label>
   )
 }
@@ -18,6 +50,9 @@ function Field({ p, value, onChange }: { p: ParamDef; value: unknown; onChange: 
 export default function ParamForm({ node, type }: { node: StudioNode; type: NodeType }) {
   const setParam = useStudio((s) => s.setParam)
   const groups = [...new Set(type.params.map((p) => p.group ?? ''))]
+  // the picture of an Image node is not a setting
+  const editable = type.params.filter((p) => p.kind !== 'text')
+  const changed = editable.filter((p) => !same(node.data.params[p.name] ?? p.default, p.default))
   return (
     <>
       {groups.map((g) => (
@@ -28,6 +63,11 @@ export default function ParamForm({ node, type }: { node: StudioNode; type: Node
           ))}
         </fieldset>
       ))}
+      {changed.length > 0 && (
+        <button className="reset-all" onClick={() => changed.forEach((p) => setParam(node.id, p.name, p.default))}>
+          Reset {changed.length} changed setting{changed.length > 1 ? 's' : ''} to default
+        </button>
+      )}
     </>
   )
 }

@@ -19,6 +19,7 @@ pub mod morphology;
 pub mod progress;
 pub mod smooth;
 pub mod svg;
+pub mod text;
 mod tile_bridge;
 pub mod tiles;
 pub mod trace;

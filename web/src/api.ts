@@ -4,7 +4,7 @@ export type Stage = 'trace' | 'stencil' | 'post'
 export interface ParamDef {
   name: string
   label: string
-  kind: 'int' | 'float' | 'bool' | 'choice' | 'text'
+  kind: 'int' | 'float' | 'bool' | 'choice' | 'text' | 'string'
   default: number | boolean | string
   min?: number
   max?: number

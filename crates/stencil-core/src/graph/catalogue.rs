@@ -59,6 +59,22 @@ pub(super) fn catalogue() -> Vec<NodeDef> {
             run: run_source,
         },
         NodeDef {
+            id: "text",
+            label: "Text",
+            stage: "trace",
+            inputs: vec![],
+            outputs: vec![("mask", "mask")],
+            params: vec![
+                json!({"name": "text", "label": "Text (Enter starts a new line)", "kind": "string", "default": "STENCIL", "group": null}),
+                choice("font", "Font", "sans bold", &crate::text::FONTS, None),
+                num("size", "Letter height (px)", 160.0, 20.0, 600.0, 5.0, None, true),
+                num("line_spacing", "Line spacing (x)", 1.0, 0.7, 2.0, 0.05, None, false),
+                num("padding", "Padding (px)", 20.0, 0.0, 200.0, 1.0, None, true),
+            ],
+            doc: "Letters as a mask, ready for a Stencil node (letters become cut-outs, and the Stencil bridges the islands inside letters like O, A and B). Several lines are centred. To put text on a picture, there is no overlay yet: use it as its own stencil or tile it next to the picture's plate.",
+            run: run_text,
+        },
+        NodeDef {
             id: "transform",
             label: "Crop & rotate",
             stage: "trace",

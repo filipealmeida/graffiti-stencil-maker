@@ -12,6 +12,7 @@ export interface StudioData extends Record<string, unknown> {
 }
 export type StudioNode = Node<StudioData, 'studio'>
 
+export const STORE_KEY = 'studio.graph.v1'
 const LANES_KEY = 'studio.lanes.v1'
 const MIN_LANE = 320
 const GAP = 30
@@ -57,6 +58,8 @@ export function freeSpot(nodes: StudioNode[], lane: { x: number; w: number }, wa
   return want
 }
 let counter = 0
+let clip: { nodes: StudioNode[]; edges: Edge[] } | null = null
+let pasteCount = 0
 const uid = (t: string) => `${t}-${Date.now().toString(36)}${(counter++).toString(36)}`
 
 interface State {
@@ -83,6 +86,9 @@ interface State {
   addNode: (type: string, params?: Record<string, unknown>, pos?: { x: number; y: number }, title?: string) => string
   setParam: (id: string, name: string, value: unknown) => void
   removeNode: (id: string) => void
+  copy: () => boolean
+  paste: () => void
+  duplicate: (id?: string) => void
   removeEdge: (id: string) => void
   load: (nodes: StudioNode[], edges: Edge[]) => void
   starter: (imageId: string, title: string) => void
@@ -128,6 +134,54 @@ export const useStudio = create<State>((set, get) => ({
   setParam: (id, name, value) => set((s) => ({
     nodes: s.nodes.map((n) => (n.id === id ? { ...n, data: { ...n.data, params: { ...n.data.params, [name]: value } } } : n)),
   })),
+  copy: () => {
+    const { nodes, edges, selected } = get()
+    let picked = nodes.filter((n) => n.selected)
+    if (!picked.length && selected) picked = nodes.filter((n) => n.id === selected)
+    if (!picked.length) return false
+    const ids = new Set(picked.map((n) => n.id))
+    clip = {
+      nodes: picked.map((n) => ({ ...n, data: { ...n.data, params: structuredClone(n.data.params) } })),
+      edges: edges.filter((e) => ids.has(e.source) && ids.has(e.target)),
+    }
+    pasteCount = 0
+    return true
+  },
+  paste: () => {
+    if (!clip) return
+    const { types, nodes, lanes } = get()
+    pasteCount++
+    const map = new Map<string, string>()
+    clip.nodes.forEach((n) => map.set(n.id, uid(n.data.type)))
+    const fresh: StudioNode[] = []
+    for (const n of clip.nodes) {
+      const t = types[n.data.type]
+      if (!t) continue
+      // a single node goes to the nearest free spot of its lane; a group keeps its shape and shifts as a block
+      const want = { x: n.position.x + 40 * pasteCount, y: n.position.y + 40 * pasteCount }
+      const position = clip.nodes.length === 1 ? freeSpot(nodes, laneSpan(lanes, t.stage), want) : want
+      fresh.push({ ...n, id: map.get(n.id)!, position, selected: true, measured: undefined, data: { ...n.data, params: structuredClone(n.data.params) } })
+    }
+    if (!fresh.length) return
+    const kept = new Set(fresh.map((n) => n.id))
+    const edges = clip.edges
+      .filter((e) => kept.has(map.get(e.source)!) && kept.has(map.get(e.target)!))
+      .map((e) => {
+        const [source, target] = [map.get(e.source)!, map.get(e.target)!]
+        return { ...e, id: `${source}.${e.sourceHandle}->${target}.${e.targetHandle}`, source, target, selected: false }
+      })
+    set((s) => ({
+      nodes: [...s.nodes.map((n) => (n.selected ? { ...n, selected: false } : n)), ...fresh],
+      edges: [...s.edges, ...edges],
+      selected: fresh[fresh.length - 1].id,
+    }))
+  },
+  duplicate: (id) => {
+    const { nodes, selected } = get()
+    if (id) set({ nodes: nodes.map((n) => ({ ...n, selected: n.id === id })), selected: id })
+    else if (!nodes.some((n) => n.selected) && selected) set({ nodes: nodes.map((n) => ({ ...n, selected: n.id === selected })) })
+    if (get().copy()) get().paste()
+  },
   removeEdge: (id) => set((s) => ({ edges: s.edges.filter((e) => e.id !== id) })),
   removeNode: (id) => set((s) => ({
     nodes: s.nodes.filter((n) => n.id !== id),
@@ -138,6 +192,7 @@ export const useStudio = create<State>((set, get) => ({
   load: (nodes, edges) => set({ nodes, edges, runs: {}, selected: null }),
   starter: (imageId, title) => {
     const { addNode, connect } = get()
+    set({ nodes: [], edges: [], runs: {}, selected: null })
     const src = addNode('source', { image_id: imageId }, { x: 40, y: 60 }, title)
     const thr = addNode('threshold', {}, { x: 420, y: 60 })
     const st = addNode('stencil', {}, { x: laneSpan(get().lanes, 'stencil').x + 30, y: 60 })

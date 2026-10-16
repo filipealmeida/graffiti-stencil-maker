@@ -6,7 +6,7 @@ import Console from './Console'
 import Workbench from './Workbench'
 import StudioEdge from './StudioEdge'
 import StudioNodeView, { KIND_COLOR } from './StudioNode'
-import { laneSpan, redo, resizeLane, resetHistory, runGraph, signature, undo, useStudio, type StudioNode } from './store'
+import { laneSpan, redo, resizeLane, resetHistory, runGraph, signature, STORE_KEY, undo, useStudio, type StudioNode } from './store'
 
 const nodeTypes = { studio: StudioNodeView }
 const edgeTypes = { default: StudioEdge }
@@ -15,17 +15,20 @@ const LANES: { stage: Stage; title: string; edge: 'stencil' | 'post' | 'end' }[]
   { stage: 'stencil', title: '2 · Stencil — mask to 3D plate', edge: 'post' },
   { stage: 'post', title: '3 · Post-process — parts', edge: 'end' },
 ]
-const STORE_KEY = 'studio.graph.v1'
 
 function Canvas() {
   const s = useStudio()
   const rf = useReactFlow()
   const [drag, setDrag] = useState(false)
   const [pname, setPname] = useState('project')
-  const [menu, setMenu] = useState<Stage | null>(null)
+  const [menu, setMenu] = useState<Stage | 'templates' | null>(null)
+  // wait for the new nodes to be measured, then bring the whole graph into view
+  const fit = useCallback(() => { setTimeout(() => rf.fitView({ padding: 0.08, maxZoom: 1, duration: 250 }), 200) }, [rf])
   const bar = useRef<HTMLDivElement>(null)
+  const tpl = useRef<HTMLDivElement>(null)
+  const hasSource = s.nodes.some((n) => n.data.type === 'source')
   useEffect(() => {
-    const away = (e: MouseEvent) => { if (!bar.current?.contains(e.target as Node)) setMenu(null) }
+    const away = (e: MouseEvent) => { if (!bar.current?.contains(e.target as Node) && !tpl.current?.contains(e.target as Node)) setMenu(null) }
     const esc = (e: KeyboardEvent) => {
       if (e.key === 'Escape') return setMenu(null)
       const t = e.target as HTMLElement
@@ -33,6 +36,9 @@ function Canvas() {
       const k = e.key.toLowerCase()
       if (k === 'z' && !e.shiftKey) { e.preventDefault(); undo() }
       else if ((k === 'z' && e.shiftKey) || k === 'y') { e.preventDefault(); redo() }
+      else if (k === 'c') useStudio.getState().copy()
+      else if (k === 'v') { e.preventDefault(); useStudio.getState().paste() }
+      else if (k === 'd') { e.preventDefault(); useStudio.getState().duplicate() }
     }
     window.addEventListener('mousedown', away); window.addEventListener('keydown', esc)
     return () => { window.removeEventListener('mousedown', away); window.removeEventListener('keydown', esc) }
@@ -43,7 +49,7 @@ function Canvas() {
       s.setTypes(t)
       try {
         const saved = JSON.parse(localStorage.getItem(STORE_KEY) ?? 'null')
-        if (saved) s.load(saved.nodes, saved.edges)
+        if (saved) { s.load(saved.nodes, saved.edges); if (saved.nodes?.length) fit() }
         resetHistory()
       } catch { /* ignore a corrupt autosave */ }
     })
@@ -54,7 +60,11 @@ function Canvas() {
   const first = useRef(true)
   useEffect(() => {
     if (!Object.keys(s.types).length) return
-    localStorage.setItem(STORE_KEY, JSON.stringify({ nodes: s.nodes, edges: s.edges }))
+    try {
+      localStorage.setItem(STORE_KEY, JSON.stringify({ nodes: s.nodes, edges: s.edges }))
+    } catch {
+      useStudio.setState({ error: 'autosave failed (browser storage is full or blocked): use Save project to keep your work' })
+    }
     // one run per settled edit; it evaluates node by node, so the trace stage shows up first
     const full = setTimeout(runGraph, first.current ? 0 : 350)
     first.current = false
@@ -64,12 +74,12 @@ function Canvas() {
   const addFile = useCallback(async (f: File, at?: { x: number; y: number }) => {
     try {
       const img = await api.upload(f)
-      if (!useStudio.getState().nodes.length) useStudio.getState().starter(img.id, img.name)
+      if (!useStudio.getState().nodes.length) { useStudio.getState().starter(img.id, img.name); fit() }
       else useStudio.getState().addNode('source', { image_id: img.id }, at, img.name)
     } catch (e) {
       useStudio.setState({ error: String(e instanceof Error ? e.message : e) })
     }
-  }, [])
+  }, [fit])
 
   const onDrop = (e: React.DragEvent) => {
     e.preventDefault()
@@ -104,6 +114,7 @@ function Canvas() {
       const g = await api.importProject(JSON.parse(await f.text()))
       setPname(f.name.replace(/\.stencil\.json$|\.json$/, ''))
       s.load(g.nodes as StudioNode[], g.edges as Edge[])
+      fit()
     } catch (e) {
       useStudio.setState({ error: `cannot open project: ${e instanceof Error ? e.message : e}` })
     }
@@ -144,20 +155,31 @@ function Canvas() {
             <div key={st} className="pal">
               <button className={`stage-${st}${menu === st ? ' on' : ''}`} onClick={() => setMenu(menu === st ? null : st)}>+ {st}</button>
               {menu === st && <div className="menu">{stageNodes(st).map((t) => (
-                <button key={t.id} title={t.doc} onClick={() => { const c = rf.screenToFlowPosition({ x: window.innerWidth * 0.3, y: 160 }); const sp = laneSpan(s.lanes, st); s.addNode(t.id, {}, { x: st === 'trace' ? c.x : sp.x + 30, y: c.y }); setMenu(null) }}>{t.label}</button>
+                <button key={t.id} title={t.doc} onClick={() => { const c = rf.screenToFlowPosition({ x: window.innerWidth * 0.3, y: 160 }); const sp = laneSpan(s.lanes, st); s.addNode(t.id, {}, { x: st === 'trace' ? c.x : sp.x + 30, y: c.y }); setMenu(null) }}><b>{t.label}</b><small>{t.doc.split(/(?<=\.)\s/)[0]}</small></button>
               ))}</div>}
             </div>
           ))}
         </div>
         <label className="btn">Open image…<input type="file" accept=".png,.jpg,.jpeg,.bmp,.svg" hidden onChange={(e) => e.target.files?.[0] && addFile(e.target.files[0])} /></label>
-        <button title="Rebuild the graph as image → reduce colours → tone patterns → stencil, from the current image" onClick={() => {
-          const src = s.nodes.find((n) => n.data.type === 'source')
-          if (src) s.colourStarter(String(src.data.params.image_id), String(src.data.title ?? 'image'))
-        }}>Colour template</button>
-        <button title="Rebuild the graph as image → threshold → trace → vector stencil, from the current image" onClick={() => {
-          const src = s.nodes.find((n) => n.data.type === 'source')
-          if (src) s.vectorStarter(String(src.data.params.image_id), String(src.data.title ?? 'image'))
-        }}>Vector template</button>
+        <div className="pal" ref={tpl}>
+          <button className={menu === 'templates' ? 'on' : ''} onClick={() => setMenu(menu === 'templates' ? null : 'templates')} title="Rebuild the graph around the current picture">Templates ▾</button>
+          {menu === 'templates' && (
+            <div className="menu wide">
+              {([
+                ['Simple', 'image → threshold → stencil → export. The quickest route to an STL.', s.starter],
+                ['Colour tones', 'image → reduce colours → tone patterns → stencil. For pictures with shades.', s.colourStarter],
+                ['Vector', 'image → threshold → trace → vector stencil. Smooth curves instead of pixels.', s.vectorStarter],
+              ] as const).map(([name, doc, make]) => (
+                <button key={name} disabled={!hasSource} onClick={() => {
+                  const src = s.nodes.find((n) => n.data.type === 'source')
+                  if (src) { make(String(src.data.params.image_id), String(src.data.title ?? 'image')); fit() }
+                  setMenu(null)
+                }}><b>{name}</b><small>{doc}</small></button>
+              ))}
+              <small className="menu-note">{hasSource ? 'Replaces the current graph (Ctrl+Z undoes it).' : 'Open an image first.'}</small>
+            </div>
+          )}
+        </div>
         <button title="Undo (Ctrl+Z)" disabled={!s.canUndo} onClick={undo}>↶ Undo</button>
         <button title="Redo (Ctrl+Shift+Z)" disabled={!s.canRedo} onClick={redo}>↷ Redo</button>
         <span className="spacer" />

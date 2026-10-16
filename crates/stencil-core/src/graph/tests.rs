@@ -350,3 +350,22 @@ fn transform_node_crops_and_rotates_before_tracing() {
     assert_eq!(b.1, a.0 - 2 * (a.0 as f64 * 0.1).round() as usize);
     assert_eq!(b.0, a.1);
 }
+
+#[test]
+fn text_node_makes_a_mask_that_becomes_an_island_free_stencil() {
+    let mut e = Engine::new();
+    let g = json!({
+        "nodes": [
+            {"id": "t", "type": "text", "params": {"text": "BOA\nO", "size": 120}},
+            {"id": "st", "type": "stencil", "params": {"width_mm": 100}},
+        ],
+        "edges": [{"from": ["t", "mask"], "to": ["st", "mask"]}]
+    });
+    let r = e.run(&g, None, &|| 0.0);
+    assert_eq!(r["nodes"]["t"]["state"], "done", "{r}");
+    assert_eq!(r["nodes"]["st"]["state"], "done", "{r}");
+    let k = r["nodes"]["st"]["key"].as_str().unwrap();
+    let info = e.value(k, "solid").unwrap().info();
+    assert_eq!(info["stats"]["islands_remaining"], 0, "{info}");
+    assert!(info["stats"]["islands_found"].as_u64().unwrap() >= 3);
+}

@@ -218,6 +218,17 @@ fn run_morphology(_: &Engine, i: &HashMap<String, Value>, p: &P) -> Result<Outpu
     Ok(vec![("mask", Value::Mask(Rc::new(Mask { w, h, paint })))])
 }
 
+fn run_text(_: &Engine, _: &HashMap<String, Value>, p: &P) -> Result<Outputs, String> {
+    let m = crate::text::render(
+        p.s("text"),
+        p.s("font"),
+        p.f("size") as f32,
+        p.f("padding") as usize,
+        p.f("line_spacing") as f32,
+    )?;
+    Ok(vec![("mask", Value::Mask(Rc::new(m)))])
+}
+
 fn run_transform(_: &Engine, i: &HashMap<String, Value>, p: &P) -> Result<Outputs, String> {
     let params = crate::transform::Params {
         left: p.f("crop_left") / 100.0,
