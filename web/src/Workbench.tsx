@@ -108,6 +108,7 @@ export default function Workbench() {
           {info?.coverage !== undefined && <span>{info.width}×{info.height}px · <b>{(info.coverage * 100).toFixed(1)}%</b> paint</span>}
           {info?.width !== undefined && info.coverage === undefined && <span>{info.width}×{info.height}px</span>}
           {cur?.kind === 'solid' && cur.key && <a className="btn" href={artifactUrl(cur.key, cur.out)} download="stencil.stl">Download STL</a>}
+          {cur?.kind === 'shapes' && cur.key && <a className="btn" href={artifactUrl(cur.key, cur.out)} download="trace.svg" title="Vector outlines as an SVG">Export SVG</a>}
           {cur?.kind === 'parts' && cur.key && <a className="btn" href={artifactUrl(cur.key, cur.out)}>Download</a>}
         </div>
         <Console nodeId={id} height={130} />

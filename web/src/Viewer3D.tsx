@@ -22,6 +22,7 @@ export default function Viewer3D({ parts }: { parts: Part[] }) {
   const [clip, setClip] = useState(1)
   const [status, setStatus] = useState('loading…')
   const [ready, setReady] = useState(0)
+  const [dims, setDims] = useState<{ total: string; parts: Record<string, string> }>({ total: '', parts: {} })
   const urls = parts.map((p) => p.url).join('|')
   const tileRe = /_r(\d+)c(\d+)\.stl$/
   const isTile = (n: string) => tileRe.test(n)
@@ -132,6 +133,19 @@ export default function Viewer3D({ parts }: { parts: Part[] }) {
       else if (tiles.length) m.position.set(0, 0, 0)
       else m.position.set((s.centers[i].x - s.center.x) * explode / 12, (s.centers[i].y - s.center.y) * explode / 12, 0)
     })
+    const fmt = (x: number, y: number, z: number) => `${x.toFixed(1)} × ${y.toFixed(1)} × ${z.toFixed(1)} mm`
+    const partDims: Record<string, string> = {}
+    s.boxes.forEach((b, i) => { const d = b.getSize(new THREE.Vector3()); partDims[parts[i].name] = fmt(d.x, d.y, d.z) })
+    let total: string
+    if (tiles.length) {
+      // assembled plate: tiles side by side without spacing
+      const zmax = Math.max(...tiles.map((i) => s.boxes[i].getSize(new THREE.Vector3()).z))
+      total = fmt([...colW.values()].reduce((a, b) => a + b, 0), [...rowH.values()].reduce((a, b) => a + b, 0), zmax)
+    } else {
+      const d = s.box.getSize(new THREE.Vector3())
+      total = fmt(d.x, d.y, d.z)
+    }
+    setDims((o) => (o.total === total && JSON.stringify(o.parts) === JSON.stringify(partDims) ? o : { total, parts: partDims }))
     loose.forEach((i) => {
       const sz = s.boxes[i].getSize(new THREE.Vector3())
       s.meshes[i].position.set(ax + sz.x / 2 - s.centers[i].x, ay - sz.y / 2 - s.centers[i].y, -s.boxes[i].min.z)
@@ -187,6 +201,7 @@ export default function Viewer3D({ parts }: { parts: Part[] }) {
         <div className="v3host">
           <div className="viewer" ref={host} />
           {status && <div className="v3status">{status}</div>}
+          {dims.total && !status && <div className="v3dims" title="width × depth × height of the model">{tiled ? 'Assembled' : parts.length > 1 ? 'Overall' : 'Size'}: <b>{dims.total}</b></div>}
         </div>
         {parts.length > 1 && (
           <aside className="v3parts">
@@ -195,6 +210,7 @@ export default function Viewer3D({ parts }: { parts: Part[] }) {
               <div key={p.name} className={hidden.has(p.name) ? 'v3part off' : 'v3part'}>
                 <label title={p.name}><input type="checkbox" checked={!hidden.has(p.name)} onChange={() => setHidden((h) => { const n = new Set(h); n.has(p.name) ? n.delete(p.name) : n.add(p.name); return n })} />
                   <i style={{ background: `#${colorOf(i).getHexString()}` }} />{p.name.replace(/\.stl$/, '')}</label>
+                {dims.parts[p.name] && <span className="v3size">{dims.parts[p.name]}</span>}
                 <button title="show only this part" onClick={() => setHidden(new Set(parts.filter((q) => q.name !== p.name).map((q) => q.name)))}>only</button>
                 <a className="btn" href={p.url} download={p.name.endsWith('.stl') ? p.name : `${p.name}.stl`} title="download this STL">⬇</a>
               </div>

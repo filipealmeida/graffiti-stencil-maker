@@ -34,6 +34,7 @@ picture ids are remapped automatically, including for projects saved by older ve
 
 With a binary built with the `studio` feature, `stencil studio [--port N] [--no-open]` serves the studio locally and
 opens it in your browser; everything still runs in the browser tab. Stop it with Ctrl+C.
+The 3D viewers (Stencil and Post-process outputs) show the model size (width × depth × height in mm) in the corner, and per-file sizes in the file list; for tiled output the corner shows the assembled plate. The Trace node's output has an **Export SVG** button (workbench footer and inspector) that saves the vector outlines.
 
 Build and run the studio as described in [INSTALL.md](INSTALL.md). Drop an image onto the canvas, or choose one of
 the starter templates. The graph is evaluated in a Web Worker; node outputs can be inspected in the side panel.

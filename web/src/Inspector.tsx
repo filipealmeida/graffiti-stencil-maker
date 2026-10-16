@@ -36,6 +36,7 @@ export default function Inspector() {
             <div className="tabs">{avail.map((o) => <button key={o.name} className={o.name === cur.name ? 'on' : ''} onClick={() => setOut(o.name)}>{o.name}</button>)}</div>
           )}
           {(cur.type === 'image' || cur.type === 'mask' || cur.type === 'shapes') && <img className={`big ${cur.type}`} src={artifactUrl(key, cur.name, 700)} alt="" />}
+          {cur.type === 'shapes' && <a className="btn" href={artifactUrl(key, cur.name)} download="trace.svg">Export SVG</a>}
           {cur.type === 'solid' && <a className="btn" href={artifactUrl(key, cur.name)} download="stencil.stl">Download STL</a>}
           {cur.type === 'parts' && info?.files && (
             <>
