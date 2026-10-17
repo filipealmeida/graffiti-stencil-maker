@@ -346,7 +346,7 @@ pub(super) fn stencil_params(vector: bool) -> Vec<Json> {
             "margin_mm",
             "Margin (mm)",
             8.0,
-            1.0,
+            0.0,
             500.0,
             1.0,
             Some("Plate"),
