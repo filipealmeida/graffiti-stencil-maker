@@ -18,6 +18,7 @@ mod layered;
 pub mod mesh;
 pub mod morphology;
 pub mod progress;
+mod segindex;
 mod shape_edit;
 pub mod smooth;
 pub mod svg;

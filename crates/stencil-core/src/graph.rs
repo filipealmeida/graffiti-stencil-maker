@@ -7,6 +7,7 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::rc::Rc;
 
 mod catalogue;
+mod colour_set;
 use catalogue::{catalogue, split_outputs, NodeDef, Outputs};
 #[cfg(test)]
 mod tests;

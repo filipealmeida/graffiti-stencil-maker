@@ -189,6 +189,8 @@ export const api = {
   },
   cancel: stopRun,
   info: async (key: string, out: string) => infos.get(`${key}/${out}`) ?? {},
+  /** The info of a finished output when it is already in memory. */
+  peekInfo: (key: string, out: string) => infos.get(`${key}/${out}`),
 
   /** Projects are files: the graph plus the pictures it uses. */
   async exportProject(graph: unknown) {

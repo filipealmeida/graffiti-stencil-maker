@@ -1,5 +1,6 @@
 use super::{validate, Mesh, Output, Params, Stats, ZBridging};
 use crate::complexity::grow;
+use crate::segindex::SegIndex;
 use crate::trace::{Pt, Shapes};
 use i_triangle::i_overlay::core::fill_rule::FillRule;
 use i_triangle::i_overlay::core::overlay_rule::OverlayRule;
@@ -47,34 +48,28 @@ fn distance_sq(a: Pt, b: Pt) -> f64 {
     (a[0] - b[0]).powi(2) + (a[1] - b[1]).powi(2)
 }
 
-fn closest_pair(a: &[Pt], b: &[Pt]) -> (Pt, Pt) {
+/// The closest points of an island outline and the frame boundaries: the best of a sample of outline points,
+/// refined onto both complete polylines.
+fn closest_pair(a: &[Pt], frame: &SegIndex) -> Option<(Pt, Pt)> {
     let sample_count = a.len().min(96);
-    let mut best = (a[0], b[0]);
-    let mut best_d = f64::INFINITY;
+    let mut best: Option<(f64, Pt, Pt)> = None;
     for sample in 0..sample_count {
         let q = a[sample * a.len() / sample_count];
-        for j in 0..b.len() {
-            let c = closest_on_segment(q, b[j], b[(j + 1) % b.len()]);
-            let d = distance_sq(q, c);
-            if d < best_d {
-                best = (q, c);
-                best_d = d;
+        if let Some((d, c)) = frame.nearest(q) {
+            if best.is_none_or(|b| d < b.0) {
+                best = Some((d, q, c));
             }
         }
     }
-    let (mut p, mut q) = best;
-    // Refine the sampled point onto both complete polylines.
+    let (_, mut p, mut q) = best?;
     for _ in 0..3 {
         p = (0..a.len())
             .map(|j| closest_on_segment(q, a[j], a[(j + 1) % a.len()]))
             .min_by(|x, y| distance_sq(*x, q).total_cmp(&distance_sq(*y, q)))
             .unwrap_or(p);
-        q = (0..b.len())
-            .map(|j| closest_on_segment(p, b[j], b[(j + 1) % b.len()]))
-            .min_by(|x, y| distance_sq(*x, p).total_cmp(&distance_sq(*y, p)))
-            .unwrap_or(q);
+        q = frame.nearest(p).map_or(q, |(_, c)| c);
     }
-    (p, q)
+    Some((p, q))
 }
 
 fn bridge_polygon(a: Pt, b: Pt, width: f64) -> Vec<Pt> {
@@ -215,9 +210,21 @@ fn repair_point_contacts(shapes: &[Vec<Vec<IntPoint<i32>>>]) -> Vec<Vec<Vec<IntP
     }
 }
 
+/// Runs the closure over every item, on all cores where threads exist (not in the browser's WebAssembly).
+fn each_mut<T: Send, F: Fn(&mut T) + Sync + Send>(items: &mut [T], f: F) {
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        use rayon::prelude::*;
+        items.par_iter_mut().for_each(f);
+    }
+    #[cfg(target_arch = "wasm32")]
+    items.iter_mut().for_each(f);
+}
+
 /// Every run shares the vertices created where bridges cross the outlines: an edge passing within a unit or two
 /// of another run's vertex gets that vertex too, so all runs agree on where the walls break.
 fn node_runs(runs: &mut [Vec<Vec<Vec<IntPoint<i32>>>>]) {
+    type Contour = Vec<IntPoint<i32>>;
     const CELL: i64 = 4096;
     let key = |x: i64, y: i64| (x.div_euclid(CELL), y.div_euclid(CELL));
     let mut grid: HashMap<(i64, i64), Vec<IntPoint<i32>>> = HashMap::new();
@@ -229,7 +236,8 @@ fn node_runs(runs: &mut [Vec<Vec<Vec<IntPoint<i32>>>>]) {
                 .push(*r);
         }
     }
-    for contour in runs.iter_mut().flatten().flatten() {
+    let mut contours: Vec<&mut Contour> = runs.iter_mut().flatten().flatten().collect();
+    each_mut(&mut contours, |contour| {
         let n = contour.len();
         let mut out = Vec::with_capacity(n);
         for i in 0..n {
@@ -243,17 +251,29 @@ fn node_runs(runs: &mut [Vec<Vec<Vec<IntPoint<i32>>>>]) {
             if l2 == 0.0 {
                 continue;
             }
-            let samples = (l2.sqrt() / CELL as f64).ceil() as i64 + 1;
-            let mut cells = std::collections::BTreeSet::new();
-            for s in 0..=samples {
-                let t = s as f64 / samples as f64;
-                let (x, y) = (p.x as f64 + dx * t, p.y as f64 + dy * t);
-                let (cx, cy) = key(x as i64, y as i64);
-                for a in -1..=1 {
-                    for b in -1..=1 {
-                        cells.insert((cx + a, cy + b));
+            let (c0, c1) = (key(p.x as i64, p.y as i64), key(q.x as i64, q.y as i64));
+            let mut cells = Vec::new();
+            if (c0.0 - c1.0).abs() <= 1 && (c0.1 - c1.1).abs() <= 1 {
+                // a short edge: the cells around its two ends cover every vertex that can lie near it
+                for cx in c0.0.min(c1.0) - 1..=c0.0.max(c1.0) + 1 {
+                    for cy in c0.1.min(c1.1) - 1..=c0.1.max(c1.1) + 1 {
+                        cells.push((cx, cy));
                     }
                 }
+            } else {
+                let samples = (l2.sqrt() / CELL as f64).ceil() as i64 + 1;
+                for s in 0..=samples {
+                    let t = s as f64 / samples as f64;
+                    let (x, y) = (p.x as f64 + dx * t, p.y as f64 + dy * t);
+                    let (cx, cy) = key(x as i64, y as i64);
+                    for a in -1..=1 {
+                        for b in -1..=1 {
+                            cells.push((cx + a, cy + b));
+                        }
+                    }
+                }
+                cells.sort_unstable();
+                cells.dedup();
             }
             let mut found: Vec<(f64, IntPoint<i32>)> = Vec::new();
             for cell in cells {
@@ -277,8 +297,8 @@ fn node_runs(runs: &mut [Vec<Vec<Vec<IntPoint<i32>>>>]) {
             found.sort_by(|a, b| a.0.total_cmp(&b.0));
             out.extend(found.into_iter().map(|f| f.1));
         }
-        *contour = out;
-    }
+        **contour = out;
+    });
 }
 
 /// Like `repair_point_contacts`, but also for vertices a few units from another vertex of the outlines: rounding
@@ -286,11 +306,13 @@ fn node_runs(runs: &mut [Vec<Vec<Vec<IntPoint<i32>>>>]) {
 fn repair_near_contacts(
     shapes: &[Vec<Vec<IntPoint<i32>>>],
     radius: i32,
-) -> Vec<Vec<Vec<IntPoint<i32>>>> {
+) -> (Vec<Vec<Vec<IntPoint<i32>>>>, usize) {
     const NEAR: i32 = 3;
     let mut grid: HashMap<(i32, i32), Vec<(usize, usize, IntPoint<i32>)>> = HashMap::new();
     let mut id = 0;
+    let mut lens: Vec<usize> = Vec::new();
     for contour in shapes.iter().flatten() {
+        lens.push(contour.len());
         for (i, p) in contour.iter().enumerate() {
             grid.entry((p.x.div_euclid(8), p.y.div_euclid(8)))
                 .or_default()
@@ -305,7 +327,11 @@ fn repair_near_contacts(
                 for dy in -1..=1 {
                     let key = (pa.x.div_euclid(8) + dx, pa.y.div_euclid(8) + dy);
                     for &(cb, ib, pb) in grid.get(&key).into_iter().flatten() {
+                        // neighbours along one outline are an edge, not a contact
+                        let n = lens[ca];
+                        let next = ca == cb && ((ia + 1) % n == ib || (ib + 1) % n == ia);
                         if (cb, ib) == (ca, ia)
+                            || next
                             || (pa.x - pb.x).abs() > NEAR
                             || (pa.y - pb.y).abs() > NEAR
                         {
@@ -328,10 +354,14 @@ fn repair_near_contacts(
             ]
         })
         .collect();
+    let count = patches.len();
     if patches.is_empty() {
-        shapes.to_vec()
+        (shapes.to_vec(), 0)
     } else {
-        shapes.overlay(patches.as_slice(), OverlayRule::Union, FillRule::NonZero)
+        (
+            shapes.overlay(patches.as_slice(), OverlayRule::Union, FillRule::NonZero),
+            count,
+        )
     }
 }
 
@@ -580,6 +610,7 @@ pub(crate) fn build(shapes: &Shapes, detail: f64, p: &Params) -> Result<Output, 
         })
         .ok_or("vector boolean produced no stencil components")?;
     let main_boundaries: Vec<Vec<Pt>> = material[main].iter().map(|c| to_mm(c)).collect();
+    let frame = SegIndex::new(&main_boundaries, p.bridge_mm.max(2.0));
     let mut deleted = 0usize;
     let mut bridges = Vec::new();
     let mut links: Vec<(Pt, Pt)> = Vec::new();
@@ -589,20 +620,14 @@ pub(crate) fn build(shapes: &Shapes, detail: f64, p: &Params) -> Result<Output, 
         if i == main {
             continue;
         }
-        if p.min_island_mm2 > 0.0
-            && shape_area(&material[i]) / (UNITS_PER_MM * UNITS_PER_MM) < p.min_island_mm2
-        {
+        if p.min_island_mm2 > 0.0 && shape_area(&material[i]) < p.min_island_mm2 {
             keep[i] = false;
             deleted += 1;
             continue;
         }
         let outline = outer_contour(&material[i]).ok_or("vector island has no outline")?;
         let outline = to_mm(outline);
-        let (a, b) = main_boundaries
-            .iter()
-            .map(|boundary| closest_pair(&outline, boundary))
-            .min_by(|(a0, b0), (a1, b1)| distance_sq(*a0, *b0).total_cmp(&distance_sq(*a1, *b1)))
-            .ok_or("frame has no boundary")?;
+        let (a, b) = closest_pair(&outline, &frame).ok_or("frame has no boundary")?;
         bridges.push(to_int(&bridge_polygon(a, b, p.bridge_mm)));
         links.push((a, b));
         let mut chosen = vec![a];
@@ -612,14 +637,7 @@ pub(crate) fn build(shapes: &Shapes, detail: f64, p: &Params) -> Result<Output, 
         // further bridges: the shortest remaining links that leave the island away from the earlier ones
         let mut options: Vec<(f64, Pt, Pt)> = (0..outline.len())
             .step_by(step)
-            .filter_map(|k| {
-                main_boundaries
-                    .iter()
-                    .flat_map(|bd| (0..bd.len()).map(move |j| (bd[j], bd[(j + 1) % bd.len()])))
-                    .map(|(c, d)| closest_on_segment(outline[k], c, d))
-                    .map(|c| (distance_sq(outline[k], c), outline[k], c))
-                    .min_by(|x, y| x.0.total_cmp(&y.0))
-            })
+            .filter_map(|k| frame.nearest(outline[k]).map(|(d, c)| (d, outline[k], c)))
             .filter(|o| o.0.sqrt() <= reach)
             .collect();
         options.sort_by(|x, y| x.0.total_cmp(&y.0));
@@ -671,27 +689,51 @@ pub(crate) fn build(shapes: &Shapes, detail: f64, p: &Params) -> Result<Output, 
         // Each run is built from the plate and the strips themselves, never from the previous run, so that every
         // crossing is computed from the same two original segments in all of them.
         let mut cumulative: Vec<Vec<IntPoint<i32>>> = Vec::new();
+        let mut jobs: Vec<(Vec<Vec<IntPoint<i32>>>, Vec<Vec<Vec<IntPoint<i32>>>>)> = Vec::new();
         for (k, polys) in &steps {
             cumulative.extend(polys.iter().cloned());
+            planes.push(*k as f64 * layer_height);
+            jobs.push((cumulative.clone(), Vec::new()));
+        }
+        each_mut(&mut jobs, |(strips, out)| {
             let merged = material.as_slice().overlay(
-                cumulative.as_slice(),
+                strips.as_slice(),
                 OverlayRule::Union,
                 FillRule::NonZero,
             );
-            planes.push(*k as f64 * layer_height);
-            runs.push(repair_point_contacts(&merged));
-        }
+            *out = repair_point_contacts(&merged);
+        });
+        runs.extend(jobs.into_iter().map(|(_, run)| run));
         planes.push(thickness);
         // Noding can put one run's vertex on another's edge, which is a pinch; patch and node again until stable.
+        // The patching rarely settles on its own (it can keep nudging the same few places), so once it stops
+        // making headway the mesh is tried and kept if it is already watertight.
         let mut radius = (0.01 * UNITS_PER_MM) as i32;
-        for _ in 0..12 {
+        let mut tried = 0;
+        let mut last_patched = usize::MAX;
+        let mut done: Option<crate::mesh::Mesh> = None;
+        for round in 0..12 {
             node_runs(&mut runs);
-            let before = runs.clone();
-            for r in runs.iter_mut() {
-                *r = repair_near_contacts(r, radius);
-            }
-            if runs == before {
-                break;
+            let mut work: Vec<(Vec<Vec<Vec<IntPoint<i32>>>>, usize, bool)> =
+                runs.drain(..).map(|r| (r, 0, false)).collect();
+            each_mut(&mut work, |(run, patched, changed)| {
+                let (next, n) = repair_near_contacts(run, radius);
+                *changed = n > 0 && next != *run;
+                *patched = n;
+                *run = next;
+            });
+            let patched: usize = work.iter().map(|w| w.1).sum();
+            let changed = work.iter().any(|w| w.2);
+            runs.extend(work.into_iter().map(|w| w.0));
+            let stalled = patched > 0 && patched == last_patched && round >= 2;
+            last_patched = patched;
+            if !changed || (stalled && tried < 3) {
+                let mesh = crate::complexity::build(&planes, &runs);
+                if !changed || mesh.is_watertight() {
+                    done = Some(mesh);
+                    break;
+                }
+                tried += 1;
             }
             radius += radius / 2;
         }
@@ -703,7 +745,7 @@ pub(crate) fn build(shapes: &Shapes, detail: f64, p: &Params) -> Result<Output, 
                 last.len()
             ));
         }
-        let mut stack = crate::complexity::build(&planes, &runs);
+        let mut stack = done.unwrap_or_else(|| crate::complexity::build(&planes, &runs));
         if p.flip {
             for v in &mut stack.v {
                 v[0] = p.width_mm - v[0];
@@ -885,6 +927,41 @@ mod tests {
             build(&shapes, 2.0, &p).unwrap().stats.bridge_pixels
         };
         assert_eq!((count(1), count(3), count(5)), (1, 3, 5));
+    }
+
+    #[test]
+    fn delete_islands_threshold_is_in_square_millimetres() {
+        let tp = TraceParams {
+            smooth_px: 1.0,
+            corner_deg: 60.0,
+            tolerance_px: 0.4,
+            min_area_px: 4.0,
+        };
+        let n = 120;
+        // a ring: its inside is one island of about 25 mm² at 100 mm wide
+        let mask: Vec<bool> = (0..n * n)
+            .map(|i| {
+                let (x, y) = ((i % n) as f64 - 60.0, (i / n) as f64 - 60.0);
+                (20.0..30.0).contains(&x.hypot(y))
+            })
+            .collect();
+        let shapes = trace(&mask, n, n, &tp);
+        let run = |min: f64| {
+            let p = Params {
+                width_mm: 100.0,
+                margin_mm: 4.0,
+                min_island_mm2: min,
+                ..Params::default()
+            };
+            build(&shapes, 2.0, &p).unwrap().stats
+        };
+        assert_eq!(run(0.0).islands_deleted, 0);
+        assert_eq!(
+            run(1.0).islands_deleted,
+            0,
+            "an island above the limit must stay"
+        );
+        assert_eq!(run(1.0e6).islands_deleted, 1);
     }
 
     #[test]

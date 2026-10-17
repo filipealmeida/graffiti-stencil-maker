@@ -7,6 +7,7 @@ import Perf from './Perf'
 import Workbench from './Workbench'
 import StudioEdge from './StudioEdge'
 import StudioNodeView, { KIND_COLOR } from './StudioNode'
+import { etaSeconds, formatEta, useNow } from './eta'
 import { laneSpan, redo, resizeLane, resetHistory, runGraph, signature, STORE_KEY, undo, useStudio, type StudioNode } from './store'
 
 const nodeTypes = { studio: StudioNodeView }
@@ -16,6 +17,20 @@ const LANES: { stage: Stage; title: string; edge: 'stencil' | 'post' | 'end' }[]
   { stage: 'stencil', title: '2 · Stencil — mask to 3D plate', edge: 'post' },
   { stage: 'post', title: '3 · Post-process — parts', edge: 'end' },
 ]
+
+const DRAFT_DELAY = 150
+
+/** The one-line state of the engine: working (with the time left when it is long), draft, error or ready. */
+function Status() {
+  const busy = useStudio((s) => s.busy)
+  const error = useStudio((s) => s.error)
+  const draft = useStudio((s) => s.draft)
+  const runs = useStudio((s) => s.runs)
+  const now = useNow(busy)
+  const left = busy ? etaSeconds(runs, now) : null
+  const text = error ? `⚠ ${error}` : busy ? `${draft ? 'refining' : 'working'}…${left !== null && left >= 3 ? ` ${formatEta(left)}` : ''}` : draft ? 'draft preview' : 'ready'
+  return <span className={`status${busy ? ' busy' : ''}`} role="status" aria-live="polite">{text}</span>
+}
 
 function Canvas() {
   const s = useStudio()
@@ -27,6 +42,7 @@ function Canvas() {
   const fit = useCallback(() => { setTimeout(() => rf.fitView({ padding: 0.08, maxZoom: 1, duration: 250 }), 200) }, [rf])
   const bar = useRef<HTMLDivElement>(null)
   const tpl = useRef<HTMLDivElement>(null)
+  const sliding = useRef(false)
   const hasSource = s.nodes.some((n) => n.data.type === 'source')
   useEffect(() => {
     const away = (e: MouseEvent) => { if (!bar.current?.contains(e.target as Node) && !tpl.current?.contains(e.target as Node)) setMenu(null) }
@@ -41,8 +57,14 @@ function Canvas() {
       else if (k === 'v') { e.preventDefault(); useStudio.getState().paste() }
       else if (k === 'd') { e.preventDefault(); useStudio.getState().duplicate() }
     }
+    const down = (e: PointerEvent) => { sliding.current = (e.target as HTMLElement | null)?.matches?.('input[type=range]') ?? false }
+    const up = () => { if (sliding.current) { sliding.current = false; runGraph() } }
     window.addEventListener('mousedown', away); window.addEventListener('keydown', esc)
-    return () => { window.removeEventListener('mousedown', away); window.removeEventListener('keydown', esc) }
+    window.addEventListener('pointerdown', down); window.addEventListener('pointerup', up); window.addEventListener('pointercancel', up)
+    return () => {
+      window.removeEventListener('mousedown', away); window.removeEventListener('keydown', esc)
+      window.removeEventListener('pointerdown', down); window.removeEventListener('pointerup', up); window.removeEventListener('pointercancel', up)
+    }
   }, [])
 
   useEffect(() => {
@@ -66,8 +88,10 @@ function Canvas() {
     } catch {
       useStudio.setState({ error: 'autosave failed (browser storage is full or blocked): use Save project to keep your work' })
     }
-    // one run per settled edit; it evaluates node by node, so the trace stage shows up first
-    const full = setTimeout(runGraph, first.current ? 0 : 350)
+    // one run per settled edit; it evaluates node by node, so the trace stage shows up first.
+    // While a slider is held down a coarse draft runs instead, and the full run follows on release.
+    const wait = first.current ? 0 : sliding.current ? DRAFT_DELAY : 350
+    const full = setTimeout(() => runGraph(sliding.current), wait)
     first.current = false
     return () => clearTimeout(full)
   }, [sig, Object.keys(s.types).length])
@@ -166,14 +190,14 @@ function Canvas() {
         <div className="palette" ref={bar}>
           {(['trace', 'stencil', 'post'] as Stage[]).map((st) => (
             <div key={st} className="pal">
-              <button className={`stage-${st}${menu === st ? ' on' : ''}`} onClick={() => setMenu(menu === st ? null : st)}>+ {st}</button>
+              <button className={`stage-${st}${menu === st ? ' on' : ''}`} aria-haspopup="true" aria-expanded={menu === st} onClick={() => setMenu(menu === st ? null : st)}>+ {st}</button>
               {menu === st && <div className="menu" style={menuStyle(stageNodes(st).length)}>{stageNodes(st).map((t) => (
                 <button key={t.id} title={t.doc} onClick={() => addFromMenu(t)}><b>{t.label}</b><small>{t.doc.split(/(?<=\.)\s/)[0]}</small></button>
               ))}</div>}
             </div>
           ))}
           <div className="pal">
-            <button className={menu === 'all' ? 'on' : ''} onClick={() => setMenu(menu === 'all' ? null : 'all')} title="Every node, most used first">+ All</button>
+            <button className={menu === 'all' ? 'on' : ''} aria-haspopup="true" aria-expanded={menu === 'all'} onClick={() => setMenu(menu === 'all' ? null : 'all')} title="Every node, most used first">+ All</button>
             {menu === 'all' && <div className="menu" style={menuStyle(popular.length)}>{popular.map((t) => {
               const n = s.usage[t.id] ?? 0
               return (
@@ -186,13 +210,14 @@ function Canvas() {
         </div>
         <label className="btn">Open image…<input type="file" accept=".png,.jpg,.jpeg,.bmp,.svg" hidden onChange={(e) => e.target.files?.[0] && addFile(e.target.files[0])} /></label>
         <div className="pal" ref={tpl}>
-          <button className={menu === 'templates' ? 'on' : ''} onClick={() => setMenu(menu === 'templates' ? null : 'templates')} title="Rebuild the graph around the current picture">Templates ▾</button>
+          <button className={menu === 'templates' ? 'on' : ''} aria-haspopup="true" aria-expanded={menu === 'templates'} onClick={() => setMenu(menu === 'templates' ? null : 'templates')} title="Rebuild the graph around the current picture">Templates ▾</button>
           {menu === 'templates' && (
             <div className="menu wide">
               {([
                 ['Simple', 'image → threshold → stencil → export. The quickest route to an STL.', s.starter],
                 ['Colour tones', 'image → reduce colours → tone patterns → stencil. For pictures with shades.', s.colourStarter],
                 ['Vector', 'image → threshold → trace → vector stencil. Smooth curves instead of pixels.', s.vectorStarter],
+                ['Colour set', 'image → split colours → one stencil per colour → colour set. Layers with registration holes and pins, as one ZIP.', s.colourSetStarter],
               ] as const).map(([name, doc, make]) => (
                 <button key={name} disabled={!hasSource} onClick={() => {
                   const src = s.nodes.find((n) => n.data.type === 'source')
@@ -211,10 +236,10 @@ function Canvas() {
         <input className="pname" value={pname} onChange={(e) => setPname(e.target.value)} aria-label="Project name" />
         <button onClick={save}>Save project</button>
         <button onClick={() => { if (s.nodes.length && !window.confirm('Discard the current graph? Save the project first to keep it.')) return; s.load([], []); localStorage.removeItem(STORE_KEY) }}>New</button>
-        {s.busy && s.progress.total > 0 && <span className="gbar" title={`${Math.floor(s.progress.done)}/${s.progress.total} nodes`}><i style={{ width: `${(s.progress.done / s.progress.total) * 100}%` }} /></span>}
+        {s.busy && s.progress.total > 0 && <span className="gbar" role="progressbar" aria-label="Run progress" aria-valuemin={0} aria-valuemax={s.progress.total} aria-valuenow={Math.floor(s.progress.done)} title={`${Math.floor(s.progress.done)}/${s.progress.total} nodes`}><i style={{ width: `${(s.progress.done / s.progress.total) * 100}%` }} /></span>}
         <button className={s.perfOpen ? 'on' : ''} onClick={() => s.setPerf(!s.perfOpen)} title="Show engine workers and load">Perf</button>
         <button className={s.consoleOpen ? 'on' : ''} onClick={() => s.setConsole(!s.consoleOpen)}>Console{s.logs.some((l) => l.level === 'error') ? ' ⚠' : ''}</button>
-        <span className={`status${s.busy ? ' busy' : ''}`}>{s.error ? `⚠ ${s.error}` : s.busy ? 'working…' : 'ready'}</span>
+        <Status />
       </header>
       <main>
         <div className="canvas">

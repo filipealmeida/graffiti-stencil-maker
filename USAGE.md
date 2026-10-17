@@ -104,3 +104,13 @@ Normal bridges connect stencil material islands to the frame so the printed part
 the first layer keeps the unbridged artwork and upper layers grow bridges into contact; this lets paint pass below.
 The bridge strategy is selectable in the stencil node. A successful stencil output is checked for remaining islands
 and watertightness before export.
+
+## Colour sets, live preview and feedback
+
+- **Colour set node** (post stage, or Templates → *Colour set*): takes up to six solids (one per colour) of the *same* plate size and drills matching registration holes (0–4, diagonal / L / corners) through every plate, so layers line up. With *pins* on it also outputs a pin STL sized to the holes. Holes must fit inside the margin, or the node reports why. Output: one STL per colour plus pins, exportable as a ZIP.
+- **Live preview**: while a slider is dragged a coarse draft (lower resolution, easy bridging, low vector detail) runs; releasing the slider runs the full quality pass. The status line says "draft preview" until then.
+- **Progress and ETA**: each running node shows its message, elapsed time and an estimated time left; the top status line is announced to screen readers.
+- **Badges** on nodes flag problems (islands remaining, not watertight, bridges under 1 mm, empty/full masks, heavy meshes).
+- **Tooltips and units**: hover or focus a slider for a short explanation; ↺ resets it.
+- **Performance**: the vector stencil uses a spatial index for bridge selection and near-contact repair and stops repairing once the mesh is watertight (a 287-island project: 19 s → 2.8 s easy, ~73 s → 13 s steps). The CLI also runs contours in parallel; the browser engine is single-threaded.
+- **Fix**: *Delete islands under (mm²)* in the vector stencil now really uses mm².

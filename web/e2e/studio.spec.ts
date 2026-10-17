@@ -365,3 +365,33 @@ test('Tiles & mounting has a connector depth slider', async ({ page }) => {
   await page.locator('.menu button').filter({ hasText: 'Tiles & mounting' }).click()
   await expect(page.locator('aside')).toContainText('Connector depth into each tile')
 })
+
+test('sliders carry a tooltip and a unit, and the status line is announced', async ({ page }) => {
+  await open(page)
+  await page.locator('.react-flow__node').first().dispatchEvent('click')
+  await expect(page.locator('aside .help').first()).toBeAttached()
+  await expect(page.locator('aside .unit').first()).toBeAttached()
+  await expect(page.locator('[role=status]').first()).toBeVisible()
+})
+
+test('the Colour set template builds a registered multi-colour graph', async ({ page }) => {
+  await open(page)
+  await page.getByRole('button', { name: /Templates/ }).click()
+  await page.locator('.menu button').filter({ hasText: 'Colour set' }).click()
+  await expect(page.locator('.react-flow__node').filter({ hasText: 'Colour set' })).toBeVisible()
+  await expect(page.locator('.react-flow__edge')).toHaveCount(5)
+})
+
+test('undo and redo restore a deleted node', async ({ page }) => {
+  await open(page)
+  await page.waitForTimeout(600)
+  const n = await page.locator('.react-flow__node').count()
+  await page.getByRole('button', { name: '+ trace' }).click()
+  await page.locator('.menu button').filter({ hasText: 'Morphology' }).click()
+  await expect(page.locator('.react-flow__node')).toHaveCount(n + 1)
+  await page.waitForTimeout(600)
+  await page.getByRole('button', { name: /Undo/ }).click()
+  await expect(page.locator('.react-flow__node')).toHaveCount(n)
+  await page.getByRole('button', { name: /Redo/ }).click()
+  await expect(page.locator('.react-flow__node')).toHaveCount(n + 1)
+})

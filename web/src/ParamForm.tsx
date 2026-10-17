@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useId, useState } from 'react'
 import type { NodeType, ParamDef } from './api'
 import { useStudio, type StudioNode } from './store'
+import { PARAM_HELP, unitOf } from './help'
 
 const same = (a: unknown, b: unknown) => a === b || (typeof a === 'number' && typeof b === 'number' && Math.abs(a - b) < 1e-9)
 
@@ -25,24 +26,38 @@ function NumberBox({ p, value, onChange }: { p: ParamDef; value: number; onChang
 
 function Reset({ p, value, onChange }: { p: ParamDef; value: unknown; onChange: (v: unknown) => void }) {
   if (same(value, p.default)) return null
-  return <button className="reset" title={`Reset to ${String(p.default)}`} onClick={(e) => { e.preventDefault(); onChange(p.default) }}>↺</button>
+  const text = `Reset ${p.label} to ${String(p.default)}`
+  return <button className="reset" title={`Reset to ${String(p.default)}`} aria-label={text} onClick={(e) => { e.preventDefault(); onChange(p.default) }}>↺</button>
+}
+
+/** The one-line reason behind a setting: a tooltip on the whole row and a line that shows on hover or focus. */
+function Help({ p, id }: { p: ParamDef; id: string }) {
+  const text = PARAM_HELP[p.name]
+  return text ? <small className="help" id={id}>{text}</small> : null
 }
 
 function Field({ p, value, onChange }: { p: ParamDef; value: unknown; onChange: (v: unknown) => void }) {
+  const hid = `help-${useId()}`
+  const help = PARAM_HELP[p.name]
+  const tip = help ? { title: help } : {}
+  const desc = help ? { 'aria-describedby': hid } : {}
   if (p.kind === 'bool')
-    return <label className="row chk"><input type="checkbox" checked={!!value} onChange={(e) => onChange(e.target.checked)} />{p.label}<Reset p={p} value={value} onChange={onChange} /></label>
+    return <label className="row chk" {...tip}><input type="checkbox" checked={!!value} onChange={(e) => onChange(e.target.checked)} {...desc} />{p.label}<Reset p={p} value={value} onChange={onChange} /><Help p={p} id={hid} /></label>
   if (p.kind === 'choice')
-    return <label className="row"><span>{p.label}<Reset p={p} value={value} onChange={onChange} /></span><select value={String(value)} onChange={(e) => onChange(e.target.value)}>{p.choices!.map((c) => <option key={c}>{c}</option>)}</select></label>
+    return <label className="row" {...tip}><span>{p.label}<Reset p={p} value={value} onChange={onChange} /></span><select value={String(value)} onChange={(e) => onChange(e.target.value)} {...desc}>{p.choices!.map((c) => <option key={c}>{c}</option>)}</select><Help p={p} id={hid} /></label>
   if (p.kind === 'string')
-    return <label className="row"><span>{p.label}<Reset p={p} value={value} onChange={onChange} /></span><textarea rows={2} value={String(value)} onChange={(e) => onChange(e.target.value)} /></label>
+    return <label className="row" {...tip}><span>{p.label}<Reset p={p} value={value} onChange={onChange} /></span><textarea rows={2} value={String(value)} onChange={(e) => onChange(e.target.value)} {...desc} /><Help p={p} id={hid} /></label>
   if (p.kind === 'text') return null
+  const unit = unitOf(p.label)
   return (
-    <label className="row">
-      <span>{p.label} <em>{String(value)}</em><Reset p={p} value={value} onChange={onChange} /></span>
+    <label className="row" {...tip}>
+      <span>{p.label} <em>{String(value)}{unit ? ` ${unit}` : ''}</em><Reset p={p} value={value} onChange={onChange} /></span>
       <span className="sliderrow">
-        <input type="range" min={p.min} max={p.max} step={p.step} value={Number(value)} onChange={(e) => onChange(+e.target.value)} />
+        <input type="range" min={p.min} max={p.max} step={p.step} value={Number(value)} onChange={(e) => onChange(+e.target.value)} aria-valuetext={`${value}${unit ? ` ${unit}` : ''}`} {...desc} />
         <NumberBox p={p} value={Number(value)} onChange={onChange} />
+        {unit && <span className="unit" aria-hidden="true">{unit}</span>}
       </span>
+      <Help p={p} id={hid} />
     </label>
   )
 }

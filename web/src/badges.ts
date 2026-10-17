@@ -1,0 +1,29 @@
+export type BadgeLevel = 'error' | 'warn' | 'info'
+export interface Badge { level: BadgeLevel; text: string }
+
+type Info = Record<string, any>
+
+const n = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : 0)
+
+/** Short findings about what a node produced, so a problem shows on the node without opening it. */
+export function badgesFor(type: string, params: Record<string, unknown>, info: Info | null | undefined): Badge[] {
+  const out: Badge[] = []
+  const s = info?.stats
+  if (s) {
+    if (n(s.islands_remaining) > 0) out.push({ level: 'error', text: `${n(s.islands_remaining)} island${n(s.islands_remaining) > 1 ? 's' : ''} remain` })
+    if (s.watertight === false) out.push({ level: 'error', text: 'mesh is not watertight' })
+    if (n(s.overhang_area_mm2) > 0.5) out.push({ level: 'warn', text: `overhang ${n(s.overhang_area_mm2).toFixed(0)} mm²` })
+    if (n(s.islands_deleted) > 0) out.push({ level: 'warn', text: `${n(s.islands_deleted)} island${n(s.islands_deleted) > 1 ? 's' : ''} deleted` })
+    if (n(s.triangles) > 1_500_000) out.push({ level: 'warn', text: `${(n(s.triangles) / 1e6).toFixed(1)} M triangles: heavy to slice` })
+    if (n(s.islands_found) > 0 && n(s.islands_remaining) === 0) out.push({ level: 'info', text: `${n(s.islands_found)} islands bridged` })
+  }
+  if ((type === 'stencil' || type === 'vector_stencil') && n(params.bridge_mm) > 0 && n(params.bridge_mm) < 1) {
+    out.push({ level: 'warn', text: `bridge ${n(params.bridge_mm)} mm is thinner than a nozzle` })
+  }
+  if (info?.kind === 'mask' && typeof info.coverage === 'number') {
+    if (info.coverage < 0.005) out.push({ level: 'warn', text: 'mask is almost empty' })
+    else if (info.coverage > 0.995) out.push({ level: 'warn', text: 'mask is almost all paint' })
+  }
+  if (info?.kind === 'shapes' && n(info.loops) === 0) out.push({ level: 'warn', text: 'no outlines found' })
+  return out
+}

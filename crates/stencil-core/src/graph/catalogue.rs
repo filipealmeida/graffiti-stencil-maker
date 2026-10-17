@@ -300,6 +300,23 @@ pub(super) fn catalogue() -> Vec<NodeDef> {
             run: run_export,
         },
         NodeDef {
+            id: "colour_set",
+            label: "Colour set",
+            stage: "post",
+            inputs: colour_set::INPUTS.iter().map(|n| (*n, "solid", *n == "colour_1")).collect(),
+            outputs: vec![("parts", "parts")],
+            params: vec![
+                num("holes", "Registration holes (0 = none)", 3.0, 0.0, 4.0, 1.0, Some("Registration"), true),
+                num("hole_d", "Hole diameter (mm)", 4.0, 2.0, 12.0, 0.5, Some("Registration"), false),
+                num("inset", "Hole distance from the edge (mm, 0 = half the margin)", 0.0, 0.0, 100.0, 0.5, Some("Registration"), false),
+                flag("pins", "Add alignment pins to the set", true, Some("Pins")),
+                num("pin_clearance", "Pin clearance (mm, diametral)", 0.2, 0.0, 1.0, 0.05, Some("Pins"), false),
+                num("pin_length", "Pin length (mm)", 12.0, 4.0, 60.0, 1.0, Some("Pins"), false),
+            ],
+            doc: "Packs the stencils of several colours (one per input, darkest first) into one ZIP. Every plate gets the same registration holes in its margin, so after the first colour is painted the pins or paint dots through the holes line up the next layer. Two holes sit on a diagonal and three form an L, so a layer cannot be laid on rotated. All plates need the same size: same picture, plate width and margin. The holes need a margin of at least the hole diameter plus 1 mm.",
+            run: colour_set::run_colour_set,
+        },
+        NodeDef {
             id: "hardware",
             label: "Screws, nuts & fit test",
             stage: "post",

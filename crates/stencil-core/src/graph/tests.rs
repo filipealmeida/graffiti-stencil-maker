@@ -553,3 +553,100 @@ fn shape_cleanup_nodes_feed_a_vector_stencil() {
     assert!(info("rc", "rounded")["loops"].as_u64().unwrap() > 0);
     assert!(info("ri", "removed")["kind"] == "shapes");
 }
+
+fn colour_set_graph(id: &str, margin: f64, second_margin: f64, params: Json) -> Json {
+    json!({
+        "nodes": [
+            {"id": "s", "type": "source", "params": {"image_id": id, "resolution": 120}},
+            {"id": "t", "type": "threshold", "params": {}},
+            {"id": "a", "type": "stencil", "params": {"margin_mm": margin}},
+            {"id": "b", "type": "stencil", "params": {"margin_mm": second_margin, "flip": true, "width_mm": if second_margin == margin { 100.0 } else { 120.0 }}},
+            {"id": "cs", "type": "colour_set", "params": params},
+        ],
+        "edges": [
+            {"from": ["s", "image"], "to": ["t", "image"]},
+            {"from": ["t", "mask"], "to": ["a", "mask"]},
+            {"from": ["t", "mask"], "to": ["b", "mask"]},
+            {"from": ["a", "solid"], "to": ["cs", "colour_1"]},
+            {"from": ["b", "solid"], "to": ["cs", "colour_2"]},
+        ]
+    })
+}
+
+#[test]
+fn colour_set_drills_matching_holes_and_adds_pins() {
+    let mut e = Engine::new();
+    let id = e.add_image(test_png()).unwrap()["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let r = e.run(
+        &colour_set_graph(&id, 10.0, 10.0, json!({"holes": 4})),
+        None,
+        &|| 0.0,
+    );
+    assert_eq!(r["nodes"]["cs"]["state"], "done", "{r}");
+    let key = r["nodes"]["cs"]["key"].as_str().unwrap().to_string();
+    let Some(Value::Parts(parts)) = e.value(&key, "parts") else {
+        panic!()
+    };
+    let parts = parts.clone();
+    let names: Vec<&str> = parts.files.iter().map(|f| f.0.as_str()).collect();
+    assert_eq!(names.len(), 3, "{names:?}");
+    assert!(
+        names[0] == "colour_1.stl" && names[1] == "colour_2.stl" && names[2].starts_with("pins_4x")
+    );
+    let plain = e.run(
+        &colour_set_graph(&id, 10.0, 10.0, json!({"holes": 0})),
+        None,
+        &|| 0.0,
+    );
+    let pkey = plain["nodes"]["cs"]["key"].as_str().unwrap().to_string();
+    let Some(Value::Parts(base)) = e.value(&pkey, "parts") else {
+        panic!()
+    };
+    let vol = |b: &[u8]| crate::mesh::Mesh::from_stl(b).unwrap().volume();
+    // four 4 mm holes through a 2.2 mm plate remove about 4 * pi * 2^2 * 2.2 mm3, even on the flipped plate
+    let removed = 4.0 * std::f64::consts::PI * 4.0 * 2.2;
+    for k in 0..2 {
+        let cut = vol(&base.files[k].1) - vol(&parts.files[k].1);
+        assert!(
+            (cut - removed).abs() < removed * 0.15,
+            "plate {k}: {cut} vs {removed}"
+        );
+    }
+}
+
+#[test]
+fn colour_set_rejects_mismatched_plates_and_small_margins() {
+    let mut e = Engine::new();
+    let id = e.add_image(test_png()).unwrap()["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let r = e.run(
+        &colour_set_graph(&id, 10.0, 12.0, json!({"holes": 3})),
+        None,
+        &|| 0.0,
+    );
+    assert_eq!(r["nodes"]["cs"]["state"], "error", "{r}");
+    assert!(
+        r["nodes"]["cs"]["error"]
+            .as_str()
+            .unwrap()
+            .contains("same plate width"),
+        "{r}"
+    );
+    let r = e.run(
+        &colour_set_graph(&id, 4.0, 4.0, json!({"holes": 3, "hole_d": 6.0})),
+        None,
+        &|| 0.0,
+    );
+    assert!(
+        r["nodes"]["cs"]["error"]
+            .as_str()
+            .unwrap()
+            .contains("does not fit"),
+        "{r}"
+    );
+}

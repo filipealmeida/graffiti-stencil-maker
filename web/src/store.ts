@@ -4,6 +4,7 @@ import {
   type Connection, type Edge, type EdgeChange, type Node, type NodeChange,
 } from '@xyflow/react'
 import { api, type GraphJson, type LogLine, type NodeRun, type NodeType } from './api'
+import { nodeStarts } from './eta'
 
 export interface StudioData extends Record<string, unknown> {
   type: string
@@ -80,6 +81,8 @@ interface State {
   consoleOpen: boolean
   bench: string | null
   progress: { done: number; total: number }
+  /** The results on screen come from a quick coarse pass, made while a slider is being dragged. */
+  draft: boolean
   addLogs: (l: LogLine[]) => void
   clearLogs: () => void
   setConsole: (o: boolean) => void
@@ -103,6 +106,7 @@ interface State {
   starter: (imageId: string, title: string) => void
   colourStarter: (imageId: string, title: string) => void
   vectorStarter: (imageId: string, title: string) => void
+  colourSetStarter: (imageId: string, title: string) => void
   graph: () => GraphJson
   setRuns: (r: Record<string, NodeRun>, busy: boolean, error?: string | null) => void
   canUndo: boolean
@@ -116,7 +120,7 @@ export const useStudio = create<State>((set, get) => ({
   lanes: loadLanes(),
   setLanes: (lanes) => { localStorage.setItem(LANES_KEY, JSON.stringify(lanes)); set({ lanes }) },
   types: {}, nodes: [], edges: [], runs: {}, selected: null, busy: false, error: null,
-  logs: [], usage: loadUsage(), perfOpen: localStorage.getItem('stencil-perf') === '1', consoleOpen: true, bench: null, progress: { done: 0, total: 0 },
+  logs: [], usage: loadUsage(), perfOpen: localStorage.getItem('stencil-perf') === '1', consoleOpen: true, bench: null, progress: { done: 0, total: 0 }, draft: false,
   addLogs: (l) => set((s) => ({ logs: [...s.logs, ...l.map((x, i) => ({ ...x, id: s.logs.length + i + Math.random() }))].slice(-500) })),
   clearLogs: () => set({ logs: [] }),
   setConsole: (consoleOpen) => set({ consoleOpen }),
@@ -228,6 +232,23 @@ export const useStudio = create<State>((set, get) => ({
     connect({ source: st, sourceHandle: 'solid', target: ex, targetHandle: 'solid' })
     set({ selected: tp })
   },
+  colourSetStarter: (imageId, title) => {
+    const { addNode, connect } = get()
+    set({ nodes: [], edges: [], runs: {}, selected: null })
+    const src = addNode('source', { image_id: imageId, resolution: 600 }, { x: 40, y: 60 }, title)
+    const split = addNode('split_colours', { colours: 2 }, { x: 400, y: 60 })
+    const sp = laneSpan(get().lanes, 'stencil')
+    const plate = { width_mm: 100, margin_mm: 10, raised_bridges: true, z_bridging: 'easy' }
+    const a = addNode('stencil', plate, { x: sp.x + 30, y: 60 }, 'Colour 1')
+    const b = addNode('stencil', plate, { x: sp.x + 30, y: 300 }, 'Colour 2')
+    const set_ = addNode('colour_set', {}, { x: laneSpan(get().lanes, 'post').x + 30, y: 60 })
+    connect({ source: src, sourceHandle: 'image', target: split, targetHandle: 'image' })
+    connect({ source: split, sourceHandle: 'colour_1', target: a, targetHandle: 'mask' })
+    connect({ source: split, sourceHandle: 'colour_2', target: b, targetHandle: 'mask' })
+    connect({ source: a, sourceHandle: 'solid', target: set_, targetHandle: 'colour_1' })
+    connect({ source: b, sourceHandle: 'solid', target: set_, targetHandle: 'colour_2' })
+    set({ selected: set_ })
+  },
   vectorStarter: (imageId, title) => {
     const { addNode, connect } = get()
     set({ nodes: [], edges: [], runs: {}, selected: null })
@@ -319,16 +340,37 @@ let token = 0
 let runningSig: string | null = null
 let doneSig: string | null = null
 
-/** Evaluates the whole graph. A run for a graph that is already running or already evaluated is skipped. */
-export async function runGraph() {
+/** Settings that make a run cheaper while a slider is dragged: the same graph at low resolution and without stepped bridges. */
+const DRAFT_RESOLUTION = 250
+export function coarsen(g: GraphJson): GraphJson {
+  return {
+    ...g,
+    nodes: g.nodes.map((n) => {
+      const p = { ...n.params }
+      if (n.type === 'source' && Number(p.resolution) > DRAFT_RESOLUTION) p.resolution = DRAFT_RESOLUTION
+      if ((n.type === 'stencil' || n.type === 'vector_stencil') && p.z_bridging === 'steps') p.z_bridging = 'easy'
+      if (n.type === 'vector_stencil' && Number(p.detail) > 2) p.detail = 2
+      return { ...n, params: p }
+    }),
+  }
+}
+
+/**
+ * Evaluates the whole graph. A run for a graph that is already running or already evaluated is skipped.
+ * A draft run uses coarser settings (see `coarsen`) and is skipped when that would change nothing.
+ */
+export async function runGraph(draft = false) {
   const st = useStudio.getState()
-  const g = st.graph()
-  if (!g.nodes.length) { token++; runningSig = doneSig = null; api.cancel(); return st.setRuns({}, false) }
-  const sig = signature(st)
+  const full = st.graph()
+  if (!full.nodes.length) { token++; runningSig = doneSig = null; api.cancel(); return st.setRuns({}, false) }
+  const g = draft ? coarsen(full) : full
+  if (draft && JSON.stringify(g) === JSON.stringify(full)) return
+  const sig = draft ? `draft:${JSON.stringify(g)}` : signature(st)
   if (sig === runningSig || (sig === doneSig && !st.error)) return
   const mine = ++token
   runningSig = sig
   doneSig = null
+  for (const k of Object.keys(nodeStarts)) delete nodeStarts[k]
   // results of the previous run stay on screen, marked stale, until each node has its new one
   const merged: Record<string, NodeRun> = {}
   for (const n of g.nodes) {
@@ -340,14 +382,16 @@ export async function runGraph() {
     const r = await api.run(g, undefined, (step) => {
       if (mine !== token) return
       const prev = merged[step.node]
-      merged[step.node] = step.state.state === 'running' && prev?.key ? { ...step.state, key: prev.key, outputs: prev.outputs, stale: true } : step.state
+      if (step.state.state === 'running' && nodeStarts[step.node] === undefined) nodeStarts[step.node] = performance.now()
+      merged[step.node] = step.state.state === 'running' && prev?.key ? { ...step.state, key: prev.key, outputs: prev.outputs, stale: true, ms: prev.ms } : step.state
       if (step.log.length) useStudio.getState().addLogs(step.log)
       useStudio.setState({ runs: { ...merged }, progress: { done: step.n + (step.state.state === 'running' ? step.state.progress ?? 0 : 0), total: step.total || g.nodes.length } })
     })
     if (mine !== token) return
     runningSig = null
-    if (r.status === 'done') doneSig = sig
-    useStudio.setState({ busy: false, error: r.error ?? null })
+    // a draft is never final: the full run must still happen
+    if (r.status === 'done' && !draft) doneSig = sig
+    useStudio.setState({ busy: false, error: r.error ?? null, draft: draft && r.status === 'done' })
   } catch (e) {
     if (mine !== token) return
     runningSig = null
