@@ -1,4 +1,4 @@
-use super::{validate, Mesh, Output, Params, Stats};
+use super::{validate, Mesh, Output, Params, Stats, ZBridging};
 use crate::trace::{Pt, Shapes};
 use i_triangle::i_overlay::core::fill_rule::FillRule;
 use i_triangle::i_overlay::core::overlay_rule::OverlayRule;
@@ -92,6 +92,70 @@ fn bridge_polygon(a: Pt, b: Pt, width: f64) -> Vec<Pt> {
     ]
 }
 
+/// The bridge cut across its length into steps. Each step starts one layer higher than the one before, from
+/// the island up to the plate; the two ends run on into the island and the plate. Every corner sits on a lattice
+/// of whole step vectors, so the sides of neighbouring steps are exactly collinear and the mesh stays watertight.
+fn bridge_steps(
+    a: Pt,
+    b: Pt,
+    width: f64,
+    base_layers: usize,
+    easy: bool,
+) -> Vec<(u32, Vec<IntPoint<i32>>)> {
+    let whole = || {
+        vec![(
+            (base_layers / 2).max(1) as u32,
+            to_int(&bridge_polygon(a, b, width)),
+        )]
+    };
+    if easy {
+        return whole();
+    }
+    let n = (base_layers - 1) as i64;
+    let to_units = |p: Pt| {
+        [
+            (p[0] * UNITS_PER_MM).round() as i64,
+            (p[1] * UNITS_PER_MM).round() as i64,
+        ]
+    };
+    let (ia, ib) = (to_units(a), to_units(b));
+    let step = [
+        ((ib[0] - ia[0]) as f64 / n as f64).round() as i64,
+        ((ib[1] - ia[1]) as f64 / n as f64).round() as i64,
+    ];
+    let step_len = (step[0] as f64).hypot(step[1] as f64);
+    if step_len < 1.0 {
+        return whole();
+    }
+    let extra = (width * 0.55 * UNITS_PER_MM / step_len).ceil() as i64;
+    let half = width * 0.5 * UNITS_PER_MM / step_len;
+    let side = [
+        (-step[1] as f64 * half).round() as i64,
+        (step[0] as f64 * half).round() as i64,
+    ];
+    let corner = |i: i64, s: i64| {
+        IntPoint::new(
+            (ia[0] + step[0] * i + s * side[0]) as i32,
+            (ia[1] + step[1] * i + s * side[1]) as i32,
+        )
+    };
+    (1..=n)
+        .map(|j| {
+            let from = if j == 1 { -extra } else { j - 1 };
+            let to = if j == n { n + extra } else { j };
+            (
+                j as u32,
+                vec![
+                    corner(from, 1),
+                    corner(to, 1),
+                    corner(to, -1),
+                    corner(from, -1),
+                ],
+            )
+        })
+        .collect()
+}
+
 fn to_int(poly: &[Pt]) -> Vec<IntPoint<i32>> {
     poly.iter()
         .map(|p| {
@@ -135,6 +199,124 @@ fn repair_point_contacts(shapes: &[Vec<Vec<IntPoint<i32>>>]) -> Vec<Vec<Vec<IntP
         .into_iter()
         .filter(|(_, count)| *count > 1)
         .map(|((x, y), _)| {
+            vec![
+                IntPoint::new(x - radius, y - radius),
+                IntPoint::new(x + radius, y - radius),
+                IntPoint::new(x + radius, y + radius),
+                IntPoint::new(x - radius, y + radius),
+            ]
+        })
+        .collect();
+    if patches.is_empty() {
+        shapes.to_vec()
+    } else {
+        shapes.overlay(patches.as_slice(), OverlayRule::Union, FillRule::NonZero)
+    }
+}
+
+/// Every run shares the vertices created where bridges cross the outlines: an edge passing within a unit or two
+/// of another run's vertex gets that vertex too, so all runs agree on where the walls break.
+fn node_runs(runs: &mut [Vec<Vec<Vec<IntPoint<i32>>>>]) {
+    const CELL: i64 = 4096;
+    let key = |x: i64, y: i64| (x.div_euclid(CELL), y.div_euclid(CELL));
+    let mut grid: HashMap<(i64, i64), Vec<IntPoint<i32>>> = HashMap::new();
+    let mut seen = std::collections::HashSet::new();
+    for r in runs.iter().flatten().flatten().flatten() {
+        if seen.insert((r.x, r.y)) {
+            grid.entry(key(r.x as i64, r.y as i64))
+                .or_default()
+                .push(*r);
+        }
+    }
+    for contour in runs.iter_mut().flatten().flatten() {
+        let n = contour.len();
+        let mut out = Vec::with_capacity(n);
+        for i in 0..n {
+            let (p, q) = (contour[i], contour[(i + 1) % n]);
+            out.push(p);
+            let (dx, dy) = (
+                (q.x as i64 - p.x as i64) as f64,
+                (q.y as i64 - p.y as i64) as f64,
+            );
+            let l2 = dx * dx + dy * dy;
+            if l2 == 0.0 {
+                continue;
+            }
+            let samples = (l2.sqrt() / CELL as f64).ceil() as i64 + 1;
+            let mut cells = std::collections::BTreeSet::new();
+            for s in 0..=samples {
+                let t = s as f64 / samples as f64;
+                let (x, y) = (p.x as f64 + dx * t, p.y as f64 + dy * t);
+                let (cx, cy) = key(x as i64, y as i64);
+                for a in -1..=1 {
+                    for b in -1..=1 {
+                        cells.insert((cx + a, cy + b));
+                    }
+                }
+            }
+            let mut found: Vec<(f64, IntPoint<i32>)> = Vec::new();
+            for cell in cells {
+                for &r in grid.get(&cell).into_iter().flatten() {
+                    if r == p || r == q {
+                        continue;
+                    }
+                    let (rx, ry) = (
+                        (r.x as i64 - p.x as i64) as f64,
+                        (r.y as i64 - p.y as i64) as f64,
+                    );
+                    let t = (rx * dx + ry * dy) / l2;
+                    if t <= 0.0 || t >= 1.0 {
+                        continue;
+                    }
+                    if (rx * dy - ry * dx).abs() / l2.sqrt() <= 1.5 {
+                        found.push((t, r));
+                    }
+                }
+            }
+            found.sort_by(|a, b| a.0.total_cmp(&b.0));
+            out.extend(found.into_iter().map(|f| f.1));
+        }
+        *contour = out;
+    }
+}
+
+/// Like `repair_point_contacts`, but also for vertices a few units from another vertex of the outlines: rounding
+/// turns such near-touches and tiny jogs into pinch points that no manifold mesh can have.
+fn repair_near_contacts(shapes: &[Vec<Vec<IntPoint<i32>>>]) -> Vec<Vec<Vec<IntPoint<i32>>>> {
+    const NEAR: i32 = 3;
+    let mut grid: HashMap<(i32, i32), Vec<(usize, usize, IntPoint<i32>)>> = HashMap::new();
+    let mut id = 0;
+    for contour in shapes.iter().flatten() {
+        for (i, p) in contour.iter().enumerate() {
+            grid.entry((p.x.div_euclid(8), p.y.div_euclid(8)))
+                .or_default()
+                .push((id, i, *p));
+        }
+        id += 1;
+    }
+    let mut at: std::collections::HashSet<(i32, i32)> = Default::default();
+    for cell in grid.values() {
+        for &(ca, ia, pa) in cell {
+            for dx in -1..=1 {
+                for dy in -1..=1 {
+                    let key = (pa.x.div_euclid(8) + dx, pa.y.div_euclid(8) + dy);
+                    for &(cb, ib, pb) in grid.get(&key).into_iter().flatten() {
+                        if (cb, ib) == (ca, ia)
+                            || (pa.x - pb.x).abs() > NEAR
+                            || (pa.y - pb.y).abs() > NEAR
+                        {
+                            continue;
+                        }
+                        at.insert((pa.x, pa.y));
+                    }
+                }
+            }
+        }
+    }
+    let radius = (0.01 * UNITS_PER_MM) as i32;
+    let patches: Vec<Vec<IntPoint<i32>>> = at
+        .into_iter()
+        .map(|(x, y)| {
             vec![
                 IntPoint::new(x - radius, y - radius),
                 IntPoint::new(x + radius, y - radius),
@@ -313,6 +495,7 @@ pub(crate) fn build(shapes: &Shapes, detail: f64, p: &Params) -> Result<Output, 
     let main_boundaries: Vec<Vec<Pt>> = material[main].iter().map(|c| to_mm(c)).collect();
     let mut deleted = 0usize;
     let mut bridges = Vec::new();
+    let mut links: Vec<(Pt, Pt)> = Vec::new();
     let per_island = p.bridges_per_island.clamp(1, 5) as usize;
     let mut keep = vec![true; material.len()];
     for i in 0..material.len() {
@@ -334,6 +517,7 @@ pub(crate) fn build(shapes: &Shapes, detail: f64, p: &Params) -> Result<Output, 
             .min_by(|(a0, b0), (a1, b1)| distance_sq(*a0, *b0).total_cmp(&distance_sq(*a1, *b1)))
             .ok_or("frame has no boundary")?;
         bridges.push(to_int(&bridge_polygon(a, b, p.bridge_mm)));
+        links.push((a, b));
         let mut chosen = vec![a];
         let reach = 4.0 * distance_sq(a, b).sqrt().max(p.bridge_mm) + 4.0 * p.bridge_mm;
         let spacing = 3.0 * p.bridge_mm.max(1.0);
@@ -362,6 +546,7 @@ pub(crate) fn build(shapes: &Shapes, detail: f64, p: &Params) -> Result<Output, 
             if apart {
                 chosen.push(from);
                 bridges.push(to_int(&bridge_polygon(from, to, p.bridge_mm)));
+                links.push((from, to));
             }
         }
     }
@@ -370,27 +555,108 @@ pub(crate) fn build(shapes: &Shapes, detail: f64, p: &Params) -> Result<Output, 
         .zip(keep)
         .filter_map(|(shape, keep)| keep.then_some(shape))
         .collect();
-    if !bridges.is_empty() {
-        material =
-            material
-                .as_slice()
-                .overlay(bridges.as_slice(), OverlayRule::Union, FillRule::NonZero);
-    }
-    crate::progress::step("bridge islands", 0.5);
-    // A tiny union makes point-touching outlines share a manifold boundary.
-    material = repair_point_contacts(&material);
-    if material.len() != 1 {
-        return Err(format!(
-            "vector bridging left {} disconnected stencil components",
-            material.len()
-        ));
-    }
-
     let layer_height = p.layer_height_mm;
     let base_layers = ((p.thickness_mm / layer_height).round() as usize).max(1);
     let layers = base_layers + p.extra_top_layers as usize;
     let thickness = layers as f64 * layer_height;
-    let mesh = polygon_mesh(&material, p.width_mm, thickness, p.flip)?;
+    let raised = p.raised_bridges && base_layers > 1 && !links.is_empty();
+    let mut first_layer_islands = 0;
+    let mesh = if raised {
+        // The plate runs the full height with its islands; each bridge joins it from a higher layer, so the first
+        // layer keeps the artwork and the paint passes under the bridges.
+        material = repair_point_contacts(&material);
+        first_layer_islands = material.len().saturating_sub(1);
+        let mut steps: std::collections::BTreeMap<u32, Vec<Vec<IntPoint<i32>>>> =
+            Default::default();
+        for &(a, b) in &links {
+            for (k, poly) in bridge_steps(
+                a,
+                b,
+                p.bridge_mm,
+                base_layers,
+                p.z_bridging == ZBridging::Easy,
+            ) {
+                steps.entry(k).or_default().push(poly);
+            }
+        }
+        let mut planes = vec![0.0];
+        let mut runs = vec![material.clone()];
+        // Each run is built from the plate and the strips themselves, never from the previous run, so that every
+        // crossing is computed from the same two original segments in all of them.
+        let mut cumulative: Vec<Vec<IntPoint<i32>>> = Vec::new();
+        for (k, polys) in &steps {
+            cumulative.extend(polys.iter().cloned());
+            let merged = material.as_slice().overlay(
+                cumulative.as_slice(),
+                OverlayRule::Union,
+                FillRule::NonZero,
+            );
+            planes.push(*k as f64 * layer_height);
+            runs.push(repair_point_contacts(&merged));
+        }
+        planes.push(thickness);
+        for _ in 0..3 {
+            node_runs(&mut runs);
+            for r in runs.iter_mut() {
+                *r = repair_near_contacts(r);
+            }
+        }
+        node_runs(&mut runs);
+        crate::progress::step("bridge islands", 0.5);
+        let last = runs.last().expect("one run exists");
+        if last.len() != 1 {
+            return Err(format!(
+                "vector bridging left {} disconnected stencil components",
+                last.len()
+            ));
+        }
+        let mut stack = crate::complexity::build(&planes, &runs);
+        if p.flip {
+            for v in &mut stack.v {
+                v[0] = p.width_mm - v[0];
+                v[2] = thickness - v[2];
+            }
+        }
+        if !stack.is_watertight() {
+            return Err("vector mesh with raised bridges failed watertight verification".into());
+        }
+        let stl = stack.to_stl();
+        let stats = Stats {
+            width_mm: p.width_mm,
+            height_mm: height,
+            thickness_mm: thickness,
+            layers,
+            islands_found,
+            islands_deleted: deleted,
+            bridge_pixels: bridges.len(),
+            islands_remaining: 0,
+            first_layer_islands,
+            watertight: true,
+            triangles: stack.t.len(),
+            stl_bytes: stl.len(),
+            ..Stats::default()
+        };
+        crate::progress::step("extrude mesh", 0.9);
+        return Ok(Output { stl, stats });
+    } else {
+        if !bridges.is_empty() {
+            material = material.as_slice().overlay(
+                bridges.as_slice(),
+                OverlayRule::Union,
+                FillRule::NonZero,
+            );
+        }
+        crate::progress::step("bridge islands", 0.5);
+        // A tiny union makes point-touching outlines share a manifold boundary.
+        material = repair_point_contacts(&material);
+        if material.len() != 1 {
+            return Err(format!(
+                "vector bridging left {} disconnected stencil components",
+                material.len()
+            ));
+        }
+        polygon_mesh(&material, p.width_mm, thickness, p.flip)?
+    };
     crate::progress::step("extrude mesh", 0.9);
     let stl = mesh.to_stl();
     let stats = Stats {
@@ -402,7 +668,7 @@ pub(crate) fn build(shapes: &Shapes, detail: f64, p: &Params) -> Result<Output, 
         islands_deleted: deleted,
         bridge_pixels: bridges.len(),
         islands_remaining: material.len().saturating_sub(1),
-        first_layer_islands: 0,
+        first_layer_islands,
         watertight: true,
         triangles: mesh.tris.len(),
         stl_bytes: stl.len(),
@@ -490,7 +756,10 @@ mod tests {
                         assert!(o.stats.watertight, "seed {seed} raised {raised}");
                         built += 1;
                     }
-                    Err(e) => assert!(shapes.loops.is_empty() || !e.is_empty(), "seed {seed}: {e}"),
+                    Err(e) => assert!(
+                        shapes.loops.is_empty(),
+                        "seed {seed} raised {raised} {z:?}: {e}"
+                    ),
                 }
             }
         }

@@ -406,18 +406,7 @@ fn run_vector_stencil(_: &Engine, i: &HashMap<String, Value>, p: &P) -> Result<O
         return Err("input 'shapes' missing".into());
     };
     let q = stencil_params_from(p);
-    if !q.raised_bridges {
-        return finish_solid(crate::vector_stencil::build(s, p.f("detail"), &q)?, p);
-    }
-    let gw = (q.width_mm * p.f("detail")).round() as usize;
-    let gh = ((gw as f64 * s.h as f64 / s.w as f64).round() as usize).max(1);
-    if gw * gh > 60_000_000 {
-        return Err(
-            "mesh detail too high for this plate size: lower the detail or the width".into(),
-        );
-    }
-    let paint = crate::trace::rasterise(s, gw.max(1), gh);
-    finish_solid(stencil_from_paint(&paint, gw.max(1), gh, 0, &q)?, p)
+    finish_solid(crate::vector_stencil::build(s, p.f("detail"), &q)?, p)
 }
 
 fn input_image<'a>(i: &'a HashMap<String, Value>) -> Result<&'a Rc<RgbImage>, String> {

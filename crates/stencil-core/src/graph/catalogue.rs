@@ -252,7 +252,7 @@ pub(super) fn catalogue() -> Vec<NodeDef> {
             inputs: vec![("shapes", "shapes", true)],
             outputs: vec![("solid", "solid")],
             params: stencil_params(true),
-            doc: "Builds the plate directly from vector outlines with polygon booleans, bridges enclosed material islands, and extrudes the result. Mesh detail controls curve flattening accuracy. Raised bridges use the layered raster bridge engine to preserve their stepped Z profile.",
+            doc: "Builds the plate directly from vector outlines with polygon booleans, bridges enclosed material islands, and extrudes the result. Mesh detail controls curve flattening accuracy. Raised bridges are built from vectors too, as stepped strips, so curves stay smooth.",
             run: run_vector_stencil,
         },
         NodeDef {
@@ -430,7 +430,7 @@ pub(super) fn stencil_params(vector: bool) -> Vec<Json> {
                 "Mesh detail (samples per mm)",
                 3.0,
                 0.5,
-                10.0,
+                20.0,
                 0.5,
                 Some("Plate"),
                 false,

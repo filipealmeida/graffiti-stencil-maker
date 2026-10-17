@@ -19,7 +19,7 @@ const NOISE_UNITS2: f64 = 1e6; // 0.01 mm²: overlap slivers below this are roun
 
 type Contour = Vec<IntPoint>;
 type Shape = Vec<Contour>;
-type Region = Vec<Shape>;
+pub(crate) type Region = Vec<Shape>;
 
 pub struct Params {
     pub layer_height: f64,
@@ -674,7 +674,7 @@ impl Builder {
 
 /// Stacks the runs into a watertight solid. Between two runs the horizontal faces are exactly the part
 /// of one run that the other does not cover; every vertex of either run splits the edges it lies on.
-fn build(planes: &[f64], runs: &[Region]) -> Mesh {
+pub(crate) fn build(planes: &[f64], runs: &[Region]) -> Mesh {
     let none: Region = vec![];
     let mut b = Builder {
         mesh: Mesh::default(),
