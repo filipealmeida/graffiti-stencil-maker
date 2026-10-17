@@ -51,6 +51,9 @@ struct Args {
     /// Bridges from every island to the plate (1-5)
     #[arg(long)]
     bridges_per_island: Option<f64>,
+    /// Widen any strip of material thinner than this (mm); 0 is off
+    #[arg(long)]
+    min_contact: Option<f64>,
     #[arg(long)]
     layer_height: Option<f64>,
     /// Bridges rise layer by layer so the first layer keeps every island
@@ -283,6 +286,7 @@ fn pipeline(a: &Args, image: &str) -> Json {
         ("layer_height_mm", a.layer_height),
         ("extra_top_layers", a.extra_top_layers),
         ("min_island_mm2", a.min_island),
+        ("min_contact_mm", a.min_contact),
         ("max_overhang_deg", a.max_overhang),
     ] {
         set(&mut st, k, v);

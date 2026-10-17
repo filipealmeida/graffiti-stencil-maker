@@ -421,6 +421,16 @@ pub(super) fn stencil_params(vector: bool) -> Vec<Json> {
             Some("Bridges"),
             false,
         ),
+        num(
+            "min_contact_mm",
+            "Minimum surface contact (mm)",
+            0.0,
+            0.0,
+            3.0,
+            0.1,
+            Some("Bridges"),
+            false,
+        ),
     ];
     if vector {
         v.insert(

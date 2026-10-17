@@ -55,6 +55,10 @@ The graph is arranged into three stages:
 2. **Stencil:** Stencil accepts a raster mask; Vector stencil accepts traced outlines and builds polygon geometry
    directly. Both support bridge width, bridges per island (1–5) and island handling. Raised bridges use stepped Z geometry to retain the
    original artwork on the first layer (Vector stencil builds them from vectors, so curves stay smooth; mesh detail goes up to 20).
+   **Minimum surface contact** (mm, default 0 = off; CLI `--min-contact`): a strip of material narrower than this that
+   joins two different parts of the stencil (a thin "rope" the printer could not lay down on the build plate) is
+   widened to the value, over the full height. Dead-end tips are left alone, and the widening grows into the paint
+   side only, so the paint area shrinks slightly there.
    **Complexity reducer** (solid in, solid out) goes right after a stencil node, before post-processing. It re-slices the
    STL into layers (layer 1 is on the plate; the layer height and the layer count come from the input stencil, and the
    interval `layer_from`–`layer_to` defaults to the real maximum, stored as `0`), then smooths and simplifies the outlines

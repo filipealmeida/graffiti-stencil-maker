@@ -100,7 +100,7 @@ fn drop_noise(r: Region) -> Region {
         .collect()
 }
 
-fn grow(r: &Region, d: f64) -> Region {
+pub(crate) fn grow(r: &Region, d: f64) -> Region {
     if r.is_empty() || d < 0.5 {
         return r.clone();
     }
@@ -715,7 +715,7 @@ pub(crate) fn build(planes: &[f64], runs: &[Region]) -> Mesh {
                         let (u, v) = (t[k], t[(k + 1) % 3]);
                         perimeter.push(pt(u));
                         if uses[&(u.min(v), u.max(v))] == 1 {
-                            perimeter.extend(pv.on_edge(pt(u), pt(v), true));
+                            perimeter.extend(pv.on_edge(pt(u), pt(v), false));
                         }
                     }
                     for mut tr in clip_ears(perimeter) {
@@ -835,7 +835,50 @@ pub(crate) fn build(planes: &[f64], runs: &[Region]) -> Mesh {
         }
         b.mesh.t.extend(tris);
     }
+    cancel_folds(&mut b.mesh);
     b.mesh
+}
+
+/// Zero-thickness slivers that a floor and a ceiling both produced come as a pair of identical triangles facing
+/// opposite ways; together they enclose nothing, so both go and the walls beside them meet directly.
+fn cancel_folds(mesh: &mut Mesh) {
+    let key = |t: &[usize; 3]| {
+        let mut k = *t;
+        k.sort_unstable();
+        k
+    };
+    let mut seen: HashMap<[usize; 3], Vec<usize>> = HashMap::new();
+    for (i, t) in mesh.t.iter().enumerate() {
+        seen.entry(key(t)).or_default().push(i);
+    }
+    let mut drop = vec![false; mesh.t.len()];
+    for ids in seen.values().filter(|v| v.len() >= 2) {
+        let flip = |t: &[usize; 3]| {
+            let m = t
+                .iter()
+                .position(|&x| x == t.iter().copied().min().unwrap())
+                .unwrap();
+            [t[m], t[(m + 1) % 3], t[(m + 2) % 3]]
+        };
+        let (mut fwd, mut back): (Vec<usize>, Vec<usize>) = (vec![], vec![]);
+        let reference = flip(&mesh.t[ids[0]]);
+        for &i in ids {
+            if flip(&mesh.t[i]) == reference {
+                fwd.push(i);
+            } else {
+                back.push(i);
+            }
+        }
+        for (&a, &b) in fwd.iter().zip(back.iter()) {
+            drop[a] = true;
+            drop[b] = true;
+        }
+    }
+    let mut i = 0;
+    mesh.t.retain(|_| {
+        i += 1;
+        !drop[i - 1]
+    });
 }
 
 pub fn reduce(stl: &[u8], p: &Params) -> Result<(Vec<u8>, Report), String> {

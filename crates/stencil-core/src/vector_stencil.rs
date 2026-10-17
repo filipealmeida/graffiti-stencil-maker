@@ -1,4 +1,5 @@
 use super::{validate, Mesh, Output, Params, Stats, ZBridging};
+use crate::complexity::grow;
 use crate::trace::{Pt, Shapes};
 use i_triangle::i_overlay::core::fill_rule::FillRule;
 use i_triangle::i_overlay::core::overlay_rule::OverlayRule;
@@ -268,7 +269,7 @@ fn node_runs(runs: &mut [Vec<Vec<Vec<IntPoint<i32>>>>]) {
                     if t <= 0.0 || t >= 1.0 {
                         continue;
                     }
-                    if (rx * dy - ry * dx).abs() / l2.sqrt() <= 1.5 {
+                    if (rx * dy - ry * dx).abs() / l2.sqrt() <= 2.0 {
                         found.push((t, r));
                     }
                 }
@@ -282,7 +283,10 @@ fn node_runs(runs: &mut [Vec<Vec<Vec<IntPoint<i32>>>>]) {
 
 /// Like `repair_point_contacts`, but also for vertices a few units from another vertex of the outlines: rounding
 /// turns such near-touches and tiny jogs into pinch points that no manifold mesh can have.
-fn repair_near_contacts(shapes: &[Vec<Vec<IntPoint<i32>>>]) -> Vec<Vec<Vec<IntPoint<i32>>>> {
+fn repair_near_contacts(
+    shapes: &[Vec<Vec<IntPoint<i32>>>],
+    radius: i32,
+) -> Vec<Vec<Vec<IntPoint<i32>>>> {
     const NEAR: i32 = 3;
     let mut grid: HashMap<(i32, i32), Vec<(usize, usize, IntPoint<i32>)>> = HashMap::new();
     let mut id = 0;
@@ -313,7 +317,6 @@ fn repair_near_contacts(shapes: &[Vec<Vec<IntPoint<i32>>>]) -> Vec<Vec<Vec<IntPo
             }
         }
     }
-    let radius = (0.01 * UNITS_PER_MM) as i32;
     let patches: Vec<Vec<IntPoint<i32>>> = at
         .into_iter()
         .map(|(x, y)| {
@@ -330,6 +333,86 @@ fn repair_near_contacts(shapes: &[Vec<Vec<IntPoint<i32>>>]) -> Vec<Vec<Vec<IntPo
     } else {
         shapes.overlay(patches.as_slice(), OverlayRule::Union, FillRule::NonZero)
     }
+}
+
+/// Widens every stretch of material narrower than `min_mm` that is big enough to matter (a rope between two
+/// parts, a thin tip) to that width. Thin parts are what an opening by half the width removes; they grow into
+/// the paint side only, never past the plate.
+fn widen_thin(
+    material: &[Vec<Vec<IntPoint<i32>>>],
+    plate: &[IntPoint<i32>],
+    min_mm: f64,
+) -> Vec<Vec<Vec<IntPoint<i32>>>> {
+    let r = min_mm * 0.5 * UNITS_PER_MM;
+    let plate_region = vec![vec![plate.to_vec()]];
+    let plate_region = &plate_region[0];
+    let paint =
+        plate_region
+            .as_slice()
+            .overlay(material, OverlayRule::Difference, FillRule::EvenOdd);
+    let eroded = plate_region.as_slice().overlay(
+        grow(&paint, r).as_slice(),
+        OverlayRule::Difference,
+        FillRule::EvenOdd,
+    );
+    let opening = grow(&eroded, r);
+    let min_area = 0.5 * min_mm * min_mm;
+    let boxes: Vec<[i32; 4]> = opening.iter().map(|s| bounds(s)).collect();
+    // A rope joins two different thick parts; slivers along one part's outline and thin tips touch only one.
+    let thin: Vec<_> = material
+        .overlay(
+            opening.as_slice(),
+            OverlayRule::Difference,
+            FillRule::EvenOdd,
+        )
+        .into_iter()
+        .filter(|s| shape_area(s) >= min_area)
+        .filter(|s| {
+            let reach = grow(&vec![s.clone()], 50.0);
+            let Some(first) = reach.first() else {
+                return false;
+            };
+            let b = bounds(first);
+            let touching = (0..opening.len())
+                .filter(|&j| {
+                    let o = boxes[j];
+                    o[0] <= b[2] && b[0] <= o[2] && o[1] <= b[3] && b[1] <= o[3]
+                })
+                .filter(|&j| {
+                    !reach
+                        .as_slice()
+                        .overlay(
+                            opening[j].as_slice(),
+                            OverlayRule::Intersect,
+                            FillRule::NonZero,
+                        )
+                        .is_empty()
+                })
+                .count();
+            touching >= 2
+        })
+        .collect();
+    if thin.is_empty() {
+        return material.to_vec();
+    }
+    let widened = material.overlay(
+        grow(&thin, r).as_slice(),
+        OverlayRule::Union,
+        FillRule::NonZero,
+    );
+    widened.as_slice().overlay(
+        plate_region.as_slice(),
+        OverlayRule::Intersect,
+        FillRule::NonZero,
+    )
+}
+
+fn bounds(shape: &[Vec<IntPoint<i32>>]) -> [i32; 4] {
+    let mut b = [i32::MAX, i32::MAX, i32::MIN, i32::MIN];
+    for p in shape.iter().flatten() {
+        b = [b[0].min(p.x), b[1].min(p.y), b[2].max(p.x), b[3].max(p.y)];
+    }
+    b
 }
 
 fn polygon_mesh(
@@ -484,6 +567,10 @@ pub(crate) fn build(shapes: &Shapes, detail: f64, p: &Params) -> Result<Output, 
         return Err("vector boolean produced an empty stencil".into());
     }
 
+    if p.min_contact_mm > 0.0 {
+        material = widen_thin(&material, &plate, p.min_contact_mm);
+    }
+
     let islands_found = material.len().saturating_sub(1);
     let main = (0..material.len())
         .find(|&i| outer_contour(&material[i]).is_some_and(|c| contains(&to_mm(c), [1e-6, 1e-6])))
@@ -595,13 +682,19 @@ pub(crate) fn build(shapes: &Shapes, detail: f64, p: &Params) -> Result<Output, 
             runs.push(repair_point_contacts(&merged));
         }
         planes.push(thickness);
-        for _ in 0..3 {
+        // Noding can put one run's vertex on another's edge, which is a pinch; patch and node again until stable.
+        let mut radius = (0.01 * UNITS_PER_MM) as i32;
+        for _ in 0..12 {
             node_runs(&mut runs);
+            let before = runs.clone();
             for r in runs.iter_mut() {
-                *r = repair_near_contacts(r);
+                *r = repair_near_contacts(r, radius);
             }
+            if runs == before {
+                break;
+            }
+            radius += radius / 2;
         }
-        node_runs(&mut runs);
         crate::progress::step("bridge islands", 0.5);
         let last = runs.last().expect("one run exists");
         if last.len() != 1 {
@@ -792,6 +885,42 @@ mod tests {
             build(&shapes, 2.0, &p).unwrap().stats.bridge_pixels
         };
         assert_eq!((count(1), count(3), count(5)), (1, 3, 5));
+    }
+
+    #[test]
+    fn thin_rope_is_widened_by_minimum_contact() {
+        let (w, h) = (200usize, 100usize);
+        let mask: Vec<bool> = (0..w * h)
+            .map(|i| {
+                let (x, y) = (i % w, i / w);
+                let blob =
+                    ((20..60).contains(&x) || (140..180).contains(&x)) && (30..70).contains(&y);
+                !(blob || ((60..140).contains(&x) && (49..51).contains(&y)))
+            })
+            .collect();
+        let tp = TraceParams {
+            smooth_px: 0.0,
+            corner_deg: 60.0,
+            tolerance_px: 0.3,
+            min_area_px: 4.0,
+        };
+        let shapes = trace(&mask, w, h, &tp);
+        let run = |min_contact_mm: f64, raised: bool| {
+            let p = Params {
+                width_mm: 100.0,
+                margin_mm: 4.0,
+                min_contact_mm,
+                raised_bridges: raised,
+                ..Params::default()
+            };
+            build(&shapes, 4.0, &p).unwrap()
+        };
+        for raised in [false, true] {
+            let (off, on) = (run(0.0, raised), run(3.0, raised));
+            assert!(on.stats.watertight && on.stats.islands_remaining == 0);
+            let (v0, v1) = (crate::stl_volume(&off.stl), crate::stl_volume(&on.stl));
+            assert!(v1 - v0 > 100.0, "raised {raised}: grew by only {}", v1 - v0);
+        }
     }
 
     #[test]

@@ -61,6 +61,7 @@ pub fn make(
         extra_top_layers,
         flip,
         min_island_mm2,
+        min_contact_mm: 0.0,
         max_overhang_deg,
     };
     let out = make_stencil(bytes, &p).map_err(|e| JsError::new(&e))?;

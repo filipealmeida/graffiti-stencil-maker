@@ -22,6 +22,7 @@ mod shape_edit;
 pub mod smooth;
 pub mod svg;
 pub mod text;
+mod thin;
 mod tile_bridge;
 pub mod tiles;
 pub mod trace;
@@ -51,6 +52,8 @@ pub struct Params {
     pub flip: bool,
     /// Islands smaller than this area are deleted instead of bridged.
     pub min_island_mm2: f64,
+    /// Stretches of material thinner than this (a rope between two parts) are widened to it; 0 is off.
+    pub min_contact_mm: f64,
     /// Angle (from vertical) used for the overhang statistic; 0 means 45.
     pub max_overhang_deg: f64,
 }
@@ -81,6 +84,7 @@ impl Default for Params {
             extra_top_layers: 1,
             flip: false,
             min_island_mm2: 0.0,
+            min_contact_mm: 0.0,
             max_overhang_deg: 0.0,
         }
     }
@@ -181,6 +185,10 @@ pub fn stencil_from_paint(
 
     progress::step("prepare grid", 0.05);
     fix_diagonals(&mut grid);
+    if p.min_contact_mm > 0.0 {
+        thin::widen_thin(&mut grid, s, p.min_contact_mm);
+        fix_diagonals(&mut grid);
+    }
     let (islands, label) = label_islands(&grid);
     progress::step("find islands", 0.15);
     stats.islands_found = islands;
@@ -266,6 +274,9 @@ pub(crate) fn validate(p: &Params) -> Result<(), String> {
             p.layer_height_mm
         ));
     }
+    if !p.min_contact_mm.is_finite() || p.min_contact_mm < 0.0 {
+        return Err("minimum surface contact must be 0 or more".into());
+    }
     if p.margin_mm < 0.0 || p.width_mm <= 2.0 * p.margin_mm {
         return Err(format!(
             "margin too large for the stencil width: width {} mm, margin {} mm (needs width > 2 x margin)",
@@ -276,6 +287,22 @@ pub(crate) fn validate(p: &Params) -> Result<(), String> {
         return Err("resolution must be 16-20000 px".into());
     }
     Ok(())
+}
+
+/// Volume of a binary STL in mm³.
+#[cfg(test)]
+pub(crate) fn stl_volume(stl: &[u8]) -> f64 {
+    let f = |o: usize| f32::from_le_bytes(stl[o..o + 4].try_into().unwrap()) as f64;
+    (0..u32::from_le_bytes(stl[80..84].try_into().unwrap()) as usize)
+        .map(|i| {
+            let b = 84 + i * 50 + 12;
+            let v = |k: usize| [f(b + k * 12), f(b + k * 12 + 4), f(b + k * 12 + 8)];
+            let (a, c, d) = (v(0), v(1), v(2));
+            (a[0] * (c[1] * d[2] - c[2] * d[1]) - a[1] * (c[0] * d[2] - c[2] * d[0])
+                + a[2] * (c[0] * d[1] - c[1] * d[0]))
+                / 6.0
+        })
+        .sum()
 }
 
 #[cfg(test)]
@@ -311,6 +338,64 @@ mod tests {
         assert!(o.stats.islands_found >= 1);
         assert_eq!(o.stats.islands_remaining, 0);
         assert!(o.stats.watertight);
+    }
+
+    /// Paint everywhere except two blobs of plate joined by a thin rope.
+    fn rope_mask() -> Vec<bool> {
+        let (w, h) = (200usize, 100usize);
+        (0..w * h)
+            .map(|i| {
+                let (x, y) = (i % w, i / w);
+                let blob = (20..60).contains(&x) || (140..180).contains(&x);
+                let blob = blob && (30..70).contains(&y);
+                let rope = (60..140).contains(&x) && (49..51).contains(&y);
+                !(blob || rope)
+            })
+            .collect()
+    }
+
+    #[test]
+    fn thin_rope_is_widened_by_minimum_contact() {
+        let mask = rope_mask();
+        let run = |min_contact_mm: f64| {
+            let p = Params {
+                width_mm: 100.0,
+                margin_mm: 4.0,
+                min_contact_mm,
+                ..Params::default()
+            };
+            stencil_from_paint(&mask, 200, 100, 0, &p).unwrap()
+        };
+        let (off, on) = (run(0.0), run(3.0));
+        assert!(on.stats.watertight && on.stats.islands_remaining == 0);
+        let (v0, v1) = (stl_volume(&off.stl), stl_volume(&on.stl));
+        // a 1 mm rope over 40 mm grows to about 3 mm wide: roughly 80 mm² of plate, 2 mm thick
+        assert!(v1 - v0 > 100.0, "volume grew by only {}", v1 - v0);
+        let tiny = run(0.2);
+        assert!((stl_volume(&tiny.stl) - v0).abs() < 1.0);
+    }
+
+    #[test]
+    fn dead_end_tips_are_left_alone() {
+        let (w, h) = (200usize, 100usize);
+        let mask: Vec<bool> = (0..w * h)
+            .map(|i| {
+                let (x, y) = (i % w, i / w);
+                let blob = (20..60).contains(&x) && (30..70).contains(&y);
+                let finger = (60..140).contains(&x) && (49..51).contains(&y);
+                !(blob || finger)
+            })
+            .collect();
+        let run = |min_contact_mm: f64| {
+            let p = Params {
+                width_mm: 100.0,
+                margin_mm: 4.0,
+                min_contact_mm,
+                ..Params::default()
+            };
+            stl_volume(&stencil_from_paint(&mask, w, h, 0, &p).unwrap().stl)
+        };
+        assert!((run(3.0) - run(0.0)).abs() < 1.0);
     }
 
     #[test]

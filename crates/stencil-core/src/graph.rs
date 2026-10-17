@@ -303,6 +303,7 @@ fn stencil_params_from(p: &P) -> Params {
         extra_top_layers: p.f("extra_top_layers") as u32,
         max_overhang_deg: p.f("max_overhang_deg"),
         min_island_mm2: p.f("min_island_mm2"),
+        min_contact_mm: p.f("min_contact_mm"),
         ..Params::default()
     }
 }
