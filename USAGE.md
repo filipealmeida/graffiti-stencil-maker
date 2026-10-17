@@ -49,6 +49,15 @@ The graph is arranged into three stages:
 2. **Stencil:** Stencil accepts a raster mask; Vector stencil accepts traced outlines and builds polygon geometry
    directly. Both support bridge width, bridges per island (1–5) and island handling. Raised bridges use stepped Z geometry to retain the
    original artwork on the first layer.
+   **Complexity reducer** (solid in, solid out) goes right after a stencil node, before post-processing. It re-slices the
+   STL into layers (layer 1 is on the plate), simplifies the outlines of the chosen layers (`layer_from`–`layer_to`, `0` = top;
+   layer height comes from the input solid unless `layer_height_mm` is set) and rebuilds a watertight mesh. `tolerance_mm`
+   is the maximum outline deviation; with `keep_material` the outline is moved towards material, never inside it.
+   `max_overhang_deg` (90 = no limit) keeps each layer's growth over the one below within that angle, using the looser of
+   that rule and the original geometry. Layers outside the interval are unchanged. Stats report vertices, triangles
+   and the max deviation before/after. If reducing cannot keep the mesh watertight, keep the piece count, or save any
+   vertices (common with raised bridges or a narrow interval, where outlines must meet at the interval planes), the input
+   solid passes through unchanged and the stats show `skipped` with the reason. Only vertical-walled plates are supported.
 3. **Post-process:** Tiles & mounting splits plates, adds optional hardware features, and exports parts as a ZIP.
    Pieces that a seam cuts off from the rest of their tile are bridged again per tile (same bridge width, count and
    raised-bridge settings as the stencil); `bridged_tiles` in the tiling info counts them. If a tile still has loose
