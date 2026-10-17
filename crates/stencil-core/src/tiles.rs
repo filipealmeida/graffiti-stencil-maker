@@ -9,8 +9,15 @@ pub const ROW_GAP_MM: f64 = 1.5;
 pub const MAX_ROWS: usize = 4;
 pub const SPACING_TARGET_MM: f64 = 30.0;
 pub const POCKET_DEPTH_MM: f64 = 10.0;
-pub const ROD_LENGTH_MM: f64 = 2.0 * POCKET_DEPTH_MM - 1.0;
-pub const MIN_TILE_MM: f64 = POCKET_DEPTH_MM / 0.4;
+
+/// A rod sits this much short of the full pocket depth, so the glue has room.
+pub fn rod_length(depth: f64) -> f64 {
+    2.0 * depth - 1.0
+}
+/// Tiles narrower than this cannot hold pockets of the given depth.
+pub fn min_tile(depth: f64) -> f64 {
+    depth / 0.4
+}
 
 #[derive(Clone, Copy, PartialEq)]
 pub enum Shape {
@@ -23,6 +30,8 @@ pub struct TileParams {
     pub max_y: f64,
     pub shape: Shape,
     pub diameter: f64,
+    /// How deep a connector sinks into each of the two tiles (mm).
+    pub depth: f64,
     pub clearance: f64,
     pub segments: usize,
     /// Plate thickness without raised pads; 0 uses the mesh height.
@@ -81,9 +90,10 @@ fn rod(shape: Shape, r: f64, len: f64, segments: usize, axis: usize) -> Mesh {
     Mesh::prism_z(n, r, -len / 2.0, len / 2.0).along(axis)
 }
 
-pub fn connector_rod(shape: Shape, d: f64, segments: usize) -> Mesh {
-    let mut m = rod(shape, d / 2.0, ROD_LENGTH_MM, segments, 2);
-    m.translate([0.0, 0.0, ROD_LENGTH_MM / 2.0]);
+pub fn connector_rod(shape: Shape, d: f64, depth: f64, segments: usize) -> Mesh {
+    let len = rod_length(depth);
+    let mut m = rod(shape, d / 2.0, len, segments, 2);
+    m.translate([0.0, 0.0, len / 2.0]);
     m
 }
 
@@ -132,9 +142,10 @@ pub fn tile(solid: &Mesh, p: &TileParams) -> Result<Tiled, String> {
     }
     check(p, t)?;
     for c in [&xs, &ys] {
-        if c.len() > 2 && c.windows(2).any(|v| v[1] - v[0] < MIN_TILE_MM - 1e-6) {
+        if c.len() > 2 && c.windows(2).any(|v| v[1] - v[0] < min_tile(p.depth) - 1e-6) {
             return Err(format!(
-                "tiles must be at least {MIN_TILE_MM} mm wide to hold connector holes"
+                "tiles must be at least {} mm wide to hold connector holes",
+                min_tile(p.depth)
             ));
         }
     }
@@ -161,13 +172,13 @@ pub fn tile(solid: &Mesh, p: &TileParams) -> Result<Tiled, String> {
         // work on the strip around the seam only: cheaper booleans
         let (cl, ch): (P3, P3) = if axis == 0 {
             (
-                [s - POCKET_DEPTH_MM - 1.0, a - 1.0, -1.0],
-                [s + POCKET_DEPTH_MM + 1.0, b + 1.0, top + 1.0],
+                [s - p.depth - 1.0, a - 1.0, -1.0],
+                [s + p.depth + 1.0, b + 1.0, top + 1.0],
             )
         } else {
             (
-                [a - 1.0, s - POCKET_DEPTH_MM - 1.0, -1.0],
-                [b + 1.0, s + POCKET_DEPTH_MM + 1.0, top + 1.0],
+                [a - 1.0, s - p.depth - 1.0, -1.0],
+                [b + 1.0, s + p.depth + 1.0, top + 1.0],
             )
         };
         let strip = solid.intersect(&Mesh::cuboid(cl, ch))?;
@@ -193,7 +204,7 @@ pub fn tile(solid: &Mesh, p: &TileParams) -> Result<Tiled, String> {
                             m.translate(if axis == 0 { [s, u, z] } else { [u, s, z] });
                             m
                         };
-                        let guard = at(r_hole + wall, 2.0 * POCKET_DEPTH_MM);
+                        let guard = at(r_hole + wall, 2.0 * p.depth);
                         let (gl, gh) = guard.bounds();
                         let near = Hole {
                             lo: [
@@ -214,7 +225,7 @@ pub fn tile(solid: &Mesh, p: &TileParams) -> Result<Tiled, String> {
                         if !strip.box_inside(gl, gh) {
                             continue;
                         }
-                        cutters.append(&at(r_hole, 2.0 * POCKET_DEPTH_MM));
+                        cutters.append(&at(r_hole, 2.0 * p.depth));
                         holes.push(body);
                         thin += (wall < WALL_MM) as usize;
                         placed_here += 1;
@@ -312,11 +323,11 @@ pub fn tile(solid: &Mesh, p: &TileParams) -> Result<Tiled, String> {
     let info = serde_json::json!({
         "tiles": tiles.len(), "grid": [nx, ny], "connectors": holes.len(), "rows": zs.len(),
         "bridged_tiles": bridged.load(std::sync::atomic::Ordering::Relaxed), "thin_wall_holes": thin, "positions_without_room": missed,
-        "hole_depth_mm": POCKET_DEPTH_MM, "rod_length_mm": ROD_LENGTH_MM,
+        "hole_depth_mm": p.depth, "rod_length_mm": rod_length(p.depth),
     });
     Ok(Tiled {
         tiles,
-        rod: Some(connector_rod(p.shape, p.diameter, p.segments)),
+        rod: Some(connector_rod(p.shape, p.diameter, p.depth, p.segments)),
         info,
     })
 }
@@ -336,6 +347,7 @@ mod tests {
             max_y: 0.0,
             shape: Shape::Hex,
             diameter: 3.0,
+            depth: POCKET_DEPTH_MM,
             clearance: 0.2,
             segments: 32,
             thickness: 0.0,
@@ -348,6 +360,33 @@ mod tests {
         assert!(whole < plate.volume() && whole > plate.volume() - 20.0 * 6.0 * 3.0 * 0.5 * 4.0);
         assert!(t.info["connectors"].as_u64().unwrap() >= 2);
         assert!(t.rod.unwrap().is_watertight());
+    }
+
+    #[test]
+    fn the_connector_depth_sets_the_pockets_and_the_rod() {
+        let plate = Mesh::cuboid([0.0, 0.0, 0.0], [100.0, 60.0, 6.0]);
+        let mk = |depth| TileParams {
+            max_x: 60.0,
+            max_y: 0.0,
+            shape: Shape::Hex,
+            diameter: 3.0,
+            depth,
+            clearance: 0.2,
+            segments: 32,
+            thickness: 0.0,
+            bridge: None,
+        };
+        let (a, b) = (
+            tile(&plate, &mk(6.0)).unwrap(),
+            tile(&plate, &mk(10.0)).unwrap(),
+        );
+        assert_eq!(a.info["hole_depth_mm"], 6.0);
+        assert_eq!(a.info["rod_length_mm"], 11.0);
+        let (la, ha) = a.rod.as_ref().unwrap().bounds();
+        assert!((ha[2] - la[2] - 11.0).abs() < 1e-6);
+        let v = |t: &Tiled| t.tiles.iter().map(|x| x.mesh.volume()).sum::<f64>();
+        assert!(v(&a) > v(&b));
+        assert!(a.tiles.iter().all(|x| x.mesh.is_watertight()));
     }
 
     fn split_plate() -> Mesh {
@@ -370,6 +409,7 @@ mod tests {
             max_y: 0.0,
             shape: Shape::Hex,
             diameter: 3.0,
+            depth: POCKET_DEPTH_MM,
             clearance: 0.2,
             segments: 32,
             thickness: 6.0,
@@ -412,6 +452,7 @@ mod tests {
             max_y: 0.0,
             shape: Shape::Round,
             diameter: 3.0,
+            depth: POCKET_DEPTH_MM,
             clearance: 0.2,
             segments: 32,
             thickness: 0.0,

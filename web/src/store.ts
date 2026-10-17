@@ -58,6 +58,12 @@ export function freeSpot(nodes: StudioNode[], lane: { x: number; w: number }, wa
   return want
 }
 let counter = 0
+const USAGE_KEY = 'stencil-usage'
+/** How often each node type was added on this browser, kept to sort the "+ All" menu by popularity. */
+function loadUsage(): Record<string, number> {
+  try { return JSON.parse(localStorage.getItem(USAGE_KEY) ?? '{}') } catch { return {} }
+}
+
 let clip: { nodes: StudioNode[]; edges: Edge[] } | null = null
 let pasteCount = 0
 const uid = (t: string) => `${t}-${Date.now().toString(36)}${(counter++).toString(36)}`
@@ -83,6 +89,9 @@ interface State {
   onEdgesChange: (c: EdgeChange[]) => void
   connect: (c: Connection) => void
   select: (id: string | null) => void
+  usage: Record<string, number>
+  perfOpen: boolean
+  setPerf: (o: boolean) => void
   addNode: (type: string, params?: Record<string, unknown>, pos?: { x: number; y: number }, title?: string) => string
   setParam: (id: string, name: string, value: unknown) => void
   removeNode: (id: string) => void
@@ -107,10 +116,11 @@ export const useStudio = create<State>((set, get) => ({
   lanes: loadLanes(),
   setLanes: (lanes) => { localStorage.setItem(LANES_KEY, JSON.stringify(lanes)); set({ lanes }) },
   types: {}, nodes: [], edges: [], runs: {}, selected: null, busy: false, error: null,
-  logs: [], consoleOpen: true, bench: null, progress: { done: 0, total: 0 },
+  logs: [], usage: loadUsage(), perfOpen: localStorage.getItem('stencil-perf') === '1', consoleOpen: true, bench: null, progress: { done: 0, total: 0 },
   addLogs: (l) => set((s) => ({ logs: [...s.logs, ...l.map((x, i) => ({ ...x, id: s.logs.length + i + Math.random() }))].slice(-500) })),
   clearLogs: () => set({ logs: [] }),
   setConsole: (consoleOpen) => set({ consoleOpen }),
+  setPerf: (perfOpen) => { localStorage.setItem('stencil-perf', perfOpen ? '1' : '0'); set({ perfOpen }) },
   openBench: (bench) => set({ bench, selected: bench ?? get().selected }),
   setTypes: (t) => set({ types: Object.fromEntries(t.map((x) => [x.id, x])) }),
   onNodesChange: (c) => set((s) => ({ nodes: applyNodeChanges(c, s.nodes) })),
@@ -128,7 +138,9 @@ export const useStudio = create<State>((set, get) => ({
     const position = freeSpot(get().nodes, lane, pos ?? { x: lane.x + 30, y: 40 })
     const defaults = Object.fromEntries(t.params.map((p) => [p.name, p.default]))
     const node: StudioNode = { id, type: 'studio', position, data: { type, params: { ...defaults, ...params }, title } }
-    set((s) => ({ nodes: [...s.nodes, node], selected: id }))
+    const usage = { ...get().usage, [type]: (get().usage[type] ?? 0) + 1 }
+    try { localStorage.setItem(USAGE_KEY, JSON.stringify(usage)) } catch { /* the count is a convenience */ }
+    set((s) => ({ nodes: [...s.nodes, node], selected: id, usage }))
     return id
   },
   setParam: (id, name, value) => set((s) => ({

@@ -103,4 +103,12 @@ header>.pal .menu{position:absolute;top:30px;left:0;z-index:20;background:var(--
 .crash{max-width:640px;margin:12vh auto;padding:24px;color:var(--fg);font-family:system-ui,sans-serif}
 .crash pre{white-space:pre-wrap;background:#0006;padding:10px;border-radius:6px;color:#ff9b9b}
 .crash-actions{display:flex;gap:8px;flex-wrap:wrap}
-.menu{max-height:calc(100vh - 56px);overflow-y:auto;overscroll-behavior:contain}
+.menu{max-height:calc(100vh - 56px);max-width:calc(100vw - 16px);overflow:auto;overscroll-behavior:contain}
+/* items flow down a column until --rows is reached, then into the next column */
+.palette .menu:not(.wide),header>.pal .menu:not(.wide){display:grid;grid-auto-flow:column;grid-template-rows:repeat(var(--rows,8),auto);grid-auto-columns:260px;gap:4px;min-width:0;max-width:calc(100vw - 16px)}
+.menu .cnt{margin-left:8px;padding:0 6px;border-radius:9px;background:#ffffff1f;font-size:11px;font-weight:600}
+.node-actions{display:flex;gap:6px;padding:4px 8px 6px}
+.node-actions .btn,.node-actions button{font-size:11px;padding:2px 8px;cursor:pointer}
+.perf{position:absolute;right:12px;top:12px;z-index:2;min-width:210px;padding:8px 10px;background:#000b;border:1px solid var(--line);border-radius:8px;font-size:12px;line-height:1.5;pointer-events:none}
+.perf .spark{display:block;width:100%;height:14px;margin:2px 0;background:#ffffff10;fill:var(--stencil,#5fd38d)}
+.perf .busy{color:#ffa24a}

@@ -283,6 +283,7 @@ pub(super) fn catalogue() -> Vec<NodeDef> {
                 num("max_y", "Largest tile height (mm, 0 = no tiling)", 0.0, 0.0, 2000.0, 5.0, Some("Tiles"), false),
                 choice("connector", "Connector shape", "hex", &["hex", "round"], Some("Tiles")),
                 choice("connector_d", "Connector diameter (mm)", "3", &["2.5", "3", "4", "5", "6"], Some("Tiles")),
+                num("depth", "Connector depth into each tile (mm)", 10.0, 4.0, 20.0, 0.5, Some("Tiles"), false),
                 num("clearance", "Connector hole clearance (mm)", 0.2, 0.0, 0.6, 0.05, Some("Tiles"), false),
                 num("segments", "Round segments (connectors, holes, threads)", 48.0, 24.0, 128.0, 4.0, Some("Tiles"), true),
                 num("pad_count", "Raised pads (0-4)", 0.0, 0.0, 4.0, 1.0, Some("Pads"), true),

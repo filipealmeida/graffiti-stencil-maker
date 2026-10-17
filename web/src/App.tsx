@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Background, Controls, MiniMap, ReactFlow, ReactFlowProvider, ViewportPortal, useReactFlow, type Edge } from '@xyflow/react'
-import { api, type Stage } from './api'
+import { api, type NodeType, type Stage } from './api'
 import Inspector from './Inspector'
 import Console from './Console'
+import Perf from './Perf'
 import Workbench from './Workbench'
 import StudioEdge from './StudioEdge'
 import StudioNodeView, { KIND_COLOR } from './StudioNode'
@@ -21,7 +22,7 @@ function Canvas() {
   const rf = useReactFlow()
   const [drag, setDrag] = useState(false)
   const [pname, setPname] = useState('project')
-  const [menu, setMenu] = useState<Stage | 'templates' | null>(null)
+  const [menu, setMenu] = useState<Stage | 'templates' | 'all' | null>(null)
   // wait for the new nodes to be measured, then bring the whole graph into view
   const fit = useCallback(() => { setTimeout(() => rf.fitView({ padding: 0.08, maxZoom: 1, duration: 250 }), 200) }, [rf])
   const bar = useRef<HTMLDivElement>(null)
@@ -120,6 +121,18 @@ function Canvas() {
     }
   }
 
+  const addFromMenu = (t: NodeType) => {
+    const c = rf.screenToFlowPosition({ x: window.innerWidth * 0.3, y: 160 })
+    const sp = laneSpan(s.lanes, t.stage)
+    s.addNode(t.id, {}, { x: t.stage === 'trace' ? c.x : sp.x + 30, y: c.y })
+    setMenu(null)
+  }
+  // fill each column to the height the page allows, then start the next one
+  const menuStyle = (n: number) => {
+    const rows = Math.max(4, Math.floor((window.innerHeight - 70) / 56))
+    return { '--rows': Math.min(n, rows) } as React.CSSProperties
+  }
+  const popular = Object.values(s.types).sort((a, b) => (s.usage[b.id] ?? 0) - (s.usage[a.id] ?? 0) || a.label.localeCompare(b.label))
   const stageNodes = (st: Stage) => Object.values(s.types).filter((t) => t.stage === st)
   const lane = (l: (typeof LANES)[number]) => {
     const { x, w } = laneSpan(s.lanes, l.stage)
@@ -154,11 +167,22 @@ function Canvas() {
           {(['trace', 'stencil', 'post'] as Stage[]).map((st) => (
             <div key={st} className="pal">
               <button className={`stage-${st}${menu === st ? ' on' : ''}`} onClick={() => setMenu(menu === st ? null : st)}>+ {st}</button>
-              {menu === st && <div className="menu">{stageNodes(st).map((t) => (
-                <button key={t.id} title={t.doc} onClick={() => { const c = rf.screenToFlowPosition({ x: window.innerWidth * 0.3, y: 160 }); const sp = laneSpan(s.lanes, st); s.addNode(t.id, {}, { x: st === 'trace' ? c.x : sp.x + 30, y: c.y }); setMenu(null) }}><b>{t.label}</b><small>{t.doc.split(/(?<=\.)\s/)[0]}</small></button>
+              {menu === st && <div className="menu" style={menuStyle(stageNodes(st).length)}>{stageNodes(st).map((t) => (
+                <button key={t.id} title={t.doc} onClick={() => addFromMenu(t)}><b>{t.label}</b><small>{t.doc.split(/(?<=\.)\s/)[0]}</small></button>
               ))}</div>}
             </div>
           ))}
+          <div className="pal">
+            <button className={menu === 'all' ? 'on' : ''} onClick={() => setMenu(menu === 'all' ? null : 'all')} title="Every node, most used first">+ All</button>
+            {menu === 'all' && <div className="menu" style={menuStyle(popular.length)}>{popular.map((t) => {
+              const n = s.usage[t.id] ?? 0
+              return (
+                <button key={t.id} className={`stage-${t.stage}`} title={`${t.doc}\n\n${n ? `Added ${n} time${n === 1 ? '' : 's'} in this browser` : 'Not used yet'}`} onClick={() => addFromMenu(t)}>
+                  <b>{t.label}{n > 0 && <span className="cnt">{n}</span>}</b><small>{t.stage} · {t.doc.split(/(?<=\.)\s/)[0]}</small>
+                </button>
+              )
+            })}</div>}
+          </div>
         </div>
         <label className="btn">Open image…<input type="file" accept=".png,.jpg,.jpeg,.bmp,.svg" hidden onChange={(e) => e.target.files?.[0] && addFile(e.target.files[0])} /></label>
         <div className="pal" ref={tpl}>
@@ -188,11 +212,13 @@ function Canvas() {
         <button onClick={save}>Save project</button>
         <button onClick={() => { if (s.nodes.length && !window.confirm('Discard the current graph? Save the project first to keep it.')) return; s.load([], []); localStorage.removeItem(STORE_KEY) }}>New</button>
         {s.busy && s.progress.total > 0 && <span className="gbar" title={`${Math.floor(s.progress.done)}/${s.progress.total} nodes`}><i style={{ width: `${(s.progress.done / s.progress.total) * 100}%` }} /></span>}
+        <button className={s.perfOpen ? 'on' : ''} onClick={() => s.setPerf(!s.perfOpen)} title="Show engine workers and load">Perf</button>
         <button className={s.consoleOpen ? 'on' : ''} onClick={() => s.setConsole(!s.consoleOpen)}>Console{s.logs.some((l) => l.level === 'error') ? ' ⚠' : ''}</button>
         <span className={`status${s.busy ? ' busy' : ''}`}>{s.error ? `⚠ ${s.error}` : s.busy ? 'working…' : 'ready'}</span>
       </header>
       <main>
         <div className="canvas">
+          {s.perfOpen && <Perf />}
           <ReactFlow
             nodes={s.nodes} edges={s.edges} nodeTypes={nodeTypes} edgeTypes={edgeTypes}
             onNodesChange={s.onNodesChange} onEdgesChange={s.onEdgesChange} onConnect={s.connect}

@@ -320,3 +320,48 @@ test('the shape cleanup nodes can be added from the trace menu', async ({ page }
   await node.dispatchEvent('click')
   await expect(page.locator('aside')).toContainText('Smaller than')
 })
+
+test('+ All lists every node by usage with counts, menus flow into columns, and the perf overlay toggles', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 420 })
+  await open(page)
+  await page.getByRole('button', { name: '+ trace' }).click()
+  await page.locator('.menu button').filter({ hasText: 'Round corners' }).click()
+  await page.getByRole('button', { name: '+ All' }).click()
+  const items = page.locator('.menu button')
+  expect(await items.count()).toBeGreaterThan(15)
+  // Round corners was just used, the others have counts of at least the starter graph's nodes
+  const counts = await page.locator('.menu .cnt').allTextContents()
+  const nums = counts.map(Number)
+  expect(nums).toEqual([...nums].sort((a, b) => b - a))
+  await expect(items.filter({ hasText: 'Round corners' }).locator('.cnt')).toHaveText('1')
+  const m = page.locator('.menu').first()
+  const b = (await m.boundingBox())!
+  expect(b.y + b.height).toBeLessThanOrEqual(420)
+  const xs = new Set(await items.evaluateAll((els) => els.map((e) => Math.round(e.getBoundingClientRect().x))))
+  expect(xs.size).toBeGreaterThan(1)
+  await page.keyboard.press('Escape')
+  await expect(page.locator('.perf')).toHaveCount(0)
+  await page.getByRole('button', { name: 'Perf', exact: true }).click()
+  await expect(page.locator('.perf')).toContainText('Engine workers')
+  await page.getByRole('button', { name: 'Perf', exact: true }).click()
+  await expect(page.locator('.perf')).toHaveCount(0)
+})
+
+test('the Image node can open a new picture node and download its own', async ({ page }) => {
+  await open(page)
+  const node = page.locator('.react-flow__node').filter({ hasText: 'Image' }).first()
+  await expect(node.getByRole('button', { name: 'Download' })).toBeVisible()
+  const dl = page.waitForEvent('download')
+  await node.getByRole('button', { name: 'Download' }).click()
+  expect((await dl).suggestedFilename()).toMatch(/\.(png|jpg|jpeg|bmp|svg)$/)
+  const before = await page.locator('.react-flow__node').filter({ hasText: 'Image' }).count()
+  await node.locator('input[type=file]').setInputFiles({ name: 'dot.png', mimeType: 'image/png', buffer: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64') })
+  await expect(page.locator('.react-flow__node').filter({ hasText: 'Image' })).toHaveCount(before + 1)
+})
+
+test('Tiles & mounting has a connector depth slider', async ({ page }) => {
+  await open(page)
+  await page.getByRole('button', { name: '+ post' }).click()
+  await page.locator('.menu button').filter({ hasText: 'Tiles & mounting' }).click()
+  await expect(page.locator('aside')).toContainText('Connector depth into each tile')
+})

@@ -66,7 +66,7 @@ The graph is arranged into three stages:
    If the rebuild is not watertight the tolerance is halved (twice) before giving up. If nothing works, or nothing is saved,
    the input passes through unchanged and the stats show `skipped` with the reason. `max_deviation_mm` is an upper bound.
    The tolerance must be well above the outline point spacing to remove anything. Only vertical-walled plates are supported.
-3. **Post-process:** Tiles & mounting splits plates, adds optional hardware features, and exports parts as a ZIP.
+3. **Post-process:** Tiles & mounting splits plates (the `depth` slider sets how far each connector sinks into each tile, 4–20 mm, default 10; the rod is `2 × depth − 1` mm long and tiles must be at least `depth / 0.4` mm wide), adds optional hardware features, and exports parts as a ZIP.
    Pieces that a seam cuts off from the rest of their tile are bridged again per tile (same bridge width, count and
    raised-bridge settings as the stencil); `bridged_tiles` in the tiling info counts them. If a tile still has loose
    pieces the export fails with a clear error instead of emitting islands.
@@ -75,6 +75,14 @@ The graph is arranged into three stages:
 Use the Vector template for the traced-outline workflow. Use the Colour template for multi-colour/tone-pattern
 workflows. Double-click a node to open its workbench. Save and reopen the graph and its embedded images with the
 project controls.
+
+The **+ trace / + stencil / + post** menus add nodes by stage; long menus flow into several columns and scroll
+inside themselves when they reach the bottom of the page. **+ All** lists every node, most used first; the badge
+(and the tooltip) shows how many times you added that node in this browser. An Image node has **Open new…** (adds
+another Image node for a different picture) and **Download** (saves the original picture). The **Perf** button toggles an
+overlay with the engine worker count and state, the share of the last 10 s the engine was computing, how late the page's
+timer fires (UI lag) and the CPU core count. Browsers do not expose real CPU use, so those figures are what the page
+can measure, and the engine runs in a single worker.
 
 Edits can be undone with **Undo**/**Redo** in the toolbar or Ctrl+Z / Ctrl+Shift+Z (Ctrl+Y). Edits made within
 half a second, such as a slider drag, count as one step; the last 100 steps are kept for the session.

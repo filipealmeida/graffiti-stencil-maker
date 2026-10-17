@@ -90,6 +90,9 @@ function stopRun() {
   } else worker.postMessage({ id: ++seq, op: 'cancel' })
 }
 
+/** What the engine worker is doing right now, for the performance overlay. */
+export const engineStatus = () => ({ workers: worker ? 1 : 0, busy: pending.size > 0 })
+
 // Results live in the browser: artifacts are blobs, infos are cached JSON.
 const blobs = new Map<string, string>()
 const MAX_LIVE_KEYS = 48
@@ -147,6 +150,9 @@ export const api = {
     const info = await call<{ id: string; width: number; height: number }>({ op: 'image', bytes: bytes.slice(0) }, [])
     await idb('readwrite', (s) => s.put({ name: f.name, bytes } satisfies StoredImage, info.id))
     return { ...info, name: f.name }
+  },
+  async storedImage(id: string) {
+    return (await idb('readonly', (s) => s.get(id))) as StoredImage | undefined
   },
   /** Gives the engine every image kept from earlier sessions. */
   async restoreImages() {

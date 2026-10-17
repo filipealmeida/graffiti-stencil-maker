@@ -584,6 +584,7 @@ fn run_export(_: &Engine, i: &HashMap<String, Value>, p: &P) -> Result<Outputs, 
             tiles::Shape::Hex
         },
         diameter: p.s("connector_d").parse().unwrap_or(3.0),
+        depth: p.f("depth"),
         clearance: p.f("clearance"),
         segments: p.f("segments") as usize,
         thickness: s.stats["thickness_mm"].as_f64().unwrap_or(0.0),
