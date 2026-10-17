@@ -227,6 +227,23 @@ pub(super) fn catalogue() -> Vec<NodeDef> {
             run: run_vector_stencil,
         },
         NodeDef {
+            id: "complexity",
+            label: "Complexity reducer",
+            stage: "stencil",
+            inputs: vec![("solid", "solid", true)],
+            outputs: vec![("solid", "solid")],
+            params: vec![
+                num("layer_from", "First layer (1 = on the plate)", 1.0, 1.0, 1000.0, 1.0, Some("Layers"), true),
+                num("layer_to", "Last layer (0 = top)", 0.0, 0.0, 1000.0, 1.0, Some("Layers"), true),
+                num("layer_height_mm", "Layer height (mm, 0 = from the stencil)", 0.0, 0.0, 1.0, 0.05, Some("Layers"), false),
+                num("tolerance_mm", "Largest shift of an outline (mm)", 0.1, 0.01, 1.0, 0.01, Some("Simplify"), false),
+                flag("keep_material", "Round towards material", true, Some("Simplify")),
+                num("max_overhang_deg", "Largest overhang (deg, 90 = no limit)", 45.0, 10.0, 90.0, 1.0, Some("Simplify"), false),
+            ],
+            doc: "Cuts the mesh density of chosen layers. Each layer's outline loses vertices while it stays within the tolerance, rounding towards material, and no layer is left overhanging the one below by more than the angle. Layers outside the interval keep their shape. Run it right after a stencil, before post-processing.",
+            run: run_complexity,
+        },
+        NodeDef {
             id: "export",
             label: "Tiles & mounting",
             stage: "post",

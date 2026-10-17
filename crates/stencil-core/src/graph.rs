@@ -452,6 +452,42 @@ fn run_stencil(_: &Engine, i: &HashMap<String, Value>, p: &P) -> Result<Outputs,
     )
 }
 
+fn run_complexity(_: &Engine, i: &HashMap<String, Value>, p: &P) -> Result<Outputs, String> {
+    let Some(Value::Solid(s)) = i.get("solid") else {
+        return Err("input 'solid' missing".into());
+    };
+    let lh = match p.f("layer_height_mm") {
+        h if h > 0.0 => h,
+        _ => s.stats["layer_height_mm"].as_f64().unwrap_or(0.2),
+    };
+    let q = crate::complexity::Params {
+        layer_height: lh,
+        from: p.f("layer_from") as u32,
+        to: p.f("layer_to") as u32,
+        tolerance_mm: p.f("tolerance_mm"),
+        max_overhang_deg: p.f("max_overhang_deg"),
+        keep_material: p.b("keep_material"),
+    };
+    let (stl, r) = crate::complexity::reduce(&s.stl, &q)?;
+    let mut stats = s.stats.clone();
+    stats["triangles"] = json!(r.triangles_after);
+    stats["stl_bytes"] = json!(stl.len());
+    stats["complexity"] = json!({
+        "skipped": r.skipped,
+        "layer_height_mm": lh,
+        "layers": r.layers,
+        "from": r.from,
+        "to": r.to,
+        "vertices_before": r.vertices_before,
+        "vertices_after": r.vertices_after,
+        "triangles_before": r.triangles_before,
+        "triangles_after": r.triangles_after,
+        "max_deviation_mm": r.max_deviation_mm,
+        "overhang_violation_mm2": r.overhang_violation_mm2,
+    });
+    Ok(vec![("solid", Value::Solid(Rc::new(Solid { stl, stats })))])
+}
+
 fn run_hardware(_: &Engine, _: &HashMap<String, Value>, p: &P) -> Result<Outputs, String> {
     use crate::hardware as hw;
     let seg = p.f("segments") as usize;

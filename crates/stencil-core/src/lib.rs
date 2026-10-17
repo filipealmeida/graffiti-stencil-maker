@@ -9,6 +9,7 @@ use islands::*;
 use layered::*;
 
 pub mod colour;
+pub mod complexity;
 mod decode;
 pub mod graph;
 pub mod hardware;

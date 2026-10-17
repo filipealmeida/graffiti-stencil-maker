@@ -369,3 +369,156 @@ fn text_node_makes_a_mask_that_becomes_an_island_free_stencil() {
     assert_eq!(info["stats"]["islands_remaining"], 0, "{info}");
     assert!(info["stats"]["islands_found"].as_u64().unwrap() >= 3);
 }
+
+fn complexity_run(stencil: Json, reducer: Json) -> (Vec<u8>, Vec<u8>, Json) {
+    let mut e = Engine::new();
+    let g = json!({
+        "nodes": [
+            {"id": "t", "type": "text", "params": {"text": "BOA", "size": 200}},
+            {"id": "st", "type": "stencil", "params": stencil},
+            {"id": "cx", "type": "complexity", "params": reducer},
+        ],
+        "edges": [
+            {"from": ["t", "mask"], "to": ["st", "mask"]},
+            {"from": ["st", "solid"], "to": ["cx", "solid"]}
+        ]
+    });
+    let r = e.run(&g, None, &|| 0.0);
+    assert_eq!(r["nodes"]["cx"]["state"], "done", "{r}");
+    let bytes = |id: &str| {
+        let k = r["nodes"][id]["key"].as_str().unwrap();
+        e.value(k, "solid").unwrap().encode().unwrap().1
+    };
+    let k = r["nodes"]["cx"]["key"].as_str().unwrap();
+    let info = e.value(k, "solid").unwrap().info();
+    (
+        bytes("st"),
+        bytes("cx"),
+        info["stats"]["complexity"].clone(),
+    )
+}
+
+fn assert_same_plate(before: &[u8], after: &[u8], volume_tol: f64) {
+    use crate::mesh::Mesh;
+    let (a, b) = (
+        Mesh::from_stl(before).unwrap(),
+        Mesh::from_stl(after).unwrap(),
+    );
+    assert!(b.is_watertight());
+    assert_eq!(
+        crate::tile_bridge::components(&a).0,
+        crate::tile_bridge::components(&b).0
+    );
+    let (la, ha) = a.bounds();
+    let (lb, hb) = b.bounds();
+    for k in 0..3 {
+        assert!(
+            (la[k] - lb[k]).abs() < 1e-3 && (ha[k] - hb[k]).abs() < 1e-3,
+            "bounds {k}"
+        );
+    }
+    assert!(b.volume() > 0.0);
+    let change = (b.volume() - a.volume()) / a.volume();
+    assert!(change.abs() < volume_tol, "volume changed by {change}");
+}
+
+#[test]
+fn complexity_reducer_cuts_vertices_and_keeps_the_plate() {
+    let (before, after, c) = complexity_run(
+        json!({"width_mm": 100, "thickness_mm": 2}),
+        json!({"tolerance_mm": 0.15}),
+    );
+    assert_same_plate(&before, &after, 0.03);
+    let (vb, va) = (
+        c["vertices_before"].as_u64().unwrap(),
+        c["vertices_after"].as_u64().unwrap(),
+    );
+    assert!(va * 10 < vb * 7, "{c}");
+    assert!(after.len() < before.len());
+    assert_eq!(c["overhang_violation_mm2"].as_f64().unwrap(), 0.0, "{c}");
+    assert!(
+        c["max_deviation_mm"].as_f64().unwrap() <= 0.15 + 1e-6,
+        "{c}"
+    );
+}
+
+#[test]
+fn complexity_reducer_rounds_towards_material() {
+    use crate::mesh::Mesh;
+    let args = |keep: bool| {
+        (
+            json!({"width_mm": 100, "thickness_mm": 2}),
+            json!({"tolerance_mm": 0.15, "keep_material": keep}),
+        )
+    };
+    let (s, r) = args(true);
+    let (before, keep, _) = complexity_run(s, r);
+    let (s, r) = args(false);
+    let (_, neutral, _) = complexity_run(s, r);
+    let v = |b: &[u8]| Mesh::from_stl(b).unwrap().volume();
+    assert!(
+        v(&keep) >= v(&before) * 0.995,
+        "{} {}",
+        v(&keep),
+        v(&before)
+    );
+    assert!(v(&keep) >= v(&neutral) - 1e-6);
+}
+
+#[test]
+fn complexity_reducer_on_raised_bridges_is_valid_or_leaves_the_solid_alone() {
+    let st =
+        json!({"width_mm": 100, "thickness_mm": 2, "raised_bridges": true, "layer_height_mm": 0.2});
+    for params in [
+        json!({"tolerance_mm": 0.15}),
+        json!({"tolerance_mm": 0.15, "layer_from": 2, "layer_to": 4}),
+    ] {
+        let (before, after, c) = complexity_run(st.clone(), params.clone());
+        assert_same_plate(&before, &after, 0.05);
+        assert_eq!(c["overhang_violation_mm2"].as_f64().unwrap(), 0.0, "{c}");
+        if c["skipped"].is_null() {
+            assert!(
+                c["vertices_after"].as_u64() < c["vertices_before"].as_u64(),
+                "{c}"
+            );
+        } else {
+            assert_eq!(before, after, "{c}");
+        }
+    }
+}
+
+#[test]
+fn complexity_reducer_interval_is_recorded_and_the_overhang_limit_holds() {
+    let st = json!({"width_mm": 100, "thickness_mm": 2});
+    let (before, after, c) = complexity_run(
+        st.clone(),
+        json!({"tolerance_mm": 0.15, "layer_from": 3, "layer_to": 9, "max_overhang_deg": 30}),
+    );
+    assert_same_plate(&before, &after, 0.05);
+    assert_eq!((c["from"].as_u64(), c["to"].as_u64()), (Some(3), Some(9)));
+    assert_eq!(c["overhang_violation_mm2"].as_f64().unwrap(), 0.0, "{c}");
+    let (_, _, free) = complexity_run(st, json!({"tolerance_mm": 0.15, "max_overhang_deg": 90}));
+    assert_eq!(
+        free["overhang_violation_mm2"].as_f64().unwrap(),
+        0.0,
+        "{free}"
+    );
+}
+
+#[test]
+fn complexity_reducer_rejects_an_empty_interval() {
+    let mut e = Engine::new();
+    let g = json!({
+        "nodes": [
+            {"id": "t", "type": "text", "params": {"text": "O"}},
+            {"id": "st", "type": "stencil", "params": {"thickness_mm": 2}},
+            {"id": "cx", "type": "complexity", "params": {"layer_from": 500}},
+        ],
+        "edges": [
+            {"from": ["t", "mask"], "to": ["st", "mask"]},
+            {"from": ["st", "solid"], "to": ["cx", "solid"]}
+        ]
+    });
+    let r = e.run(&g, None, &|| 0.0);
+    assert_eq!(r["nodes"]["cx"]["state"], "error", "{r}");
+}
