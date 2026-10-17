@@ -11,13 +11,11 @@ use i_triangle::i_overlay::mesh::float::outline::offset::OutlineOffset;
 use i_triangle::i_overlay::mesh::float::style::OutlineStyle;
 use i_triangle::int::triangulatable::IntTriangulatable;
 use std::cmp::Reverse;
-use std::collections::{BinaryHeap, HashMap, HashSet};
+use std::collections::{BTreeSet, BinaryHeap, HashMap, HashSet};
 
 const U: f64 = 10_000.0; // integer units per mm
 const Z_TOL: f64 = 2e-4; // mm: heights closer than this are the same plane
 const NOISE_UNITS2: f64 = 1e6; // 0.01 mm²: overlap slivers below this are rounding noise
-/// Rounding towards material never removes a vertex whose removal cuts into the material.
-const LOSS_FRACTION: f64 = 0.0;
 
 type Contour = Vec<IntPoint>;
 type Shape = Vec<Contour>;
@@ -32,6 +30,8 @@ pub struct Params {
     /// 90 or more switches the overhang rule off.
     pub max_overhang_deg: f64,
     pub keep_material: bool,
+    /// 0..1: how strongly outlines are smoothed before they are simplified.
+    pub smoothing: f64,
 }
 
 pub struct Report {
@@ -44,6 +44,8 @@ pub struct Report {
     pub triangles_after: usize,
     pub max_deviation_mm: f64,
     pub overhang_violation_mm2: f64,
+    /// The tolerance actually applied (it is halved when the rebuild fails).
+    pub tolerance_mm: f64,
     /// Set when the input was returned untouched, with the reason.
     pub skipped: Option<String>,
 }
@@ -122,70 +124,60 @@ fn grow(r: &Region, d: f64) -> Region {
     normalize(out)
 }
 
-fn dist_to_segment(p: [f64; 2], a: [f64; 2], b: [f64; 2]) -> f64 {
-    let (dx, dy) = (b[0] - a[0], b[1] - a[1]);
-    let l2 = dx * dx + dy * dy;
-    let t = if l2 == 0.0 {
-        0.0
-    } else {
-        (((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / l2).clamp(0.0, 1.0)
-    };
-    ((p[0] - a[0] - t * dx).powi(2) + (p[1] - a[1] - t * dy).powi(2)).sqrt()
-}
-
-/// Cost of dropping vertex `i`: the largest distance of the original vertices it would hide to the new
-/// chord, and whether the chord loses material (the removed run turns counter-clockwise).
-fn removal(pts: &[[f64; 2]], a: usize, b: usize) -> (f64, bool) {
-    let n = pts.len();
-    let mut cost: f64 = 0.0;
-    let mut twice_area = 0.0;
-    let mut prev = a;
-    let mut k = (a + 1) % n;
-    loop {
-        cost = cost.max(dist_to_segment(pts[k], pts[a], pts[b]));
-        twice_area += pts[prev][0] * pts[k][1] - pts[k][0] * pts[prev][1];
-        prev = k;
-        if k == b {
-            break;
+/// How far the points strictly between `a` and `b` lie outside and inside the chord a-b.
+fn chord_cost(pts: &[[f64; 2]], a: usize, b: usize, outward_is_right: bool) -> (f64, f64) {
+    let (dx, dy) = (pts[b][0] - pts[a][0], pts[b][1] - pts[a][1]);
+    let len = (dx * dx + dy * dy).sqrt();
+    let (mut out, mut inn) = (0.0f64, 0.0f64);
+    for p in &pts[a + 1..b] {
+        let d = if len == 0.0 {
+            0.0
+        } else {
+            let left = (dx * (p[1] - pts[a][1]) - dy * (p[0] - pts[a][0])) / len;
+            if outward_is_right {
+                -left
+            } else {
+                left
+            }
+        };
+        // A point outside the chord means the chord cuts into the material.
+        if d > 0.0 {
+            inn = inn.max(d);
+        } else {
+            out = out.max(-d);
         }
-        k = (k + 1) % n;
     }
-    twice_area += pts[b][0] * pts[a][1] - pts[a][0] * pts[b][1];
-    (cost, twice_area > 2.0)
+    (out, inn)
 }
 
-/// Greedy vertex removal on a closed ring whose material lies on the left. Returns the ring and the
-/// largest distance any removed vertex ended up from the new outline (in units).
-fn simplify_ring(ring: &[IntPoint], tol: f64, loss: f64) -> (Contour, f64) {
-    let n = ring.len();
-    if n <= 3 || tol <= 0.0 {
-        return (ring.to_vec(), 0.0);
-    }
-    let pts: Vec<[f64; 2]> = ring.iter().map(|p| [p.x as f64, p.y as f64]).collect();
-    let mut prev: Vec<usize> = (0..n).map(|i| (i + n - 1) % n).collect();
-    let mut next: Vec<usize> = (0..n).map(|i| (i + 1) % n).collect();
+/// Greedy vertex removal on an open polyline with fixed ends. The chord may add material up to
+/// `limit` and remove at most `limit * loss`. Returns the kept indices and the largest error accepted.
+fn simplify_open(
+    pts: &[[f64; 2]],
+    limit: f64,
+    loss: f64,
+    outward_is_right: bool,
+) -> (Vec<usize>, f64) {
+    let n = pts.len();
+    let mut prev: Vec<usize> = (0..n).map(|i| i.saturating_sub(1)).collect();
+    let mut next: Vec<usize> = (0..n).map(|i| (i + 1).min(n - 1)).collect();
     let mut alive = vec![true; n];
     let mut version = vec![0u32; n];
-    let mut count = n;
-    let eval = |i: usize, prev: &[usize], next: &[usize]| -> Option<f64> {
-        let (cost, loses) = removal(&pts, prev[i], next[i]);
-        let limit = if loses { tol * loss } else { tol };
-        (cost <= limit).then_some(cost)
-    };
     let key = |c: f64| (c * 16.0) as u64;
+    let eval = |i: usize, prev: &[usize], next: &[usize]| -> Option<f64> {
+        let (out, inn) = chord_cost(pts, prev[i], next[i], outward_is_right);
+        (out <= limit && inn <= limit * loss).then_some(out.max(inn))
+    };
     let mut heap = BinaryHeap::new();
-    for i in 0..n {
+    for i in 1..n.saturating_sub(1) {
         if let Some(c) = eval(i, &prev, &next) {
-            heap.push(Reverse((key(c), ring[i].x, ring[i].y, i, 0u32)));
+            heap.push(Reverse((key(c), i, 0u32)));
         }
     }
     let mut deviation: f64 = 0.0;
-    while let Some(Reverse((_, _, _, i, v))) = heap.pop() {
+    while let Some(Reverse((_, i, v))) = heap.pop() {
         if !alive[i] || version[i] != v {
             continue;
-        }
-        if count <= 3 {
-            break;
         }
         let Some(cost) = eval(i, &prev, &next) else {
             continue;
@@ -195,28 +187,216 @@ fn simplify_ring(ring: &[IntPoint], tol: f64, loss: f64) -> (Contour, f64) {
         alive[i] = false;
         next[a] = b;
         prev[b] = a;
-        count -= 1;
         for x in [a, b] {
+            if x == 0 || x == n - 1 {
+                continue;
+            }
             version[x] += 1;
             if let Some(c) = eval(x, &prev, &next) {
-                heap.push(Reverse((key(c), ring[x].x, ring[x].y, x, version[x])));
+                heap.push(Reverse((key(c), x, version[x])));
             }
         }
     }
-    let out = (0..n).filter(|&i| alive[i]).map(|i| ring[i]).collect();
-    (out, deviation)
+    ((0..n).filter(|&i| alive[i]).collect(), deviation)
 }
 
-fn simplify_region(r: &Region, tol: f64, loss: f64, dev: &mut f64) -> Region {
-    let mut out = Vec::new();
-    for c in r.iter().flatten() {
-        let (s, d) = simplify_ring(c, tol, loss);
-        *dev = dev.max(d);
-        if s.len() >= 3 && area2(&s).abs() > 0.0 {
-            out.push(s);
+/// How a chain of outline vertices is smoothed and simplified.
+struct Knobs {
+    smooth_limit: f64,
+    passes: usize,
+    chord: f64,
+    loss: f64,
+    outward_is_right: bool,
+}
+
+fn simplify_chain(pts: &[IntPoint], k: &Knobs, dev: &mut f64) -> Vec<IntPoint> {
+    let n = pts.len();
+    if n <= 2 {
+        return pts.to_vec();
+    }
+    let orig: Vec<[f64; 2]> = pts.iter().map(|p| [p.x as f64, p.y as f64]).collect();
+    let mut cur = orig.clone();
+    for _ in 0..k.passes {
+        let mut next = cur.clone();
+        for i in 1..n - 1 {
+            for d in 0..2 {
+                next[i][d] = (cur[i - 1][d] + 2.0 * cur[i][d] + cur[i + 1][d]) / 4.0;
+            }
+        }
+        cur = next;
+    }
+    for i in 1..n - 1 {
+        let (dx, dy) = (cur[i][0] - orig[i][0], cur[i][1] - orig[i][1]);
+        let l = (dx * dx + dy * dy).sqrt();
+        if l > k.smooth_limit && l > 0.0 {
+            cur[i][0] = orig[i][0] + dx * k.smooth_limit / l;
+            cur[i][1] = orig[i][1] + dy * k.smooth_limit / l;
         }
     }
-    normalize(out)
+    let moved = (1..n - 1)
+        .map(|i| ((cur[i][0] - orig[i][0]).powi(2) + (cur[i][1] - orig[i][1]).powi(2)).sqrt())
+        .fold(0.0, f64::max);
+    let (keep, cost) = simplify_open(&cur, k.chord, k.loss, k.outward_is_right);
+    *dev = dev.max(moved + cost);
+    keep.into_iter()
+        .map(|i| {
+            if i == 0 || i == n - 1 {
+                pts[i]
+            } else {
+                IntPoint::new(cur[i][0].round() as i32, cur[i][1].round() as i32)
+            }
+        })
+        .collect()
+}
+
+type Pt = (i32, i32);
+
+fn pt(p: IntPoint) -> Pt {
+    (p.x, p.y)
+}
+
+fn edge_key(a: IntPoint, b: IntPoint) -> (Pt, Pt) {
+    if pt(a) < pt(b) {
+        (pt(a), pt(b))
+    } else {
+        (pt(b), pt(a))
+    }
+}
+
+/// Inserts into every outline edge the vertices of any layer that lie exactly on it, so layers that
+/// overlap along a straight line share identical edges.
+fn node_units(units: &[Region]) -> Vec<Region> {
+    let all: Vec<&Region> = units.iter().collect();
+    let pv = PlaneVerts::new(&all);
+    units
+        .iter()
+        .map(|r| {
+            r.iter()
+                .map(|shape| {
+                    shape
+                        .iter()
+                        .map(|c| {
+                            let mut out = Vec::with_capacity(c.len());
+                            for i in 0..c.len() {
+                                let (p, q) = (c[i], c[(i + 1) % c.len()]);
+                                out.push(p);
+                                out.extend(pv.on_edge(p, q, true));
+                            }
+                            out
+                        })
+                        .collect()
+                })
+                .collect()
+        })
+        .collect()
+}
+
+/// Simplifies the outlines of all `units` (layers of identical cross-section) together. Outline
+/// edges used by the same set of layers form chains between junction vertices; every chain is
+/// simplified once and shared by all its layers, so neighbouring layers keep identical vertices.
+/// Chains touching a layer that must stay as it is are left alone.
+fn simplify_units(units: &[Region], touched: &[bool], k: &Knobs, dev: &mut f64) -> Vec<Region> {
+    let rings: Vec<(usize, &Contour)> = units
+        .iter()
+        .enumerate()
+        .flat_map(|(u, r)| r.iter().flatten().map(move |c| (u, c)))
+        .collect();
+    let mut users: HashMap<(Pt, Pt), Vec<(u32, i8)>> = HashMap::new();
+    for &(u, c) in &rings {
+        for i in 0..c.len() {
+            let (a, b) = (c[i], c[(i + 1) % c.len()]);
+            let dir = if pt(a) < pt(b) { 1 } else { -1 };
+            users
+                .entry(edge_key(a, b))
+                .or_default()
+                .push((u as u32, dir));
+        }
+    }
+    let mut sig_ids: HashMap<Vec<(u32, i8)>, u32> = HashMap::new();
+    let mut frozen: Vec<bool> = Vec::new();
+    let mut edge_sig: HashMap<(Pt, Pt), u32> = HashMap::new();
+    let mut degree: HashMap<Pt, u32> = HashMap::new();
+    for (e, mut v) in users {
+        v.sort();
+        let mixed = v.iter().any(|x| x.1 != v[0].1);
+        let v: Vec<(u32, i8)> = v.into_iter().map(|x| (x.0, mixed as i8)).collect();
+        *degree.entry(e.0).or_default() += 1;
+        *degree.entry(e.1).or_default() += 1;
+        let id = match sig_ids.get(&v) {
+            Some(&id) => id,
+            None => {
+                let id = frozen.len() as u32;
+                let repeated = v.windows(2).any(|w| w[0].0 == w[1].0);
+                frozen.push(
+                    repeated
+                        || v.iter().any(|x| x.1 != 0)
+                        || v.iter().any(|x| !touched[x.0 as usize]),
+                );
+                sig_ids.insert(v, id);
+                id
+            }
+        };
+        edge_sig.insert(e, id);
+    }
+
+    let mut memo: HashMap<(Pt, Pt, Pt), Vec<IntPoint>> = HashMap::new();
+    let mut rebuilt: Vec<Vec<Contour>> = vec![Vec::new(); units.len()];
+    for &(u, c) in &rings {
+        if !touched[u] {
+            continue;
+        }
+        let n = c.len();
+        if n < 3 {
+            continue;
+        }
+        let sig = |i: usize| edge_sig[&edge_key(c[i], c[(i + 1) % n])];
+        let mut pinned: Vec<bool> = (0..n)
+            .map(|i| {
+                let (e0, e1) = (sig((i + n - 1) % n), sig(i));
+                e0 != e1 || frozen[e0 as usize] || frozen[e1 as usize] || degree[&pt(c[i])] != 2
+            })
+            .collect();
+        if !pinned.iter().any(|&x| x) {
+            let start = (0..n).min_by_key(|&i| pt(c[i])).unwrap();
+            let d2 = |i: usize| {
+                let (dx, dy) = (
+                    c[i].x as i64 - c[start].x as i64,
+                    c[i].y as i64 - c[start].y as i64,
+                );
+                dx * dx + dy * dy
+            };
+            let far = (0..n).max_by_key(|&i| (d2(i), Reverse(pt(c[i])))).unwrap();
+            pinned[start] = true;
+            pinned[far] = true;
+        }
+        let idx: Vec<usize> = (0..n).filter(|&i| pinned[i]).collect();
+        let mut ring: Contour = Vec::new();
+        for (w, &a) in idx.iter().enumerate() {
+            let b = idx[(w + 1) % idx.len()];
+            let len = (b + n - a) % n;
+            let len = if len == 0 { n } else { len };
+            let pts: Vec<IntPoint> = (0..=len).map(|d| c[(a + d) % n]).collect();
+            let key = (pt(pts[0]), pt(pts[1]), pt(pts[len]));
+            let simple = memo
+                .entry(key)
+                .or_insert_with(|| simplify_chain(&pts, k, dev));
+            ring.extend(&simple[..simple.len() - 1]);
+        }
+        if ring.len() >= 3 && area2(&ring) != 0.0 {
+            rebuilt[u].push(ring);
+        }
+    }
+    units
+        .iter()
+        .enumerate()
+        .map(|(u, r)| {
+            if touched[u] {
+                normalize(std::mem::take(&mut rebuilt[u]))
+            } else {
+                r.clone()
+            }
+        })
+        .collect()
 }
 
 fn chain(segs: &[(IntPoint, IntPoint)]) -> Result<Vec<Contour>, String> {
@@ -550,40 +730,110 @@ fn build(planes: &[f64], runs: &[Region]) -> Mesh {
         }
         verts.push(pv);
     }
+    // An edge that several consecutive runs share is one wall from where it starts to where it ends.
+    let edges: Vec<HashSet<(Pt, Pt)>> = runs
+        .iter()
+        .map(|r| {
+            r.iter()
+                .flatten()
+                .flat_map(|c| (0..c.len()).map(move |i| (pt(c[i]), pt(c[(i + 1) % c.len()]))))
+                .collect()
+        })
+        .collect();
+    let mut walls: Vec<(usize, usize, IntPoint, IntPoint)> = Vec::new();
     for (j, region) in runs.iter().enumerate() {
-        let (zb, zt) = (planes[j], planes[j + 1]);
         for ring in region.iter().flatten() {
             let n = ring.len();
             for i in 0..n {
                 let (p, q) = (ring[i], ring[(i + 1) % n]);
-                let bot = verts[j].polyline(p, q);
-                let top = verts[j + 1].polyline(p, q);
-                let tb: Vec<f64> = bot.iter().map(|&r| param(p, q, r)).collect();
-                let tt: Vec<f64> = top.iter().map(|&r| param(p, q, r)).collect();
-                let (mut i0, mut j0) = (0, 0);
-                while i0 + 1 < bot.len() || j0 + 1 < top.len() {
-                    let advance_bottom =
-                        j0 + 1 == top.len() || (i0 + 1 < bot.len() && tb[i0 + 1] <= tt[j0 + 1]);
-                    if advance_bottom {
-                        let (a, c, d) = (
-                            b.vid(bot[i0], j, zb),
-                            b.vid(bot[i0 + 1], j, zb),
-                            b.vid(top[j0], j + 1, zt),
-                        );
-                        b.mesh.t.push([a, c, d]);
-                        i0 += 1;
-                    } else {
-                        let (a, c, d) = (
-                            b.vid(top[j0], j + 1, zt),
-                            b.vid(bot[i0], j, zb),
-                            b.vid(top[j0 + 1], j + 1, zt),
-                        );
-                        b.mesh.t.push([a, c, d]);
-                        j0 += 1;
-                    }
+                if j > 0 && edges[j - 1].contains(&(pt(p), pt(q))) {
+                    continue;
                 }
+                let mut end = j;
+                while end + 1 < runs.len() && edges[end + 1].contains(&(pt(p), pt(q))) {
+                    end += 1;
+                }
+                walls.push((j, end + 1, p, q));
             }
         }
+    }
+    // Neighbouring walls of a vertex may start or end at other planes: the vertical seam is split there.
+    let mut at: HashMap<Pt, BTreeSet<usize>> = HashMap::new();
+    for &(lo, hi, p, q) in &walls {
+        for v in [p, q] {
+            at.entry(pt(v)).or_default().extend([lo, hi]);
+        }
+    }
+    for &(lo, hi, p, q) in &walls {
+        let bot = verts[lo].polyline(p, q);
+        let top = verts[hi].polyline(p, q);
+        let tb: Vec<f64> = bot.iter().map(|&r| param(p, q, r)).collect();
+        let tt: Vec<f64> = top.iter().map(|&r| param(p, q, r)).collect();
+        let mut tris: Vec<[usize; 3]> = Vec::new();
+        let (mut i0, mut j0) = (0, 0);
+        while i0 + 1 < bot.len() || j0 + 1 < top.len() {
+            let advance_bottom =
+                j0 + 1 == top.len() || (i0 + 1 < bot.len() && tb[i0 + 1] <= tt[j0 + 1]);
+            if advance_bottom {
+                tris.push([
+                    b.vid(bot[i0], lo, planes[lo]),
+                    b.vid(bot[i0 + 1], lo, planes[lo]),
+                    b.vid(top[j0], hi, planes[hi]),
+                ]);
+                i0 += 1;
+            } else {
+                tris.push([
+                    b.vid(top[j0], hi, planes[hi]),
+                    b.vid(bot[i0], lo, planes[lo]),
+                    b.vid(top[j0 + 1], hi, planes[hi]),
+                ]);
+                j0 += 1;
+            }
+        }
+        // Split the first side (top -> bottom at p) and the last side (bottom -> top at q).
+        let between =
+            |v: IntPoint| -> Vec<usize> { at[&pt(v)].range(lo + 1..hi).copied().collect() };
+        let down: Vec<usize> = between(p)
+            .into_iter()
+            .rev()
+            .map(|k| b.vid(p, k, planes[k]))
+            .collect();
+        let up: Vec<usize> = between(q)
+            .into_iter()
+            .map(|k| b.vid(q, k, planes[k]))
+            .collect();
+        let (first, last) = (0, tris.len() - 1);
+        for (ti, from, to, mid) in [
+            (
+                first,
+                b.vid(top[0], hi, planes[hi]),
+                b.vid(bot[0], lo, planes[lo]),
+                down,
+            ),
+            (
+                last,
+                b.vid(bot[bot.len() - 1], lo, planes[lo]),
+                b.vid(top[top.len() - 1], hi, planes[hi]),
+                up,
+            ),
+        ] {
+            if mid.is_empty() {
+                continue;
+            }
+            let t = tris[ti];
+            let k = (0..3)
+                .find(|&k| t[k] == from && t[(k + 1) % 3] == to)
+                .expect("side edge");
+            let w = t[(k + 2) % 3];
+            let mut chain = vec![from];
+            chain.extend(mid);
+            chain.push(to);
+            tris[ti] = [chain[0], chain[1], w];
+            for pair in chain[1..].windows(2) {
+                tris.push([pair[0], pair[1], w]);
+            }
+        }
+        b.mesh.t.extend(tris);
     }
     b.mesh
 }
@@ -624,101 +874,123 @@ pub fn reduce(stl: &[u8], p: &Params) -> Result<(Vec<u8>, Report), String> {
         }
     }
     cuts.sort_by(f64::total_cmp);
-    let tol = p.tolerance_mm * U;
-    let loss = if p.keep_material { LOSS_FRACTION } else { 1.0 };
-    let mut deviation: f64 = 0.0;
-    let mut simplified: HashMap<usize, Region> = HashMap::new();
-    let mut segs: Vec<Segment> = Vec::new();
-    crate::progress::step("simplify layers", 0.3);
-    for w in cuts.windows(2) {
-        let mid = (w[0] + w[1]) / 2.0;
-        let slab = planes.partition_point(|&z| z < mid) - 1;
-        let touched = mid > zlo && mid < zhi;
-        let original = slabs[slab].clone();
-        let region = if touched {
-            simplified
-                .entry(slab)
-                .or_insert_with(|| simplify_region(&original, tol, loss, &mut deviation))
-                .clone()
-        } else {
-            original.clone()
+    let mut result = None;
+    for scale in [1.0, 0.5, 0.25] {
+        let tol = p.tolerance_mm * scale * U;
+        let mut deviation: f64 = 0.0;
+        crate::progress::step("simplify layers", 0.3);
+        let windows: Vec<(f64, f64, usize, bool)> = cuts
+            .windows(2)
+            .map(|w| {
+                let mid = (w[0] + w[1]) / 2.0;
+                let slab = planes.partition_point(|&z| z < mid) - 1;
+                (w[0], w[1], slab, mid > zlo && mid < zhi)
+            })
+            .collect();
+        let originals: Vec<Region> = node_units(
+            &windows
+                .iter()
+                .map(|w| slabs[w.2].clone())
+                .collect::<Vec<_>>(),
+        );
+        let touched: Vec<bool> = windows.iter().map(|w| w.3).collect();
+        let smooth = p.smoothing.clamp(0.0, 1.0);
+        let smooth_limit = if smooth > 0.0 { tol / 3.0 } else { 0.0 };
+        let knobs = Knobs {
+            smooth_limit,
+            passes: (smooth * 20.0).round() as usize,
+            chord: tol - smooth_limit,
+            loss: if p.keep_material { 0.25 } else { 1.0 },
+            outward_is_right: originals
+                .iter()
+                .flatten()
+                .find_map(|s| s.first())
+                .is_some_and(|outer| area2(outer) > 0.0),
         };
-        segs.push(Segment {
-            z0: w[0],
-            z1: w[1],
-            original,
-            region,
-            touched,
-        });
-    }
+        let regions = simplify_units(&originals, &touched, &knobs, &mut deviation);
+        let mut segs: Vec<Segment> = windows
+            .iter()
+            .zip(originals)
+            .zip(regions)
+            .map(|((w, original), region)| Segment {
+                z0: w.0,
+                z1: w.1,
+                original,
+                region,
+                touched: w.3,
+            })
+            .collect();
 
-    crate::progress::step("check overhangs", 0.5);
-    let mut violation = 0.0;
-    if p.max_overhang_deg < 90.0 {
-        let d = (p.layer_height * p.max_overhang_deg.max(0.0).to_radians().tan() * U).max(1.0);
-        let allowed_above = |s: &[Segment], i: usize| -> Region {
-            let original_overhang =
-                boolean(&s[i + 1].original, &s[i].original, OverlayRule::Difference);
-            boolean(
-                &grow(&s[i].region, d),
-                &grow(&original_overhang, tol + 2.0),
-                OverlayRule::Union,
-            )
-        };
-        for i in (0..segs.len().saturating_sub(1)).rev() {
-            if !segs[i].touched && !segs[i + 1].touched {
-                continue;
-            }
-            let allowed = allowed_above(&segs, i);
-            let bad = drop_noise(boolean(
-                &segs[i + 1].region,
-                &allowed,
-                OverlayRule::Difference,
-            ));
-            if bad.is_empty() {
-                continue;
-            }
-            if segs[i].touched {
-                segs[i].region = boolean(&segs[i].region, &bad, OverlayRule::Union);
-            } else {
-                segs[i + 1].region = boolean(&segs[i + 1].region, &allowed, OverlayRule::Intersect);
-            }
-        }
-        for i in 0..segs.len().saturating_sub(1) {
-            if segs[i].touched || segs[i + 1].touched {
+        crate::progress::step("check overhangs", 0.5);
+        let mut violation = 0.0;
+        if p.max_overhang_deg < 90.0 {
+            let d = (p.layer_height * p.max_overhang_deg.max(0.0).to_radians().tan() * U).max(1.0);
+            let allowed_above = |s: &[Segment], i: usize| -> Region {
+                let original_overhang =
+                    boolean(&s[i + 1].original, &s[i].original, OverlayRule::Difference);
+                boolean(
+                    &grow(&s[i].region, d),
+                    &grow(&original_overhang, tol + 2.0),
+                    OverlayRule::Union,
+                )
+            };
+            for i in 0..segs.len().saturating_sub(1) {
+                if !segs[i + 1].touched {
+                    continue;
+                }
                 let allowed = allowed_above(&segs, i);
                 let bad = drop_noise(boolean(
                     &segs[i + 1].region,
                     &allowed,
                     OverlayRule::Difference,
                 ));
-                violation += region_area(&bad) / (U * U);
+                if !bad.is_empty() {
+                    segs[i + 1].region =
+                        boolean(&segs[i + 1].region, &allowed, OverlayRule::Intersect);
+                }
+            }
+            for i in 0..segs.len().saturating_sub(1) {
+                if segs[i].touched || segs[i + 1].touched {
+                    let allowed = allowed_above(&segs, i);
+                    let bad = drop_noise(boolean(
+                        &segs[i + 1].region,
+                        &allowed,
+                        OverlayRule::Difference,
+                    ));
+                    violation += region_area(&bad) / (U * U);
+                }
             }
         }
-    }
 
-    // Layers with an identical cross-section become one run.
-    let mut run_planes = vec![segs[0].z0];
-    let mut runs: Vec<Region> = Vec::new();
-    for s in &segs {
-        if runs.last() == Some(&s.region) {
-            *run_planes.last_mut().unwrap() = s.z1;
+        // Layers with an identical cross-section become one run.
+        let mut run_planes = vec![segs[0].z0];
+        let mut runs: Vec<Region> = Vec::new();
+        for s in &segs {
+            if runs.last() == Some(&s.region) {
+                *run_planes.last_mut().unwrap() = s.z1;
+            } else {
+                runs.push(s.region.clone());
+                run_planes.push(s.z1);
+            }
+        }
+        crate::progress::step("build mesh", 0.7);
+        let out = build(&run_planes, &runs);
+        let skip = if !out.is_watertight() {
+            Some("the simplified layers could not be joined into a watertight mesh".to_string())
+        } else if crate::tile_bridge::components(&out).0 != pieces_before {
+            Some("reducing would split or merge the stencil; lower the tolerance".to_string())
+        } else if out.v.len() >= input.v.len() {
+            Some("no layer could be simplified without adding vertices".to_string())
         } else {
-            runs.push(s.region.clone());
-            run_planes.push(s.z1);
+            None
+        };
+        let retry = !out.is_watertight() || crate::tile_bridge::components(&out).0 != pieces_before;
+        result = Some((out, skip, deviation, violation, scale));
+        if !retry {
+            break;
         }
     }
-    crate::progress::step("build mesh", 0.7);
-    let out = build(&run_planes, &runs);
-    let skip = if !out.is_watertight() {
-        Some("the simplified layers could not be joined into a watertight mesh".to_string())
-    } else if crate::tile_bridge::components(&out).0 != pieces_before {
-        Some("reducing would split or merge the stencil; lower the tolerance".to_string())
-    } else if out.v.len() >= input.v.len() {
-        Some("no layer could be simplified without adding vertices".to_string())
-    } else {
-        None
-    };
+    let (out, skip, deviation, violation, scale) = result.expect("at least one attempt");
     if skip.is_some() {
         return Ok((
             stl.to_vec(),
@@ -732,6 +1004,7 @@ pub fn reduce(stl: &[u8], p: &Params) -> Result<(Vec<u8>, Report), String> {
                 triangles_after: input.t.len(),
                 max_deviation_mm: 0.0,
                 overhang_violation_mm2: 0.0,
+                tolerance_mm: 0.0,
                 skipped: skip,
             },
         ));
@@ -750,6 +1023,7 @@ pub fn reduce(stl: &[u8], p: &Params) -> Result<(Vec<u8>, Report), String> {
             triangles_after: out.t.len(),
             max_deviation_mm: deviation / U,
             overhang_violation_mm2: violation,
+            tolerance_mm: p.tolerance_mm * scale,
             skipped: None,
         },
     ))

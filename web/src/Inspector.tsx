@@ -12,6 +12,17 @@ export default function Inspector() {
   const [info, setInfo] = useState<Record<string, any> | null>(null)
   const [out, setOut] = useState<string>('')
   const key = run?.key
+  const upKey = useStudio((s) => {
+    const e = s.edges.find((x) => x.target === s.selected && x.targetHandle === 'solid')
+    return e ? s.runs[e.source]?.key : undefined
+  })
+  const upOut = useStudio((s) => s.edges.find((x) => x.target === s.selected && x.targetHandle === 'solid')?.sourceHandle ?? 'solid')
+  const [layers, setLayers] = useState<number | undefined>()
+  useEffect(() => {
+    setLayers(undefined)
+    if (node?.data.type === 'complexity' && upKey)
+      api.info(upKey, upOut).then((i) => setLayers(i?.stats?.layers)).catch(() => {})
+  }, [upKey, upOut, node?.data.type])
   const avail = t?.outputs.filter((o) => run?.outputs?.[o.name]?.available) ?? []
   const cur = avail.find((o) => o.name === out) ?? avail[0]
 
@@ -28,7 +39,7 @@ export default function Inspector() {
       <p className="mut">{t.doc}</p>
       <button className="btn" onClick={() => openBench(node.id)}>⤢ Open preview (double-click a node)</button>
       {fileInput && <p className="mut">Image: {String(node.data.title ?? node.data.params.image_id)}</p>}
-      <ParamForm node={node} type={t} />
+      <ParamForm node={node} type={t} layers={layers} />
       {run?.state === 'error' && <div className="err">{run.error}</div>}
       {key && cur && (
         <div className="result">
@@ -46,7 +57,7 @@ export default function Inspector() {
           )}
           {info?.stats && (
             <table><tbody>
-              {['islands_found', 'bridges_added', 'islands_remaining', 'watertight', 'triangles', 'overhang_area_mm2', 'layers', 'size_mm'].filter((k) => k in info.stats).map((k) => (
+              {['islands_found', 'bridges_added', 'islands_remaining', 'watertight', 'triangles', 'overhang_area_mm2', 'layers', 'size_mm', 'complexity'].filter((k) => k in info.stats).map((k) => (
                 <tr key={k}><td>{k.replace(/_/g, ' ')}</td><td>{JSON.stringify(info.stats[k])}</td></tr>
               ))}
             </tbody></table>

@@ -47,7 +47,7 @@ function Field({ p, value, onChange }: { p: ParamDef; value: unknown; onChange: 
   )
 }
 
-export default function ParamForm({ node, type }: { node: StudioNode; type: NodeType }) {
+export default function ParamForm({ node, type, layers }: { node: StudioNode; type: NodeType; layers?: number }) {
   const setParam = useStudio((s) => s.setParam)
   const groups = [...new Set(type.params.map((p) => p.group ?? ''))]
   // the picture of an Image node is not a setting
@@ -58,9 +58,17 @@ export default function ParamForm({ node, type }: { node: StudioNode; type: Node
       {groups.map((g) => (
         <fieldset key={g}>
           {g && <legend>{g}</legend>}
-          {type.params.filter((p) => (p.group ?? '') === g).map((p) => (
-            <Field key={p.name} p={p} value={node.data.params[p.name] ?? p.default} onChange={(v) => setParam(node.id, p.name, v)} />
-          ))}
+          {type.params.filter((p) => (p.group ?? '') === g).map((p) => {
+            const v = node.data.params[p.name] ?? p.default
+            const isLayer = layers && node.data.type === 'complexity' && (p.name === 'layer_from' || p.name === 'layer_to')
+            if (!isLayer) return <Field key={p.name} p={p} value={v} onChange={(x) => setParam(node.id, p.name, x)} />
+            // layer_to = 0 means "the top one", shown as the real maximum of the stencil above
+            const shown = p.name === 'layer_to' && Number(v) === 0 ? layers : Number(v)
+            return (
+              <Field key={p.name} p={{ ...p, min: 1, max: layers, default: p.name === 'layer_to' ? layers : p.default }} value={Math.min(shown, layers)}
+                onChange={(x) => setParam(node.id, p.name, p.name === 'layer_to' && x === layers ? 0 : x)} />
+            )
+          })}
         </fieldset>
       ))}
       {changed.length > 0 && (

@@ -456,10 +456,10 @@ fn run_complexity(_: &Engine, i: &HashMap<String, Value>, p: &P) -> Result<Outpu
     let Some(Value::Solid(s)) = i.get("solid") else {
         return Err("input 'solid' missing".into());
     };
-    let lh = match p.f("layer_height_mm") {
-        h if h > 0.0 => h,
-        _ => s.stats["layer_height_mm"].as_f64().unwrap_or(0.2),
-    };
+    let lh = s.stats["layer_height_mm"]
+        .as_f64()
+        .filter(|&h| h > 0.0)
+        .unwrap_or(0.2);
     let q = crate::complexity::Params {
         layer_height: lh,
         from: p.f("layer_from") as u32,
@@ -467,6 +467,7 @@ fn run_complexity(_: &Engine, i: &HashMap<String, Value>, p: &P) -> Result<Outpu
         tolerance_mm: p.f("tolerance_mm"),
         max_overhang_deg: p.f("max_overhang_deg"),
         keep_material: p.b("keep_material"),
+        smoothing: p.f("smoothing"),
     };
     let (stl, r) = crate::complexity::reduce(&s.stl, &q)?;
     let mut stats = s.stats.clone();
@@ -483,6 +484,7 @@ fn run_complexity(_: &Engine, i: &HashMap<String, Value>, p: &P) -> Result<Outpu
         "triangles_before": r.triangles_before,
         "triangles_after": r.triangles_after,
         "max_deviation_mm": r.max_deviation_mm,
+        "tolerance_used_mm": r.tolerance_mm,
         "overhang_violation_mm2": r.overhang_violation_mm2,
     });
     Ok(vec![("solid", Value::Solid(Rc::new(Solid { stl, stats })))])

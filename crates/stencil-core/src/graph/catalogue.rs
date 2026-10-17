@@ -234,13 +234,13 @@ pub(super) fn catalogue() -> Vec<NodeDef> {
             outputs: vec![("solid", "solid")],
             params: vec![
                 num("layer_from", "First layer (1 = on the plate)", 1.0, 1.0, 1000.0, 1.0, Some("Layers"), true),
-                num("layer_to", "Last layer (0 = top)", 0.0, 0.0, 1000.0, 1.0, Some("Layers"), true),
-                num("layer_height_mm", "Layer height (mm, 0 = from the stencil)", 0.0, 0.0, 1.0, 0.05, Some("Layers"), false),
+                num("layer_to", "Last layer (0 = the top one)", 0.0, 0.0, 1000.0, 1.0, Some("Layers"), true),
                 num("tolerance_mm", "Largest shift of an outline (mm)", 0.1, 0.01, 1.0, 0.01, Some("Simplify"), false),
-                flag("keep_material", "Round towards material", true, Some("Simplify")),
+                num("smoothing", "Smoothing (0 = none, 1 = strongest)", 0.5, 0.0, 1.0, 0.05, Some("Simplify"), false),
+                flag("keep_material", "Only round towards material (never thinner)", true, Some("Simplify")),
                 num("max_overhang_deg", "Largest overhang (deg, 90 = no limit)", 45.0, 10.0, 90.0, 1.0, Some("Simplify"), false),
             ],
-            doc: "Cuts the mesh density of chosen layers. Each layer's outline loses vertices while it stays within the tolerance, rounding towards material, and no layer is left overhanging the one below by more than the angle. Layers outside the interval keep their shape. Run it right after a stencil, before post-processing.",
+            doc: "Cuts the mesh density. Outline edges that several layers share are smoothed and simplified once, so layers keep sharing vertices; the shift stays within the tolerance and, with the material option, only adds material. No layer overhangs the one below by more than the angle. The layer height is the stencil's. Layers outside the interval keep their shape (an interval short of the whole plate saves few vertices). Run it right after a stencil, before post-processing.",
             run: run_complexity,
         },
         NodeDef {
