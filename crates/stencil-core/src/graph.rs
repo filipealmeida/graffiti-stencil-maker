@@ -345,6 +345,43 @@ fn run_trace(_: &Engine, i: &HashMap<String, Value>, p: &P) -> Result<Outputs, S
     Ok(vec![("shapes", Value::Shapes(Rc::new(s)))])
 }
 
+fn run_round_corners(_: &Engine, i: &HashMap<String, Value>, p: &P) -> Result<Outputs, String> {
+    let Some(Value::Shapes(s)) = i.get("shapes") else {
+        return Err("input 'shapes' missing".into());
+    };
+    let (out, rounded, _) = crate::shape_edit::round_corners(
+        s,
+        &crate::shape_edit::CornerParams {
+            max_angle_deg: p.f("max_angle"),
+            radius_px: p.f("radius"),
+            round_concave: p.b("round_concave"),
+        },
+    );
+    Ok(vec![
+        ("shapes", Value::Shapes(Rc::new(out))),
+        ("rounded", Value::Shapes(Rc::new(rounded))),
+    ])
+}
+
+fn run_remove_islands(_: &Engine, i: &HashMap<String, Value>, p: &P) -> Result<Outputs, String> {
+    let Some(Value::Shapes(s)) = i.get("shapes") else {
+        return Err("input 'shapes' missing".into());
+    };
+    let (out, removed, _) = crate::shape_edit::remove_islands(
+        s,
+        &crate::shape_edit::IslandParams {
+            delete_specks: p.b("delete_specks"),
+            fill_holes: p.b("fill_holes"),
+            max_area_px: p.f("max_area"),
+            keep_largest: p.f("keep_largest") as usize,
+        },
+    );
+    Ok(vec![
+        ("shapes", Value::Shapes(Rc::new(out))),
+        ("removed", Value::Shapes(Rc::new(removed))),
+    ])
+}
+
 fn run_shapes_to_mask(_: &Engine, i: &HashMap<String, Value>, p: &P) -> Result<Outputs, String> {
     let Some(Value::Shapes(s)) = i.get("shapes") else {
         return Err("input 'shapes' missing".into());

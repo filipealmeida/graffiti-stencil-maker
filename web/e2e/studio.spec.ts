@@ -308,3 +308,15 @@ test('the Complexity reducer can be added from the stencil menu and shows its pa
   await expect(page.locator('aside')).toContainText('tolerance')
   await expect(page.locator('aside')).toContainText('overhang')
 })
+
+test('the shape cleanup nodes can be added from the trace menu', async ({ page }) => {
+  await open(page)
+  await page.getByRole('button', { name: '+ trace' }).click()
+  await page.locator('.menu button').filter({ hasText: 'Round corners' }).click()
+  await page.getByRole('button', { name: '+ trace' }).click()
+  await page.locator('.menu button').filter({ hasText: 'Remove islands' }).click()
+  const node = page.locator('.react-flow__node').filter({ hasText: 'Remove islands' })
+  await expect(node).toBeVisible()
+  await node.dispatchEvent('click')
+  await expect(page.locator('aside')).toContainText('Smaller than')
+})

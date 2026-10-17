@@ -522,3 +522,34 @@ fn complexity_reducer_rejects_an_empty_interval() {
     let r = e.run(&g, None, &|| 0.0);
     assert_eq!(r["nodes"]["cx"]["state"], "error", "{r}");
 }
+
+#[test]
+fn shape_cleanup_nodes_feed_a_vector_stencil() {
+    let mut e = Engine::new();
+    let g = json!({
+        "nodes": [
+            {"id": "t", "type": "text", "params": {"text": "AK"}},
+            {"id": "tr", "type": "trace", "params": {}},
+            {"id": "rc", "type": "round_corners", "params": {"radius": 2, "max_angle": 120}},
+            {"id": "ri", "type": "remove_islands", "params": {"max_area": 400}},
+            {"id": "vs", "type": "vector_stencil", "params": {"width_mm": 80, "thickness_mm": 2}},
+        ],
+        "edges": [
+            {"from": ["t", "mask"], "to": ["tr", "mask"]},
+            {"from": ["tr", "shapes"], "to": ["rc", "shapes"]},
+            {"from": ["rc", "shapes"], "to": ["ri", "shapes"]},
+            {"from": ["ri", "shapes"], "to": ["vs", "shapes"]}
+        ]
+    });
+    let r = e.run(&g, None, &|| 0.0);
+    for n in ["rc", "ri", "vs"] {
+        assert_eq!(r["nodes"][n]["state"], "done", "{n}: {r}");
+    }
+    let info = |n: &str, o: &str| {
+        e.value(r["nodes"][n]["key"].as_str().unwrap(), o)
+            .unwrap()
+            .info()
+    };
+    assert!(info("rc", "rounded")["loops"].as_u64().unwrap() > 0);
+    assert!(info("ri", "removed")["kind"] == "shapes");
+}

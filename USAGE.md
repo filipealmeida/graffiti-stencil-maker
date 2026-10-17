@@ -45,7 +45,13 @@ New nodes are placed in the first free spot of their lane (Trace / Stencil / Pos
 
 The graph is arranged into three stages:
 
-1. **Trace:** Image, Threshold, Reduce colours, Split colours, Tone patterns, Morphology, Smooth mask (blur + supersample for curved edges), Trace, and Shapes to mask.
+1. **Trace:** Image, Threshold, Reduce colours, Split colours, Tone patterns, Morphology, Smooth mask (blur + supersample for curved edges), Trace, **Round corners**, **Remove islands**, and Shapes to mask.
+   Round corners and Remove islands take traced shapes and give shapes, so they sit between Trace and Vector stencil.
+   *Round corners* replaces corners sharper than the chosen angle with a tangent arc of the chosen radius (px); it rounds paint tips
+   (losing material) and, optionally, empty spikes (gaining it), and its `rounded` output previews the cut-off tips.
+   *Remove islands* deletes paint specks and/or fills holes smaller than an area (px²), together with anything nested inside,
+   and can keep only the N largest shapes; its `removed` output shows what was dropped. Filling a hole removes a stencil island
+   at the source, so fewer bridges are needed.
 2. **Stencil:** Stencil accepts a raster mask; Vector stencil accepts traced outlines and builds polygon geometry
    directly. Both support bridge width, bridges per island (1–5) and island handling. Raised bridges use stepped Z geometry to retain the
    original artwork on the first layer.
