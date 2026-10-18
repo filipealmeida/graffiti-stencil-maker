@@ -105,7 +105,7 @@ test('the console lists timed sub-steps of the stencil node', async ({ page }) =
   await expect(rows.filter({ hasText: 'build mesh' }).first()).toContainText(/\d+ ms/)
 })
 
-test('new nodes avoid existing ones and panels can be resized', async ({ page }) => {
+test('new nodes avoid existing ones and no lane panels are drawn', async ({ page }) => {
   await open(page)
   for (let i = 0; i < 3; i++) {
     await page.getByRole('button', { name: '+ trace' }).click()
@@ -118,18 +118,7 @@ test('new nodes avoid existing ones and panels can be resized', async ({ page })
     const overlap = a[0] < b[0] + b[2] && b[0] < a[0] + a[2] && a[1] < b[1] + b[3] && b[1] < a[1] + a[3]
     expect(overlap, `nodes ${i} and ${j}`).toBe(false)
   }
-  const lane = page.locator('.lane-stencil')
-  const before = (await lane.boundingBox())!
-  const grip = page.locator('.lane-trace .lane-grip')
-  const g = (await grip.boundingBox())!
-  const gy = g.y + 40
-  await page.mouse.move(g.x + g.width / 2, gy)
-  await page.mouse.down()
-  await page.mouse.move(g.x + g.width / 2 + 120, gy, { steps: 5 })
-  await page.mouse.up()
-  const after = (await lane.boundingBox())!
-  expect(after.x).toBeGreaterThan(before.x + 60)
-  expect(after.width).toBeLessThan(before.width - 60)
+  await expect(page.locator('.lane')).toHaveCount(0)
 })
 
 test('3D views show dimensions and the trace node exports SVG', async ({ page }) => {
@@ -350,16 +339,19 @@ test('+ All lists every node by usage with counts, menus flow into columns, and 
   await expect(page.locator('.perf')).toHaveCount(0)
 })
 
-test('the Image node can open a new picture node and download its own', async ({ page }) => {
+test('the Image node opens a replacement picture and downloads its own, inside the inspector', async ({ page }) => {
   await open(page)
   const node = page.locator('.react-flow__node').filter({ hasText: 'Image' }).first()
-  await expect(node.getByRole('button', { name: 'Download' })).toBeVisible()
+  await expect(node.getByRole('button', { name: 'Download' })).toHaveCount(0)
+  await node.dispatchEvent('click')
+  const side = page.locator('aside')
   const dl = page.waitForEvent('download')
-  await node.getByRole('button', { name: 'Download' }).click()
+  await side.getByRole('button', { name: 'Download' }).click()
   expect((await dl).suggestedFilename()).toMatch(/\.(png|jpg|jpeg|bmp|svg)$/)
-  const before = await page.locator('.react-flow__node').filter({ hasText: 'Image' }).count()
-  await node.locator('input[type=file]').setInputFiles({ name: 'dot.png', mimeType: 'image/png', buffer: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64') })
-  await expect(page.locator('.react-flow__node').filter({ hasText: 'Image' })).toHaveCount(before + 1)
+  const before = await page.locator('.react-flow__node').count()
+  await side.locator('input[type=file]').setInputFiles({ name: 'dot.png', mimeType: 'image/png', buffer: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64') })
+  await expect(side).toContainText('dot.png')
+  expect(await page.locator('.react-flow__node').count()).toBe(before)
 })
 
 test('Tiles & mounting has a connector depth slider', async ({ page }) => {

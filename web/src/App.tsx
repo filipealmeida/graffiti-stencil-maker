@@ -5,7 +5,6 @@ import {
   MiniMap,
   ReactFlow,
   ReactFlowProvider,
-  ViewportPortal,
   useReactFlow,
   type Edge,
 } from "@xyflow/react";
@@ -20,7 +19,6 @@ import { etaSeconds, formatEta, useNow } from "./eta";
 import {
   laneSpan,
   redo,
-  resizeLane,
   resetHistory,
   runGraph,
   signature,
@@ -32,16 +30,6 @@ import {
 
 const nodeTypes = { studio: StudioNodeView };
 const edgeTypes = { default: StudioEdge };
-const LANES: {
-  stage: Stage;
-  title: string;
-  edge: "stencil" | "post" | "end";
-}[] = [
-  { stage: "trace", title: "1 · Trace — image to masks", edge: "stencil" },
-  { stage: "stencil", title: "2 · Stencil — mask to 3D plate", edge: "post" },
-  { stage: "post", title: "3 · Post-process — parts", edge: "end" },
-];
-
 const DRAFT_DELAY = 150;
 
 /** The one-line state of the engine: working (with the time left when it is long), draft, error or ready. */
@@ -347,52 +335,6 @@ function Canvas() {
           .slice(0, 14)
       : actions.slice(0, 14);
   }, [cmdQ, s.types, templates, s.nodes]);
-  const lane = (l: (typeof LANES)[number]) => {
-    const { x, w } = laneSpan(s.lanes, l.stage);
-    // dragging a handle moves the boundary that follows this lane, so the next lane keeps its right edge
-    const drag = (e: React.PointerEvent<HTMLDivElement>) => {
-      e.preventDefault();
-      e.stopPropagation();
-      const el = e.currentTarget;
-      el.setPointerCapture(e.pointerId);
-      const startX = e.clientX;
-      const zoom = rf.getViewport().zoom;
-      const base = s.lanes;
-      const at =
-        l.edge === "stencil"
-          ? base.stencil
-          : l.edge === "post"
-            ? base.post
-            : base.end;
-      const move = (ev: PointerEvent) =>
-        useStudio
-          .getState()
-          .setLanes(
-            resizeLane(base, l.edge, at + (ev.clientX - startX) / zoom),
-          );
-      const up = () => {
-        el.removeEventListener("pointermove", move);
-        el.removeEventListener("pointerup", up);
-      };
-      el.addEventListener("pointermove", move);
-      el.addEventListener("pointerup", up);
-    };
-    return (
-      <div
-        key={l.stage}
-        className={`lane lane-${l.stage}`}
-        style={{ left: x, width: w }}
-      >
-        {l.title}
-        <div
-          className="lane-grip"
-          title="Drag to resize this panel"
-          onPointerDown={drag}
-        />
-      </div>
-    );
-  };
-
   return (
     <div
       className="app"
@@ -653,9 +595,6 @@ function Canvas() {
               style: { stroke: KIND_COLOR.any, strokeWidth: 2 },
             }}
           >
-            <ViewportPortal>
-              <div className="lanes">{LANES.map(lane)}</div>
-            </ViewportPortal>
             <Background gap={24} color="#2a2f37" />
             <Controls showInteractive={false} />
             <MiniMap pannable zoomable />

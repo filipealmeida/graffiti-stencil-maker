@@ -41,7 +41,7 @@ The 3D viewers (Stencil and Post-process outputs) show the model size (width × 
 
 Build and run the studio as described in [INSTALL.md](INSTALL.md). Drop an image onto the canvas, or choose one of
 the starter templates. The graph is evaluated in a Web Worker; node outputs can be inspected in the side panel.
-New nodes are placed in the first free spot of their lane (Trace / Stencil / Post-process). Drag the grip on a lane's right edge to resize it; widths are remembered between visits. Existing nodes do not move when a lane is resized.
+New nodes are placed in the first free spot, left to right by stage (Trace, Stencil, Post-process).
 
 The graph is arranged into three stages:
 
@@ -86,8 +86,7 @@ project controls.
 
 The **+ trace / + stencil / + post** menus add nodes by stage; long menus flow into several columns and scroll
 inside themselves when they reach the bottom of the page. **+ All** lists every node, most used first; the badge
-(and the tooltip) shows how many times you added that node in this browser. An Image node has **Open new…** (adds
-another Image node for a different picture) and **Download** (saves the original picture). The **Perf** button toggles an
+(and the tooltip) shows how many times you added that node in this browser. Select an Image node and its side panel has **Open…** (replaces the loaded picture) and **Download** (saves the original picture). The **Perf** button toggles an
 overlay with the engine worker count and state, the share of the last 10 s the engine was computing, how late the page's
 timer fires (UI lag) and the CPU core count. Browsers do not expose real CPU use, so those figures are what the page
 can measure, and the engine runs in a single worker.
