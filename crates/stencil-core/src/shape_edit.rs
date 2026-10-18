@@ -350,7 +350,7 @@ mod tests {
             .enumerate()
             .map(|(i, p)| {
                 signed_area(p).abs()
-                    * if nest.ancestors[i].len() % 2 == 0 {
+                    * if nest.ancestors[i].len().is_multiple_of(2) {
                         1.0
                     } else {
                         -1.0

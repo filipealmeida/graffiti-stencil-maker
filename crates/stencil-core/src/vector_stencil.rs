@@ -1,5 +1,6 @@
 use super::{validate, Mesh, Output, Params, Stats, ZBridging};
-use crate::complexity::grow;
+use crate::fasthash::{FastMap, FastSet};
+use crate::remesh::grow;
 use crate::segindex::SegIndex;
 use crate::trace::{Pt, Shapes};
 use i_triangle::i_overlay::core::fill_rule::FillRule;
@@ -210,34 +211,49 @@ fn repair_point_contacts(shapes: &[Vec<Vec<IntPoint<i32>>>]) -> Vec<Vec<Vec<IntP
     }
 }
 
-/// Runs the closure over every item, on all cores where threads exist (not in the browser's WebAssembly).
-fn each_mut<T: Send, F: Fn(&mut T) + Sync + Send>(items: &mut [T], f: F) {
-    #[cfg(not(target_arch = "wasm32"))]
-    {
-        use rayon::prelude::*;
-        items.par_iter_mut().for_each(f);
-    }
-    #[cfg(target_arch = "wasm32")]
-    items.iter_mut().for_each(f);
-}
+/// A shape: its outer outline and holes, as integer polygons.
+type Shape = Vec<Vec<IntPoint<i32>>>;
+
+/// A contour index, a vertex index within it, and the vertex.
+type Vertex = (usize, usize, IntPoint<i32>);
+
+/// The run's contours with the shapes nested under them.
+type Job = (Vec<Vec<IntPoint<i32>>>, Vec<Shape>);
 
 /// Every run shares the vertices created where bridges cross the outlines: an edge passing within a unit or two
 /// of another run's vertex gets that vertex too, so all runs agree on where the walls break.
-fn node_runs(runs: &mut [Vec<Vec<Vec<IntPoint<i32>>>>]) {
+///
+/// Later rounds are incremental: a run that no repair touched since the last round only needs its edges checked
+/// against the vertices that appeared since then (`seen` remembers the earlier ones); a changed run is checked
+/// against everything. Runs that gain a vertex are marked in `dirty`.
+fn node_runs(runs: &mut [Vec<Shape>], dirty: &mut [bool], seen: &mut FastSet<(i32, i32)>) {
     type Contour = Vec<IntPoint<i32>>;
     const CELL: i64 = 4096;
     let key = |x: i64, y: i64| (x.div_euclid(CELL), y.div_euclid(CELL));
-    let mut grid: HashMap<(i64, i64), Vec<IntPoint<i32>>> = HashMap::new();
-    let mut seen = std::collections::HashSet::new();
+    let mut grid: FastMap<(i64, i64), Vec<IntPoint<i32>>> = FastMap::default();
+    let mut fresh: FastMap<(i64, i64), Vec<IntPoint<i32>>> = FastMap::default();
+    let mut now = FastSet::default();
     for r in runs.iter().flatten().flatten().flatten() {
-        if seen.insert((r.x, r.y)) {
-            grid.entry(key(r.x as i64, r.y as i64))
-                .or_default()
-                .push(*r);
+        if now.insert((r.x, r.y)) {
+            let cell = key(r.x as i64, r.y as i64);
+            grid.entry(cell).or_default().push(*r);
+            if !seen.contains(&(r.x, r.y)) {
+                fresh.entry(cell).or_default().push(*r);
+            }
         }
     }
-    let mut contours: Vec<&mut Contour> = runs.iter_mut().flatten().flatten().collect();
-    each_mut(&mut contours, |contour| {
+    *seen = now;
+    let sizes: Vec<usize> = runs
+        .iter()
+        .map(|r| r.iter().flatten().map(Vec::len).sum())
+        .collect();
+    let mut contours: Vec<(&mut Contour, bool)> = runs
+        .iter_mut()
+        .zip(dirty.iter())
+        .flat_map(|(run, &d)| run.iter_mut().flatten().map(move |c| (c, d)))
+        .collect();
+    crate::par::each_mut(&mut contours, |(contour, full)| {
+        let grid = if *full { &grid } else { &fresh };
         let n = contour.len();
         let mut out = Vec::with_capacity(n);
         for i in 0..n {
@@ -299,28 +315,26 @@ fn node_runs(runs: &mut [Vec<Vec<Vec<IntPoint<i32>>>>]) {
         }
         **contour = out;
     });
+    for (d, (run, before)) in dirty.iter_mut().zip(runs.iter().zip(sizes)) {
+        *d |= run.iter().flatten().map(Vec::len).sum::<usize>() != before;
+    }
 }
 
 /// Like `repair_point_contacts`, but also for vertices a few units from another vertex of the outlines: rounding
 /// turns such near-touches and tiny jogs into pinch points that no manifold mesh can have.
-fn repair_near_contacts(
-    shapes: &[Vec<Vec<IntPoint<i32>>>],
-    radius: i32,
-) -> (Vec<Vec<Vec<IntPoint<i32>>>>, usize) {
+fn repair_near_contacts(shapes: &[Vec<Vec<IntPoint<i32>>>], radius: i32) -> (Vec<Shape>, usize) {
     const NEAR: i32 = 3;
-    let mut grid: HashMap<(i32, i32), Vec<(usize, usize, IntPoint<i32>)>> = HashMap::new();
-    let mut id = 0;
+    let mut grid: FastMap<(i32, i32), Vec<Vertex>> = FastMap::default();
     let mut lens: Vec<usize> = Vec::new();
-    for contour in shapes.iter().flatten() {
+    for (id, contour) in shapes.iter().flatten().enumerate() {
         lens.push(contour.len());
         for (i, p) in contour.iter().enumerate() {
             grid.entry((p.x.div_euclid(8), p.y.div_euclid(8)))
                 .or_default()
                 .push((id, i, *p));
         }
-        id += 1;
     }
-    let mut at: std::collections::HashSet<(i32, i32)> = Default::default();
+    let mut at: FastSet<(i32, i32)> = Default::default();
     for cell in grid.values() {
         for &(ca, ia, pa) in cell {
             for dx in -1..=1 {
@@ -374,7 +388,7 @@ fn widen_thin(
     min_mm: f64,
 ) -> Vec<Vec<Vec<IntPoint<i32>>>> {
     let r = min_mm * 0.5 * UNITS_PER_MM;
-    let plate_region = vec![vec![plate.to_vec()]];
+    let plate_region = [vec![plate.to_vec()]];
     let plate_region = &plate_region[0];
     let paint =
         plate_region
@@ -689,13 +703,13 @@ pub(crate) fn build(shapes: &Shapes, detail: f64, p: &Params) -> Result<Output, 
         // Each run is built from the plate and the strips themselves, never from the previous run, so that every
         // crossing is computed from the same two original segments in all of them.
         let mut cumulative: Vec<Vec<IntPoint<i32>>> = Vec::new();
-        let mut jobs: Vec<(Vec<Vec<IntPoint<i32>>>, Vec<Vec<Vec<IntPoint<i32>>>>)> = Vec::new();
+        let mut jobs: Vec<Job> = Vec::new();
         for (k, polys) in &steps {
             cumulative.extend(polys.iter().cloned());
             planes.push(*k as f64 * layer_height);
             jobs.push((cumulative.clone(), Vec::new()));
         }
-        each_mut(&mut jobs, |(strips, out)| {
+        crate::par::each_mut(&mut jobs, |(strips, out)| {
             let merged = material.as_slice().overlay(
                 strips.as_slice(),
                 OverlayRule::Union,
@@ -712,11 +726,20 @@ pub(crate) fn build(shapes: &Shapes, detail: f64, p: &Params) -> Result<Output, 
         let mut tried = 0;
         let mut last_patched = usize::MAX;
         let mut done: Option<crate::mesh::Mesh> = None;
+        let mut dirty = vec![true; runs.len()];
+        let mut known = FastSet::default();
         for round in 0..12 {
-            node_runs(&mut runs);
-            let mut work: Vec<(Vec<Vec<Vec<IntPoint<i32>>>>, usize, bool)> =
-                runs.drain(..).map(|r| (r, 0, false)).collect();
-            each_mut(&mut work, |(run, patched, changed)| {
+            node_runs(&mut runs, &mut dirty, &mut known);
+            let mut work: Vec<(Vec<Shape>, usize, bool, bool)> = runs
+                .drain(..)
+                .zip(&dirty)
+                .map(|(r, &d)| (r, 0, false, d))
+                .collect();
+            // a run nothing touched since its last repair would repair to itself
+            crate::par::each_mut(&mut work, |(run, patched, changed, dirty)| {
+                if !*dirty {
+                    return;
+                }
                 let (next, n) = repair_near_contacts(run, radius);
                 *changed = n > 0 && next != *run;
                 *patched = n;
@@ -724,11 +747,12 @@ pub(crate) fn build(shapes: &Shapes, detail: f64, p: &Params) -> Result<Output, 
             });
             let patched: usize = work.iter().map(|w| w.1).sum();
             let changed = work.iter().any(|w| w.2);
+            dirty = work.iter().map(|w| w.2).collect();
             runs.extend(work.into_iter().map(|w| w.0));
             let stalled = patched > 0 && patched == last_patched && round >= 2;
             last_patched = patched;
             if !changed || (stalled && tried < 3) {
-                let mesh = crate::complexity::build(&planes, &runs);
+                let mesh = crate::remesh::build(&planes, &runs);
                 if !changed || mesh.is_watertight() {
                     done = Some(mesh);
                     break;
@@ -745,7 +769,7 @@ pub(crate) fn build(shapes: &Shapes, detail: f64, p: &Params) -> Result<Output, 
                 last.len()
             ));
         }
-        let mut stack = done.unwrap_or_else(|| crate::complexity::build(&planes, &runs));
+        let mut stack = done.unwrap_or_else(|| crate::remesh::build(&planes, &runs));
         if p.flip {
             for v in &mut stack.v {
                 v[0] = p.width_mm - v[0];

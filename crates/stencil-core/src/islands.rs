@@ -79,6 +79,7 @@ pub(crate) fn edt_sq(src: &[bool], w: usize, h: usize) -> Vec<f32> {
             }
         }
         k = 0;
+        #[allow(clippy::needless_range_loop)]
         for q in 0..n {
             while z[k + 1] < q as f32 {
                 k += 1;
@@ -99,7 +100,7 @@ pub(crate) fn edt_sq(src: &[bool], w: usize, h: usize) -> Vec<f32> {
         }
     }
     for y in 0..h {
-        let d = pass(&g[y * w..(y + 1) * w].to_vec(), w);
+        let d = pass(&g[y * w..(y + 1) * w], w);
         g[y * w..(y + 1) * w].copy_from_slice(&d);
     }
     g

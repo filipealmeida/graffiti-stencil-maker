@@ -370,13 +370,13 @@ fn text_node_makes_a_mask_that_becomes_an_island_free_stencil() {
     assert!(info["stats"]["islands_found"].as_u64().unwrap() >= 3);
 }
 
-fn complexity_run(stencil: Json, reducer: Json) -> (Vec<u8>, Vec<u8>, Json) {
+fn remesh_run(stencil: Json, reducer: Json) -> (Vec<u8>, Vec<u8>, Json) {
     let mut e = Engine::new();
     let g = json!({
         "nodes": [
             {"id": "t", "type": "text", "params": {"text": "BOA", "size": 200}},
             {"id": "st", "type": "stencil", "params": stencil},
-            {"id": "cx", "type": "complexity", "params": reducer},
+            {"id": "cx", "type": "remesh", "params": reducer},
         ],
         "edges": [
             {"from": ["t", "mask"], "to": ["st", "mask"]},
@@ -391,11 +391,7 @@ fn complexity_run(stencil: Json, reducer: Json) -> (Vec<u8>, Vec<u8>, Json) {
     };
     let k = r["nodes"]["cx"]["key"].as_str().unwrap();
     let info = e.value(k, "solid").unwrap().info();
-    (
-        bytes("st"),
-        bytes("cx"),
-        info["stats"]["complexity"].clone(),
-    )
+    (bytes("st"), bytes("cx"), info["stats"]["remesh"].clone())
 }
 
 fn assert_same_plate(before: &[u8], after: &[u8], volume_tol: f64, shift: f64) {
@@ -423,8 +419,8 @@ fn assert_same_plate(before: &[u8], after: &[u8], volume_tol: f64, shift: f64) {
 }
 
 #[test]
-fn complexity_reducer_cuts_vertices_and_keeps_the_plate() {
-    let (before, after, c) = complexity_run(
+fn remesh_cuts_vertices_and_keeps_the_plate() {
+    let (before, after, c) = remesh_run(
         json!({"width_mm": 100, "thickness_mm": 2}),
         json!({"tolerance_mm": 0.15}),
     );
@@ -443,7 +439,7 @@ fn complexity_reducer_cuts_vertices_and_keeps_the_plate() {
 }
 
 #[test]
-fn complexity_reducer_rounds_towards_material() {
+fn remesh_rounds_towards_material() {
     use crate::mesh::Mesh;
     let args = |keep: bool| {
         (
@@ -452,9 +448,9 @@ fn complexity_reducer_rounds_towards_material() {
         )
     };
     let (s, r) = args(true);
-    let (before, keep, _) = complexity_run(s, r);
+    let (before, keep, _) = remesh_run(s, r);
     let (s, r) = args(false);
-    let (_, neutral, _) = complexity_run(s, r);
+    let (_, neutral, _) = remesh_run(s, r);
     let v = |b: &[u8]| Mesh::from_stl(b).unwrap().volume();
     assert!(
         v(&keep) >= v(&before) * 0.995,
@@ -466,14 +462,14 @@ fn complexity_reducer_rounds_towards_material() {
 }
 
 #[test]
-fn complexity_reducer_on_raised_bridges_is_valid_or_leaves_the_solid_alone() {
+fn remesh_on_raised_bridges_is_valid_or_leaves_the_solid_alone() {
     let st =
         json!({"width_mm": 100, "thickness_mm": 2, "raised_bridges": true, "layer_height_mm": 0.2});
     for params in [
         json!({"tolerance_mm": 0.15}),
         json!({"tolerance_mm": 0.15, "layer_from": 2, "layer_to": 4}),
     ] {
-        let (before, after, c) = complexity_run(st.clone(), params.clone());
+        let (before, after, c) = remesh_run(st.clone(), params.clone());
         assert_same_plate(&before, &after, 0.05, 0.15);
         assert_eq!(c["overhang_violation_mm2"].as_f64().unwrap(), 0.0, "{c}");
         if c["skipped"].is_null() {
@@ -488,16 +484,16 @@ fn complexity_reducer_on_raised_bridges_is_valid_or_leaves_the_solid_alone() {
 }
 
 #[test]
-fn complexity_reducer_interval_is_recorded_and_the_overhang_limit_holds() {
+fn remesh_interval_is_recorded_and_the_overhang_limit_holds() {
     let st = json!({"width_mm": 100, "thickness_mm": 2});
-    let (before, after, c) = complexity_run(
+    let (before, after, c) = remesh_run(
         st.clone(),
         json!({"tolerance_mm": 0.15, "layer_from": 3, "layer_to": 9, "max_overhang_deg": 30}),
     );
     assert_same_plate(&before, &after, 0.05, 0.15);
     assert_eq!((c["from"].as_u64(), c["to"].as_u64()), (Some(3), Some(9)));
     assert_eq!(c["overhang_violation_mm2"].as_f64().unwrap(), 0.0, "{c}");
-    let (_, _, free) = complexity_run(st, json!({"tolerance_mm": 0.15, "max_overhang_deg": 90}));
+    let (_, _, free) = remesh_run(st, json!({"tolerance_mm": 0.15, "max_overhang_deg": 90}));
     assert_eq!(
         free["overhang_violation_mm2"].as_f64().unwrap(),
         0.0,
@@ -506,13 +502,13 @@ fn complexity_reducer_interval_is_recorded_and_the_overhang_limit_holds() {
 }
 
 #[test]
-fn complexity_reducer_rejects_an_empty_interval() {
+fn remesh_rejects_an_empty_interval() {
     let mut e = Engine::new();
     let g = json!({
         "nodes": [
             {"id": "t", "type": "text", "params": {"text": "O"}},
             {"id": "st", "type": "stencil", "params": {"thickness_mm": 2}},
-            {"id": "cx", "type": "complexity", "params": {"layer_from": 500}},
+            {"id": "cx", "type": "remesh", "params": {"layer_from": 500}},
         ],
         "edges": [
             {"from": ["t", "mask"], "to": ["st", "mask"]},

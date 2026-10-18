@@ -277,29 +277,6 @@ impl Mesh {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn box_boolean_roundtrip() {
-        let a = Mesh::cuboid([0.0; 3], [10.0, 10.0, 4.0]);
-        assert!(a.is_watertight());
-        assert!((a.volume() - 400.0).abs() < 1e-9);
-        let hole = Mesh::prism_z(6, 1.5, -1.0, 5.0);
-        assert!(hole.is_watertight() && hole.volume() > 0.0);
-        let mut h = hole.clone();
-        h.translate([5.0, 5.0, 0.0]);
-        let r = a.subtract(&h).unwrap();
-        assert!(r.is_watertight());
-        assert!(r.volume() < 400.0 - 20.0);
-        let mut side = Mesh::prism_z(16, 1.0, -3.0, 3.0).along(0);
-        side.translate([5.0, 5.0, 2.0]);
-        assert!(side.volume() > 0.0 && side.is_watertight());
-        assert!(r.subtract(&side).unwrap().is_watertight());
-    }
-}
-
 fn sub(a: P3, b: P3) -> P3 {
     [a[0] - b[0], a[1] - b[1], a[2] - b[2]]
 }
@@ -343,4 +320,27 @@ fn tri_box(v: &[P3; 3], c: P3, h: P3) -> bool {
     let r = h[0] * n[0].abs() + h[1] * n[1].abs() + h[2] * n[2].abs();
     let d = p[0][0] * n[0] + p[0][1] * n[1] + p[0][2] * n[2];
     d.abs() <= r
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn box_boolean_roundtrip() {
+        let a = Mesh::cuboid([0.0; 3], [10.0, 10.0, 4.0]);
+        assert!(a.is_watertight());
+        assert!((a.volume() - 400.0).abs() < 1e-9);
+        let hole = Mesh::prism_z(6, 1.5, -1.0, 5.0);
+        assert!(hole.is_watertight() && hole.volume() > 0.0);
+        let mut h = hole.clone();
+        h.translate([5.0, 5.0, 0.0]);
+        let r = a.subtract(&h).unwrap();
+        assert!(r.is_watertight());
+        assert!(r.volume() < 400.0 - 20.0);
+        let mut side = Mesh::prism_z(16, 1.0, -3.0, 3.0).along(0);
+        side.translate([5.0, 5.0, 2.0]);
+        assert!(side.volume() > 0.0 && side.is_watertight());
+        assert!(r.subtract(&side).unwrap().is_watertight());
+    }
 }

@@ -295,7 +295,7 @@ pub(crate) fn layered_mesh(
 
     let mut jobs: Vec<(u32, bool, Vec<Loop>)> = Vec::new();
     for &k in &planes {
-        let edges = boundary_edges(&by_k[&k], |j| kmin[j] == k, |i, dx, dy| kn(i, dx, dy), w, h);
+        let edges = boundary_edges(&by_k[&k], |j| kmin[j] == k, kn, w, h);
         jobs.push((
             k,
             false,

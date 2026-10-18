@@ -411,7 +411,7 @@ fn run_vector_stencil(_: &Engine, i: &HashMap<String, Value>, p: &P) -> Result<O
     finish_solid(crate::vector_stencil::build(s, p.f("detail"), &q)?, p)
 }
 
-fn input_image<'a>(i: &'a HashMap<String, Value>) -> Result<&'a Rc<RgbImage>, String> {
+fn input_image(i: &HashMap<String, Value>) -> Result<&Rc<RgbImage>, String> {
     match i.get("image") {
         Some(Value::Image(img)) => Ok(img),
         _ => Err("input 'image' missing".into()),
@@ -480,7 +480,7 @@ fn run_stencil(_: &Engine, i: &HashMap<String, Value>, p: &P) -> Result<Outputs,
     )
 }
 
-fn run_complexity(_: &Engine, i: &HashMap<String, Value>, p: &P) -> Result<Outputs, String> {
+fn run_remesh(_: &Engine, i: &HashMap<String, Value>, p: &P) -> Result<Outputs, String> {
     let Some(Value::Solid(s)) = i.get("solid") else {
         return Err("input 'solid' missing".into());
     };
@@ -488,7 +488,7 @@ fn run_complexity(_: &Engine, i: &HashMap<String, Value>, p: &P) -> Result<Outpu
         .as_f64()
         .filter(|&h| h > 0.0)
         .unwrap_or(0.2);
-    let q = crate::complexity::Params {
+    let q = crate::remesh::Params {
         layer_height: lh,
         from: p.f("layer_from") as u32,
         to: p.f("layer_to") as u32,
@@ -496,12 +496,17 @@ fn run_complexity(_: &Engine, i: &HashMap<String, Value>, p: &P) -> Result<Outpu
         max_overhang_deg: p.f("max_overhang_deg"),
         keep_material: p.b("keep_material"),
         smoothing: p.f("smoothing"),
+        decimate_mm: if p.b("decimate") {
+            p.f("decimate_mm")
+        } else {
+            0.0
+        },
     };
-    let (stl, r) = crate::complexity::reduce(&s.stl, &q)?;
+    let (stl, r) = crate::remesh::reduce(&s.stl, &q)?;
     let mut stats = s.stats.clone();
     stats["triangles"] = json!(r.triangles_after);
     stats["stl_bytes"] = json!(stl.len());
-    stats["complexity"] = json!({
+    stats["remesh"] = json!({
         "skipped": r.skipped,
         "layer_height_mm": lh,
         "layers": r.layers,
@@ -514,6 +519,8 @@ fn run_complexity(_: &Engine, i: &HashMap<String, Value>, p: &P) -> Result<Outpu
         "max_deviation_mm": r.max_deviation_mm,
         "tolerance_used_mm": r.tolerance_mm,
         "overhang_violation_mm2": r.overhang_violation_mm2,
+        "triangles_after_layers": r.triangles_layers,
+        "decimate_mm": r.decimate_mm,
     });
     Ok(vec![("solid", Value::Solid(Rc::new(Solid { stl, stats })))])
 }
@@ -785,6 +792,7 @@ impl Engine {
 
     /// Evaluates the graph, or only the ancestors of `targets`. `now` returns epoch milliseconds.
     pub fn run(&mut self, graph: &Json, targets: Option<&[String]>, now: &dyn Fn() -> f64) -> Json {
+        let graph = &migrate(graph);
         let defs: HashMap<&str, NodeDef> = catalogue().into_iter().map(|d| (d.id, d)).collect();
         // `fresh` reports only what this call computed; otherwise every run would re-export all earlier results
         self.fresh.clear();
@@ -939,6 +947,19 @@ impl Engine {
 }
 
 /// Validates the graph and returns the nodes to evaluate, parents first.
+/// Projects saved before a node was renamed keep working: "complexity" is now "remesh".
+fn migrate(graph: &Json) -> Json {
+    let mut g = graph.clone();
+    if let Some(nodes) = g["nodes"].as_array_mut() {
+        for n in nodes {
+            if n["type"] == "complexity" {
+                n["type"] = json!("remesh");
+            }
+        }
+    }
+    g
+}
+
 fn plan(
     graph: &Json,
     defs: &HashMap<&str, NodeDef>,

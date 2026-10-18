@@ -59,7 +59,7 @@ The graph is arranged into three stages:
    joins two different parts of the stencil (a thin "rope" the printer could not lay down on the build plate) is
    widened to the value, over the full height. Dead-end tips are left alone, and the widening grows into the paint
    side only, so the paint area shrinks slightly there.
-   **Complexity reducer** (solid in, solid out) goes right after a stencil node, before post-processing. It re-slices the
+   **Remesh** (formerly *Complexity reducer*; solid in, solid out) goes right after a stencil node, before post-processing. It re-slices the
    STL into layers (layer 1 is on the plate; the layer height and the layer count come from the input stencil, and the
    interval `layer_from`–`layer_to` defaults to the real maximum, stored as `0`), then smooths and simplifies the outlines
    and rebuilds a watertight mesh. Outline chains shared between layers are simplified once, so layers stay consistent.
@@ -70,6 +70,10 @@ The graph is arranged into three stages:
    If the rebuild is not watertight the tolerance is halved (twice) before giving up. If nothing works, or nothing is saved,
    the input passes through unchanged and the stats show `skipped` with the reason. `max_deviation_mm` is an upper bound.
    The tolerance must be well above the outline point spacing to remove anything. Only vertical-walled plates are supported.
+   **Decimation** (on by default, `decimate_mm` = largest surface shift, default 0.02 mm) then collapses vertices on flat faces
+   and straight edges by quadric error, inside the layer interval. Creases survive, topology never changes and the mesh stays
+   watertight; if a collapse set would break that the step is skipped. On a 307k-triangle plate it gave 225k at 0.02 mm and 142k
+   at 0.1 mm. Old projects with the *Complexity reducer* are opened as Remesh.
 3. **Post-process:** Tiles & mounting splits plates (the `depth` slider sets how far each connector sinks into each tile, 4–20 mm, default 10; the rod is `2 × depth − 1` mm long and tiles must be at least `depth / 0.4` mm wide), adds optional hardware features, and exports parts as a ZIP.
    Pieces that a seam cuts off from the rest of their tile are bridged again per tile (same bridge width, count and
    raised-bridge settings as the stencil); `bridged_tiles` in the tiling info counts them. If a tile still has loose

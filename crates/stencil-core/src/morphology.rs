@@ -224,9 +224,9 @@ pub fn thin(w: usize, h: usize, m: &[bool], max_passes: u32) -> Vec<bool> {
                     let t = (0..8).filter(|&i| !n[i] && n[(i + 1) % 8]).count();
                     let (p2, p4, p6, p8) = (n[0], n[2], n[4], n[6]);
                     let ok = if step == 0 {
-                        !(p2 && p4 && p6) && !(p4 && p6 && p8)
+                        !(p4 && p6 && (p2 || p8))
                     } else {
-                        !(p2 && p4 && p8) && !(p2 && p6 && p8)
+                        !(p2 && p8 && (p4 || p6))
                     };
                     if (2..=6).contains(&b) && t == 1 && ok {
                         kill.push(y as usize * w + x as usize);

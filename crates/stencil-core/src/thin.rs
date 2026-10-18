@@ -33,6 +33,7 @@ fn distance_sq(sites: &[bool], w: usize, h: usize) -> Vec<f64> {
             z[k + 1] = FAR;
         }
         k = 0;
+        #[allow(clippy::needless_range_loop)]
         for q in 0..len {
             while z[k + 1] < q as f64 {
                 k += 1;
@@ -82,6 +83,7 @@ pub(crate) fn widen_thin(g: &mut Grid, s: f64, min_mm: f64) {
     let mut area = vec![0usize; top];
     // A rope joins two different thick parts: remember up to two distinct ones each thin piece touches.
     let mut touches = vec![[0u32; 2]; top];
+    #[allow(clippy::needless_range_loop)]
     for i in 0..w * h {
         let l = label[i] as usize;
         if l == 0 {
@@ -114,9 +116,9 @@ pub(crate) fn widen_thin(g: &mut Grid, s: f64, min_mm: f64) {
         return;
     }
     let reach = distance_sq(&big, w, h);
-    for i in 0..w * h {
-        if reach[i] <= r2 {
-            g.m[i] = true;
+    for (m, &r) in g.m.iter_mut().zip(&reach) {
+        if r <= r2 {
+            *m = true;
         }
     }
 }

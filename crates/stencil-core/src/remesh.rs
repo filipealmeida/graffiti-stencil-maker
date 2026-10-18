@@ -1,6 +1,6 @@
-//! Complexity reducer: slices a stencil solid into cross-sections, simplifies the chosen layers
+//! Remesh: slices a stencil solid into cross-sections, simplifies the chosen layers
 //! (fewer vertices, rounding towards material) without letting the layer above overhang more than
-//! the allowed angle, and rebuilds a watertight mesh.
+//! the allowed angle, rebuilds a watertight mesh, then decimates flat faces and straight edges.
 
 use crate::mesh::Mesh;
 use i_triangle::i_overlay::core::fill_rule::FillRule;
@@ -32,6 +32,8 @@ pub struct Params {
     pub keep_material: bool,
     /// 0..1: how strongly outlines are smoothed before they are simplified.
     pub smoothing: f64,
+    /// Largest surface shift allowed when decimating the mesh (mm); 0 switches decimation off.
+    pub decimate_mm: f64,
 }
 
 pub struct Report {
@@ -48,6 +50,9 @@ pub struct Report {
     pub tolerance_mm: f64,
     /// Set when the input was returned untouched, with the reason.
     pub skipped: Option<String>,
+    /// Triangles after the layer step, before decimation.
+    pub triangles_layers: usize,
+    pub decimate_mm: f64,
 }
 
 fn flat(r: &Region) -> Vec<Contour> {
@@ -657,7 +662,7 @@ fn clip_ears(mut poly: Vec<IntPoint>) -> Vec<[IntPoint; 3]> {
 
 struct Builder {
     mesh: Mesh,
-    ids: HashMap<(i32, i32, usize), usize>,
+    ids: crate::fasthash::FastMap<(i32, i32, usize), usize>,
 }
 
 impl Builder {
@@ -678,15 +683,17 @@ pub(crate) fn build(planes: &[f64], runs: &[Region]) -> Mesh {
     let none: Region = vec![];
     let mut b = Builder {
         mesh: Mesh::default(),
-        ids: HashMap::new(),
+        ids: Default::default(),
     };
-    let mut verts: Vec<PlaneVerts> = Vec::new();
-    for j in 0..=runs.len() {
+    // Each plane is triangulated on its own (in parallel where threads exist); ids are handed out in plane order.
+    let indices: Vec<usize> = (0..=runs.len()).collect();
+    let per_plane = crate::par::map(&indices, |&j| {
         let a = if j == 0 { &none } else { &runs[j - 1] };
         let c = if j == runs.len() { &none } else { &runs[j] };
         let up = boolean(a, c, OverlayRule::Difference);
         let down = boolean(c, a, OverlayRule::Difference);
         let pv = PlaneVerts::new(&[a, c, &up, &down]);
+        let mut tris: Vec<[IntPoint; 3]> = Vec::new();
         for (region, facing_up) in [(&up, true), (&down, false)] {
             for shape in region {
                 let tri = shape.triangulate().into_triangulation::<u32>();
@@ -722,11 +729,18 @@ pub(crate) fn build(planes: &[f64], runs: &[Region]) -> Mesh {
                         if flip {
                             tr.swap(1, 2);
                         }
-                        let ids = tr.map(|q| b.vid(q, j, planes[j]));
-                        b.mesh.t.push(ids);
+                        tris.push(tr);
                     }
                 }
             }
+        }
+        (pv, tris)
+    });
+    let mut verts: Vec<PlaneVerts> = Vec::new();
+    for (j, (pv, tris)) in per_plane.into_iter().enumerate() {
+        for tr in tris {
+            let ids = tr.map(|q| b.vid(q, j, planes[j]));
+            b.mesh.t.push(ids);
         }
         verts.push(pv);
     }
@@ -1033,8 +1047,29 @@ pub fn reduce(stl: &[u8], p: &Params) -> Result<(Vec<u8>, Report), String> {
             break;
         }
     }
-    let (out, skip, deviation, violation, scale) = result.expect("at least one attempt");
-    if skip.is_some() {
+    let (layer_mesh, skip, mut deviation, violation, scale) = result.expect("at least one attempt");
+    let layers_done = skip.is_none();
+    let mut mesh = if layers_done {
+        layer_mesh
+    } else {
+        input.clone()
+    };
+    let triangles_layers = mesh.t.len();
+    let mut decimate_used = 0.0;
+    if p.decimate_mm > 0.0 {
+        crate::progress::step("decimate", 0.85);
+        let mut trial = mesh.clone();
+        let dev = crate::decimate::decimate(&mut trial, p.decimate_mm, (zlo, zhi));
+        if trial.is_watertight()
+            && crate::tile_bridge::components(&trial).0 == pieces_before
+            && trial.t.len() < mesh.t.len()
+        {
+            mesh = trial;
+            decimate_used = p.decimate_mm;
+            deviation = deviation.max(dev * U);
+        }
+    }
+    if !layers_done && decimate_used == 0.0 {
         return Ok((
             stl.to_vec(),
             Report {
@@ -1049,10 +1084,12 @@ pub fn reduce(stl: &[u8], p: &Params) -> Result<(Vec<u8>, Report), String> {
                 overhang_violation_mm2: 0.0,
                 tolerance_mm: 0.0,
                 skipped: skip,
+                triangles_layers: input.t.len(),
+                decimate_mm: 0.0,
             },
         ));
     }
-    let bytes = out.to_stl();
+    let bytes = mesh.to_stl();
     crate::progress::step("write STL", 1.0);
     Ok((
         bytes,
@@ -1061,13 +1098,19 @@ pub fn reduce(stl: &[u8], p: &Params) -> Result<(Vec<u8>, Report), String> {
             from,
             to,
             vertices_before: input.v.len(),
-            vertices_after: out.v.len(),
+            vertices_after: mesh.v.len(),
             triangles_before: input.t.len(),
-            triangles_after: out.t.len(),
+            triangles_after: mesh.t.len(),
             max_deviation_mm: deviation / U,
             overhang_violation_mm2: violation,
-            tolerance_mm: p.tolerance_mm * scale,
+            tolerance_mm: if layers_done {
+                p.tolerance_mm * scale
+            } else {
+                0.0
+            },
             skipped: None,
+            triangles_layers,
+            decimate_mm: decimate_used,
         },
     ))
 }

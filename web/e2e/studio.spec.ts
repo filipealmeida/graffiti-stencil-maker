@@ -298,11 +298,11 @@ test('a long palette menu scrolls inside itself, not the page', async ({ page })
   expect(await page.evaluate(() => document.documentElement.scrollHeight <= window.innerHeight)).toBe(true)
 })
 
-test('the Complexity reducer can be added from the stencil menu and shows its parameters', async ({ page }) => {
+test('the Remesh can be added from the stencil menu and shows its parameters', async ({ page }) => {
   await open(page)
   await page.getByRole('button', { name: '+ stencil' }).click()
-  await page.locator('.menu button').filter({ hasText: 'Complexity reducer' }).click()
-  const node = page.locator('.react-flow__node').filter({ hasText: 'Complexity reducer' })
+  await page.locator('.menu button').filter({ hasText: 'Remesh' }).click()
+  const node = page.locator('.react-flow__node').filter({ hasText: 'Remesh' })
   await expect(node).toBeVisible()
   await node.dispatchEvent('click')
   await expect(page.locator('aside')).toContainText('tolerance')

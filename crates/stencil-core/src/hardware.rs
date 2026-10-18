@@ -205,13 +205,17 @@ pub struct MountParams {
     pub segments: usize,
 }
 
+/// Two hole centres either side of a seam, and the seam index.
+pub type MountPair = ((f64, f64), (f64, f64), usize);
+
 pub struct Mounts {
     pub points: Vec<(f64, f64)>,
-    pub pairs: Vec<((f64, f64), (f64, f64), usize)>,
+    pub pairs: Vec<MountPair>,
 }
 
 /// Through-hole centres on the middle of the frame band (plate mm, y up): corners, both sides of every seam that crosses
 /// the frame (pairs for joiner plates) and the middle of long frame segments.
+#[allow(clippy::too_many_arguments)]
 pub fn mount_positions(
     w: f64,
     h: f64,

@@ -205,7 +205,9 @@ export const useStudio = create<State>((set, get) => ({
     selected: s.selected === id ? null : s.selected,
     bench: s.bench === id ? null : s.bench,
   })),
-  load: (nodes, edges) => set({ nodes, edges, runs: {}, selected: null }),
+  // "complexity" is the old name of the Remesh node
+  load: (nodes, edges) =>
+    set({ nodes: nodes.map((n) => (n.data.type === 'complexity' ? { ...n, data: { ...n.data, type: 'remesh' } } : n)), edges, runs: {}, selected: null }),
   starter: (imageId, title) => {
     const { addNode, connect } = get()
     set({ nodes: [], edges: [], runs: {}, selected: null })

@@ -20,7 +20,7 @@ export default function Inspector() {
   const [layers, setLayers] = useState<number | undefined>()
   useEffect(() => {
     setLayers(undefined)
-    if (node?.data.type === 'complexity' && upKey)
+    if (node?.data.type === 'remesh' && upKey)
       api.info(upKey, upOut).then((i) => setLayers(i?.stats?.layers)).catch(() => {})
   }, [upKey, upOut, node?.data.type])
   const avail = t?.outputs.filter((o) => run?.outputs?.[o.name]?.available) ?? []
@@ -57,7 +57,7 @@ export default function Inspector() {
           )}
           {info?.stats && (
             <table><tbody>
-              {['islands_found', 'bridges_added', 'islands_remaining', 'watertight', 'triangles', 'overhang_area_mm2', 'layers', 'size_mm', 'complexity'].filter((k) => k in info.stats).map((k) => (
+              {['islands_found', 'bridges_added', 'islands_remaining', 'watertight', 'triangles', 'overhang_area_mm2', 'layers', 'size_mm', 'remesh'].filter((k) => k in info.stats).map((k) => (
                 <tr key={k}><td>{k.replace(/_/g, ' ')}</td><td>{JSON.stringify(info.stats[k])}</td></tr>
               ))}
             </tbody></table>

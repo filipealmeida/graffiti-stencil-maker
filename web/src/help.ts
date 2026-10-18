@@ -26,6 +26,8 @@ export const PARAM_HELP: Record<string, string> = {
   max_area: 'Anything smaller than this is removed.',
   keep_largest: 'Keep only the biggest shapes; handy to drop noise around a logo.',
   smoothing: 'Strength of smoothing across layers: 0 changes nothing, 1 is the most aggressive.',
+  decimate: 'Collapse vertices on flat faces and straight edges. Creases and the closed mesh are kept; only the shift below is allowed.',
+  decimate_mm: 'How far the surface may move when decimating. Higher removes more triangles; 0.02 mm is invisible, 0.1 mm still keeps every crease.',
   keep_material: 'Round only towards solid material, so the stencil is never thinner than the original.',
   max_x: 'Largest tile width. The plate is cut into tiles that fit your printer bed. 0 = no cutting.',
   max_y: 'Largest tile height. 0 = no cutting.',

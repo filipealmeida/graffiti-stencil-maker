@@ -16,6 +16,7 @@ pub(super) struct NodeDef {
     pub(super) run: RunFn,
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(super) fn num(
     name: &str,
     label: &str,
@@ -256,8 +257,8 @@ pub(super) fn catalogue() -> Vec<NodeDef> {
             run: run_vector_stencil,
         },
         NodeDef {
-            id: "complexity",
-            label: "Complexity reducer",
+            id: "remesh",
+            label: "Remesh",
             stage: "stencil",
             inputs: vec![("solid", "solid", true)],
             outputs: vec![("solid", "solid")],
@@ -268,9 +269,11 @@ pub(super) fn catalogue() -> Vec<NodeDef> {
                 num("smoothing", "Smoothing (0 = none, 1 = strongest)", 0.5, 0.0, 1.0, 0.05, Some("Simplify"), false),
                 flag("keep_material", "Only round towards material (never thinner)", true, Some("Simplify")),
                 num("max_overhang_deg", "Largest overhang (deg, 90 = no limit)", 45.0, 10.0, 90.0, 1.0, Some("Simplify"), false),
+                flag("decimate", "Decimate flat faces and straight edges", true, Some("Decimate")),
+                num("decimate_mm", "Largest surface shift (mm)", 0.02, 0.005, 0.5, 0.005, Some("Decimate"), false),
             ],
-            doc: "Cuts the mesh density. Outline edges that several layers share are smoothed and simplified once, so layers keep sharing vertices; the shift stays within the tolerance and, with the material option, only adds material. No layer overhangs the one below by more than the angle. The layer height is the stencil's. Layers outside the interval keep their shape (an interval short of the whole plate saves few vertices). Run it right after a stencil, before post-processing.",
-            run: run_complexity,
+            doc: "Cuts the mesh density in two steps. Decimation then collapses vertices on flat faces and straight edges, as long as the surface moves less than the shift (creases stay, the mesh stays closed), within the layer interval too. Outline edges that several layers share are smoothed and simplified once, so layers keep sharing vertices; the shift stays within the tolerance and, with the material option, only adds material. No layer overhangs the one below by more than the angle. The layer height is the stencil's. Layers outside the interval keep their shape (an interval short of the whole plate saves few vertices). Run it right after a stencil, before post-processing.",
+            run: run_remesh,
         },
         NodeDef {
             id: "export",

@@ -70,8 +70,8 @@ pub(crate) fn otsu(gray: &[u8]) -> u8 {
         .map(|(i, &c)| i as f64 * c as f64)
         .sum();
     let (mut wb, mut sb, mut best, mut thr) = (0.0, 0.0, -1.0, 127u8);
-    for t in 0..256 {
-        wb += hist[t] as f64;
+    for (t, &count) in hist.iter().enumerate() {
+        wb += count as f64;
         if wb == 0.0 {
             continue;
         }

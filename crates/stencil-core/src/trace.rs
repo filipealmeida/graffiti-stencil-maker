@@ -296,7 +296,7 @@ fn fit_loop(pts: &[Pt], p: &TraceParams) -> Option<Loop> {
             let run = simplify_run(&smooth_run(&run, p.smooth_px, false), p.tolerance_px);
             anchors.extend_from_slice(&run[..run.len() - 1]);
             is_corner.push(true);
-            is_corner.extend(std::iter::repeat(false).take(run.len() - 2));
+            is_corner.extend(std::iter::repeat_n(false, run.len() - 2));
         }
     }
     if anchors.len() < 3 {
