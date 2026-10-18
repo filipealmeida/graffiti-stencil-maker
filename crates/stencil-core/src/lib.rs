@@ -19,6 +19,8 @@ mod layered;
 pub mod mesh;
 pub mod morphology;
 mod par;
+#[cfg(not(target_arch = "wasm32"))]
+pub use par::init_threads;
 pub mod progress;
 pub mod remesh;
 mod segindex;

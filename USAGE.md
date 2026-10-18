@@ -116,5 +116,9 @@ and watertightness before export.
 - **Progress and ETA**: each running node shows its message, elapsed time and an estimated time left; the top status line is announced to screen readers.
 - **Badges** on nodes flag problems (islands remaining, not watertight, bridges under 1 mm, empty/full masks, heavy meshes).
 - **Tooltips and units**: hover or focus a slider for a short explanation; ↺ resets it.
-- **Performance**: the vector stencil uses a spatial index for bridge selection and near-contact repair and stops repairing once the mesh is watertight (a 287-island project: 19 s → 2.8 s easy, ~73 s → 13 s steps). The CLI also runs contours in parallel; the browser engine is single-threaded.
+- **Performance**: the vector stencil uses a spatial index for bridge selection and near-contact repair and stops repairing once the mesh is watertight (a 287-island project: 19 s → 2.8 s easy, ~73 s → 13 s steps). The CLI runs contours in parallel; in the browser, if a threaded WASM package is available and shared memory is allowed, the engine uses half the cores and leaves at least one free, else it falls back to one worker.
 - **Fix**: *Delete islands under (mm²)* in the vector stencil now really uses mm².
+
+- **Command palette**: press `Ctrl+K` (or the `⌘K` button) and type a node or template name to insert it quickly.
+- **3D viewer controls**: `shading` switches between smooth and flat normals, and `detail` can force high/low detail (or auto, which shows low detail while orbiting and high detail when still).
+- **Threaded WebAssembly**: when `web/public/pkg-mt/` is built and the page is cross-origin isolated, the engine uses a worker pool sized to half the CPU cores and never all cores; otherwise it falls back to one worker automatically.

@@ -145,6 +145,7 @@ const unb64 = (s: string) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0)).bu
 
 export const api = {
   nodeTypes: () => call<NodeType[]>({ op: 'types' }),
+  threads: () => call<number>({ op: 'threads' }),
   async upload(f: File) {
     const bytes = await f.arrayBuffer()
     const info = await call<{ id: string; width: number; height: number }>({ op: 'image', bytes: bytes.slice(0) }, [])

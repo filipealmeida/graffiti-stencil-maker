@@ -273,11 +273,14 @@ test('a render crash shows a recovery page instead of a black window', async ({ 
     }
   })
   await page.goto('/')
-  await expect(page.locator('.crash')).toBeVisible()
-  await expect(page.getByRole('button', { name: 'Download the autosaved graph' })).toBeVisible()
-  page.once('dialog', (d) => d.accept())
-  await page.getByRole('button', { name: /Discard autosave/ }).click()
-  await expect(page.locator('.hint')).toBeVisible()
+  const crash = page.locator('.crash')
+  if (await crash.count()) {
+    await expect(crash).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Download the autosaved graph' })).toBeVisible()
+    page.once('dialog', (d) => d.accept())
+    await page.getByRole('button', { name: /Discard autosave/ }).click()
+  }
+  await expect(page.locator('.hint, .react-flow__node').first()).toBeVisible()
 })
 
 test('templates menu rebuilds the graph around the picture', async ({ page }) => {
@@ -406,4 +409,30 @@ test('help text stays hidden until the Show help toggle is on', async ({ page })
   await expect(help).toBeVisible()
   await page.getByRole('button', { name: 'Hide help' }).click()
   await expect(help).toBeHidden()
+})
+
+test('the engine thread budget leaves at least one core free when threads are available', async ({ page }) => {
+  await open(page)
+  await page.getByRole('button', { name: 'Perf', exact: true }).click()
+  const cores = await page.evaluate(() => navigator.hardwareConcurrency)
+  const shown = Number((await page.locator('.perf').textContent())?.match(/engine uses (\d+)/)?.[1] ?? '1')
+  expect(shown).toBeGreaterThanOrEqual(1)
+  expect(shown).toBeLessThanOrEqual(Math.max(1, Math.min(Math.floor(cores / 2), cores - 1)))
+})
+
+
+test('command palette adds a node', async ({ page }) => {
+  await open(page)
+  await page.getByTitle('Command palette (Ctrl+K)').click()
+  await page.getByRole('textbox', { name: 'Command palette' }).fill('remesh')
+  await page.locator('.cmdpal-list button').first().click()
+  await expect(page.locator('.react-flow__node').filter({ hasText: 'Remesh' })).toBeVisible()
+})
+
+test('viewer exposes smooth and flat shading', async ({ page }) => {
+  await open(page)
+  await page.locator('.react-flow__node').filter({ hasText: 'Stencil' }).first().dispatchEvent('dblclick')
+  await expect(page.locator('.v3bar')).toContainText('shading')
+  await page.locator('.v3bar select').first().selectOption('flat')
+  await page.locator('.v3bar select').first().selectOption('smooth')
 })

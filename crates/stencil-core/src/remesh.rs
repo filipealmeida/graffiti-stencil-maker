@@ -474,7 +474,7 @@ fn slice(mesh: &Mesh) -> Result<(Vec<f64>, Vec<Region>), String> {
             continue;
         }
         if r > 1e-3 {
-            return Err("the solid has sloped faces; the complexity reducer works on stencil plates with vertical walls".into());
+            return Err("the solid has sloped faces; the remesh works on stencil plates with vertical walls".into());
         }
         let zlo = v.iter().map(|p| p[2]).fold(f64::INFINITY, f64::min);
         let zhi = v.iter().map(|p| p[2]).fold(f64::NEG_INFINITY, f64::max);

@@ -1,6 +1,9 @@
 use stencil_core::{make_stencil, Params, ZBridging};
 use wasm_bindgen::prelude::*;
 
+#[cfg(feature = "threads")]
+pub use wasm_bindgen_rayon::init_thread_pool;
+
 #[wasm_bindgen]
 pub struct StencilResult {
     stl: Vec<u8>,

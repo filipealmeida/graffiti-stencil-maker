@@ -27,7 +27,10 @@ The executable is `target/release/stencil` on Linux/macOS and `target/release/st
 rustup target add wasm32-unknown-unknown
 cd crates/stencil-wasm
 wasm-pack build --release --target web --out-dir ../../web/pkg
+# Optional threaded engine (nightly; falls back to 1 thread when unavailable)
+RUSTFLAGS='-C target-feature=+atomics,+bulk-memory,+mutable-globals -C link-args=--shared-memory -C link-args=--import-memory -C link-args=--max-memory=4294967296 -C link-args=--export=__wasm_init_tls -C link-args=--export=__tls_size -C link-args=--export=__tls_align -C link-args=--export=__tls_base'   rustup run nightly wasm-pack build --release --target web --out-dir ../../web/public/pkg-mt --out-name stencil_wasm   -- --features threads -Z build-std=panic_abort,std || true
 cd ../../web
+node scripts/patch-mt-worker.mjs
 npm ci
 npm run build
 npm run dev
@@ -48,9 +51,10 @@ cargo build --release -p stencil-cli --features studio
 ./target/release/stencil studio --port 8080 --no-open
 ```
 
-The server only listens on `127.0.0.1`. Without `--features studio` the command prints an error explaining how to
-rebuild. The executable can be copied anywhere; it has no runtime dependencies. Prebuilt binaries for Linux, macOS
-and Windows are attached to GitHub releases when a `v*` tag is pushed.
+The server only listens on `127.0.0.1`. It serves COOP/COEP headers so the threaded engine can run when `web/public/pkg-mt/`
+is present. Without `--features studio` the command prints an error explaining how to rebuild. The executable can be copied
+anywhere; it has no runtime dependencies. Prebuilt binaries for Linux, macOS and Windows are attached to GitHub releases
+when a `v*` tag is pushed.
 
 ## Tests
 

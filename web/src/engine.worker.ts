@@ -1,4 +1,4 @@
-import init, { Engine } from '../pkg/stencil_wasm.js'
+import type { Engine } from '../pkg/stencil_wasm.js'
 
 type Req =
   | { id: number; op: 'types' }
@@ -6,9 +6,37 @@ type Req =
   | { id: number; op: 'has'; imageId: string }
   | { id: number; op: 'run'; graph: string; targets: string }
   | { id: number; op: 'cancel' }
+  | { id: number; op: 'threads' }
 
 let engine: Engine | null = null
-const ready = init().then(() => { engine = new Engine() })
+let threads = 1
+
+/** Half of the cores, and always at least one left free for the page and the rest of the machine. */
+const budget = (cores: number) => Math.max(1, Math.min(Math.floor(cores / 2), cores - 1))
+
+// The threaded build needs shared memory, which only a cross-origin isolated page may use; otherwise (or if the
+// pool cannot start) the single-threaded build runs the same engine.
+const ready = (async () => {
+  const n = budget(navigator.hardwareConcurrency || 1)
+  if (n >= 2 && self.crossOriginIsolated && typeof SharedArrayBuffer !== 'undefined') {
+    try {
+      const mtUrl = `${self.location.origin}/pkg-mt/stencil_wasm.js`
+      const probe = await fetch(mtUrl, { method: 'HEAD' })
+      if (!probe.ok) throw new Error('no threaded pkg')
+      const mt = await import(/* @vite-ignore */ mtUrl)
+      await mt.default()
+      await mt.initThreadPool(n)
+      engine = new mt.Engine() as unknown as Engine
+      threads = n
+      return
+    } catch (err) {
+      console.warn('multi-threaded engine unavailable, using one thread', err)
+    }
+  }
+  const st = await import('../pkg/stencil_wasm.js')
+  await st.default()
+  engine = new st.Engine()
+})()
 
 interface Artifact { key: string; out: string; mime: string; bytes: Uint8Array; info: unknown; parts: Record<string, Uint8Array> }
 
@@ -127,6 +155,7 @@ self.onmessage = async (ev: MessageEvent<Req>) => {
     if (m.op === 'has') return self.postMessage({ id: m.id, ok: e.has_image(m.imageId) })
     if (m.op === 'image') return self.postMessage({ id: m.id, ok: JSON.parse(e.add_image(new Uint8Array(m.bytes))) })
     if (m.op === 'cancel') { runToken++; return }
+    if (m.op === 'threads') return self.postMessage({ id: m.id, ok: threads })
     self.postMessage({ id: m.id, ...(await runGraph(m)) })
   } catch (err) {
     self.postMessage({ id: m.id, error: String((err as any)?.message ?? err) })

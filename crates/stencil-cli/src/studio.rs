@@ -40,6 +40,17 @@ pub fn run(args: &[String]) {
                 let mime = f.metadata.mimetype().to_string();
                 tiny_http::Response::from_data(f.data.into_owned())
                     .with_header(tiny_http::Header::from_bytes("Content-Type", mime).unwrap())
+                    .with_header(
+                        tiny_http::Header::from_bytes("Cross-Origin-Opener-Policy", "same-origin")
+                            .unwrap(),
+                    )
+                    .with_header(
+                        tiny_http::Header::from_bytes(
+                            "Cross-Origin-Embedder-Policy",
+                            "require-corp",
+                        )
+                        .unwrap(),
+                    )
             }
             None => {
                 let _ = req

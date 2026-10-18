@@ -2,11 +2,19 @@ import { useEffect, useRef, useState } from 'react'
 import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import { STLLoader } from 'three/examples/jsm/loaders/STLLoader.js'
+import { SimplifyModifier } from 'three/examples/jsm/modifiers/SimplifyModifier.js'
 
 export interface Part { name: string; url: string }
 interface Scene3D {
-  meshes: THREE.Mesh[]; centers: THREE.Vector3[]; boxes: THREE.Box3[]; center: THREE.Vector3; box: THREE.Box3
-  camera: THREE.PerspectiveCamera; controls: OrbitControls; r: number
+  meshes: THREE.Mesh[]
+  geos: { hi: THREE.BufferGeometry; lo?: THREE.BufferGeometry }[]
+  centers: THREE.Vector3[]
+  boxes: THREE.Box3[]
+  center: THREE.Vector3
+  box: THREE.Box3
+  camera: THREE.PerspectiveCamera
+  controls: OrbitControls
+  r: number
 }
 
 /** Orbitable STL viewer: wireframe, Z-clip (scrub through layers) and an exploded view for tiled parts. */
@@ -17,6 +25,9 @@ export default function Viewer3D({ parts }: { parts: Part[] }) {
   const host = useRef<HTMLDivElement>(null)
   const sc = useRef<Scene3D | null>(null)
   const [wire, setWire] = useState(false)
+  const [shading, setShading] = useState<'smooth' | 'flat'>('smooth')
+  const [detail, setDetail] = useState<'auto' | 'high' | 'low'>('auto')
+  const [interacting, setInteracting] = useState(false)
   const [explode, setExplode] = useState(0)
   const [hidden, setHidden] = useState<Set<string>>(new Set())
   const [clip, setClip] = useState(1)
@@ -50,6 +61,12 @@ export default function Viewer3D({ parts }: { parts: Part[] }) {
     scene.add(dl)
     el.appendChild(renderer.domElement)
     const controls = new OrbitControls(camera, renderer.domElement)
+    let idle: number | null = null
+    controls.addEventListener('start', () => setInteracting(true))
+    controls.addEventListener('end', () => {
+      if (idle) window.clearTimeout(idle)
+      idle = window.setTimeout(() => setInteracting(false), 80)
+    })
     controls.addEventListener('change', () => { savedCam = { pos: camera.position.clone(), target: controls.target.clone() } })
     const ro = new ResizeObserver(() => {
       const { clientWidth: w, clientHeight: h } = el
@@ -65,15 +82,34 @@ export default function Viewer3D({ parts }: { parts: Part[] }) {
       if (!alive) return
       const box = new THREE.Box3()
       const group = new THREE.Group()
-      const meshes: THREE.Mesh[] = [], centers: THREE.Vector3[] = [], boxes: THREE.Box3[] = []
-      geos.forEach((geo, i) => {
-        geo.computeVertexNormals()
-        geo.computeBoundingBox()
-        box.union(geo.boundingBox!)
-        centers.push(geo.boundingBox!.getCenter(new THREE.Vector3()))
-        boxes.push(geo.boundingBox!.clone())
+      const meshes: THREE.Mesh[] = []
+      const geoms: { hi: THREE.BufferGeometry; lo?: THREE.BufferGeometry }[] = []
+      const centers: THREE.Vector3[] = []
+      const boxes: THREE.Box3[] = []
+      const tris = geos.reduce((a, g) => a + (g.index ? g.index.count : g.attributes.position.count) / 3, 0)
+      const wantLod = tris > 200_000
+      const mod = wantLod ? new SimplifyModifier() : null
+      geos.forEach((raw, i) => {
+        const hi = raw.clone()
+        hi.computeVertexNormals()
+        hi.computeBoundingBox()
+        box.union(hi.boundingBox!)
+        centers.push(hi.boundingBox!.getCenter(new THREE.Vector3()))
+        boxes.push(hi.boundingBox!.clone())
+        let lo: THREE.BufferGeometry | undefined
+        if (mod) {
+          const src = hi.index ? hi.toNonIndexed() : hi.clone()
+          const n = src.attributes.position.count
+          const keep = Math.max(300, Math.floor(n * 0.35))
+          const remove = Math.max(0, n - keep)
+          if (remove > 0) {
+            lo = mod.modify(src, remove)
+            lo.computeVertexNormals()
+          }
+        }
+        geoms.push({ hi, lo })
         const color = colorOf(i)
-        const m = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ color, roughness: 0.6, metalness: 0.1 }))
+        const m = new THREE.Mesh(hi, new THREE.MeshStandardMaterial({ color, roughness: 0.6, metalness: 0.1 }))
         meshes.push(m)
         group.add(m)
       })
@@ -86,19 +122,28 @@ export default function Viewer3D({ parts }: { parts: Part[] }) {
         controls.target.copy(savedCam.target)
       } else camera.position.set(0, -r * 2.2, r * 1.6)
       controls.update()
-      sc.current = { meshes, centers, boxes, center, box, camera, controls, r }
+      sc.current = { meshes, geos: geoms, centers, boxes, center, box, camera, controls, r }
       setStatus('')
       setReady((n) => n + 1)
     }).catch((e) => alive && setStatus(`could not load the mesh: ${e?.message ?? e}`))
     let raf = 0
     const tick = () => { raf = requestAnimationFrame(tick); controls.update(); renderer.render(scene, camera) }
     tick()
-    return () => { alive = false; sc.current = null; cancelAnimationFrame(raf); ro.disconnect(); renderer.dispose(); el.replaceChildren() }
+    return () => {
+      alive = false
+      sc.current?.geos.forEach((g) => { g.hi.dispose(); g.lo?.dispose() })
+      sc.current = null
+      cancelAnimationFrame(raf)
+      ro.disconnect()
+      renderer.dispose()
+      el.replaceChildren()
+    }
   }, [urls])
 
   useEffect(() => {
     const s = sc.current
     if (!s) return
+    const low = detail === 'low' || (detail === 'auto' && interacting)
     const zmin = s.box.min.z - s.center.z, h = s.box.max.z - s.box.min.z
     const planes = clip < 1 ? [new THREE.Plane(new THREE.Vector3(0, 0, -1), zmin + clip * h + 1e-4)] : []
     const info = parts.map((p) => p.name.match(tileRe))
@@ -123,7 +168,10 @@ export default function Viewer3D({ parts }: { parts: Part[] }) {
     const loose = parts.map((_, i) => i).filter((i) => tiles.length && !info[i]).sort((a, b) => parts[a].name.localeCompare(parts[b].name))
         s.meshes.forEach((m, i) => {
       const mat = m.material as THREE.MeshStandardMaterial
+      const g = s.geos[i]
+      m.geometry = low && g.lo ? g.lo : g.hi
       mat.wireframe = wire
+      mat.flatShading = shading === 'flat'
       mat.clippingPlanes = planes
       mat.side = clip < 1 ? THREE.DoubleSide : THREE.FrontSide
       mat.needsUpdate = true
@@ -151,7 +199,7 @@ export default function Viewer3D({ parts }: { parts: Part[] }) {
       s.meshes[i].position.set(ax + sz.x / 2 - s.centers[i].x, ay - sz.y / 2 - s.centers[i].y, -s.boxes[i].min.z)
       ax += sz.x + 8
     })
-  }, [wire, explode, clip, ready, hidden])
+  }, [wire, shading, detail, interacting, explode, clip, ready, hidden])
 
   // refit the camera so every part stays inside the panel as the spacing changes
   const fitRef = useRef(-1)
@@ -193,6 +241,8 @@ export default function Viewer3D({ parts }: { parts: Part[] }) {
         <button onClick={() => view('left')}>Left</button>
         <button onClick={() => view('right')}>Right</button>
         <label><input type="checkbox" checked={wire} onChange={(e) => setWire(e.target.checked)} /> wireframe</label>
+        <label>shading <select value={shading} onChange={(e) => setShading(e.target.value as 'smooth' | 'flat')}><option value="smooth">smooth</option><option value="flat">flat</option></select></label>
+        <label>detail <select value={detail} onChange={(e) => setDetail(e.target.value as 'auto' | 'high' | 'low')}><option value="auto">auto</option><option value="high">high</option><option value="low">low</option></select></label>
         <label>layers up to <input type="range" min={0.01} max={1} step={0.01} value={clip} onChange={(e) => setClip(+e.target.value)} /></label>
         {parts.length > 1 && <label>{tiled ? 'spacing (mm)' : 'explode'} <input type="range" min={0} max={tiled ? 150 : 12} step={tiled ? 1 : 0.25} value={explode} onChange={(e) => setExplode(+e.target.value)} /></label>}
         <span className="mut">{parts.length > 1 ? `${parts.length} parts` : ''}</span>

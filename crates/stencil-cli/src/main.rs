@@ -54,6 +54,9 @@ struct Args {
     /// Widen any strip of material thinner than this (mm); 0 is off
     #[arg(long)]
     min_contact: Option<f64>,
+    /// Worker threads (default: half of the cores, never all of them)
+    #[arg(long)]
+    threads: Option<usize>,
     #[arg(long)]
     layer_height: Option<f64>,
     /// Bridges rise layer by layer so the first layer keeps every island
@@ -119,6 +122,7 @@ fn main() {
         return;
     }
     let a = Args::parse();
+    stencil_core::init_threads(a.threads);
     let t = Instant::now();
     let mut engine = Engine::new();
     let (graph, stem, dir) = match (&a.project, &a.input) {

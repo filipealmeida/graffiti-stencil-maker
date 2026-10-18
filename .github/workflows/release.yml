@@ -21,6 +21,10 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: wasm32-unknown-unknown
+      - uses: dtolnay/rust-toolchain@nightly
+        with:
+          targets: wasm32-unknown-unknown
+          components: rust-src
       - uses: Swatinem/rust-cache@v2
       - uses: actions/setup-node@v4
         with:
@@ -32,6 +36,14 @@ jobs:
       - name: Build wasm
         working-directory: crates/stencil-wasm
         run: wasm-pack build --release --target web --out-dir ../../web/pkg
+      - name: Build threaded wasm (optional)
+        working-directory: crates/stencil-wasm
+        run: |
+          RUSTFLAGS='-C target-feature=+atomics,+bulk-memory,+mutable-globals -C link-args=--shared-memory -C link-args=--import-memory -C link-args=--max-memory=4294967296 -C link-args=--export=__wasm_init_tls -C link-args=--export=__tls_size -C link-args=--export=__tls_align -C link-args=--export=__tls_base' \
+          rustup run nightly wasm-pack build --release --target web --out-dir ../../web/public/pkg-mt --out-name stencil_wasm -- --features threads -Z build-std=panic_abort,std || true
+      - name: Patch threaded worker helper
+        working-directory: web
+        run: node scripts/patch-mt-worker.mjs
       - name: Build studio
         working-directory: web
         run: npm ci && npm run build
