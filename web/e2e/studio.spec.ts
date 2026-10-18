@@ -395,3 +395,15 @@ test('undo and redo restore a deleted node', async ({ page }) => {
   await page.getByRole('button', { name: /Redo/ }).click()
   await expect(page.locator('.react-flow__node')).toHaveCount(n + 1)
 })
+
+test('help text stays hidden until the Show help toggle is on', async ({ page }) => {
+  await open(page)
+  await page.locator('.react-flow__node').first().dispatchEvent('click')
+  const help = page.locator('aside .help').first()
+  await page.locator('aside .row').first().hover()
+  await expect(help).toBeHidden()
+  await page.getByRole('button', { name: 'Show help' }).click()
+  await expect(help).toBeVisible()
+  await page.getByRole('button', { name: 'Hide help' }).click()
+  await expect(help).toBeHidden()
+})

@@ -39,7 +39,7 @@ function Help({ p, id }: { p: ParamDef; id: string }) {
 function Field({ p, value, onChange }: { p: ParamDef; value: unknown; onChange: (v: unknown) => void }) {
   const hid = `help-${useId()}`
   const help = PARAM_HELP[p.name]
-  const tip = help ? { title: help } : {}
+  const tip = {}
   const desc = help ? { 'aria-describedby': hid } : {}
   if (p.kind === 'bool')
     return <label className="row chk" {...tip}><input type="checkbox" checked={!!value} onChange={(e) => onChange(e.target.checked)} {...desc} />{p.label}<Reset p={p} value={value} onChange={onChange} /><Help p={p} id={hid} /></label>
@@ -68,8 +68,15 @@ export default function ParamForm({ node, type, layers }: { node: StudioNode; ty
   // the picture of an Image node is not a setting
   const editable = type.params.filter((p) => p.kind !== 'text')
   const changed = editable.filter((p) => !same(node.data.params[p.name] ?? p.default, p.default))
+  const [showHelp, setShowHelp] = useState(false)
+  const hasHelp = editable.some((p) => PARAM_HELP[p.name])
   return (
-    <>
+    <div className={showHelp ? 'show-help' : ''}>
+      {hasHelp && (
+        <button className="help-toggle" aria-pressed={showHelp} onClick={() => setShowHelp(!showHelp)}>
+          {showHelp ? 'Hide help' : 'Show help'}
+        </button>
+      )}
       {groups.map((g) => (
         <fieldset key={g}>
           {g && <legend>{g}</legend>}
@@ -91,6 +98,6 @@ export default function ParamForm({ node, type, layers }: { node: StudioNode; ty
           Reset {changed.length} changed setting{changed.length > 1 ? 's' : ''} to default
         </button>
       )}
-    </>
+    </div>
   )
 }

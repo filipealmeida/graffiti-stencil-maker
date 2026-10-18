@@ -114,7 +114,9 @@ header>.pal .menu{position:absolute;top:30px;left:0;z-index:20;background:var(--
 .perf .busy{color:#ffa24a}
 
 .help{display:none;color:var(--mut);font-size:11px;line-height:1.35;margin-top:2px;white-space:normal}
-.row:hover .help,.row:focus-within .help{display:block}
+.show-help .help{display:block}
+.help-toggle{background:none;border:1px solid var(--bd,#2b313a);color:var(--mut);border-radius:4px;font-size:11px;padding:1px 8px;margin:0 0 6px;cursor:pointer}
+.help-toggle[aria-pressed=true]{color:var(--acc);border-color:var(--acc)}
 .unit{color:var(--mut);font-size:11px;min-width:22px}
 .runnote{display:flex;justify-content:space-between;gap:8px;padding:1px 8px;font-size:11px;color:var(--mut)}
 .badges{list-style:none;margin:2px 0 0;padding:2px 8px;display:flex;flex-direction:column;gap:2px}
