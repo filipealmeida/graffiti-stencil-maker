@@ -654,3 +654,191 @@ pub(super) fn run_tiles(_: &Engine, i: &HashMap<String, Value>, p: &P) -> Result
         Value::Parts(Rc::new(Parts { files, meta })),
     )])
 }
+
+pub(super) fn run_pads(_: &Engine, i: &HashMap<String, Value>, p: &P) -> Result<Outputs, String> {
+    use crate::hardware as hw;
+    let Some(Value::Parts(src)) = i.get("parts") else {
+        return Err("input 'parts' missing".into());
+    };
+    let plate = &src.meta["plate"];
+    if plate.is_null() {
+        return Err("the parts have no plate description: connect a Tiles node".into());
+    }
+    let num = |v: &Json| v.as_f64().unwrap_or(0.0);
+    let entries = plate["parts"].as_array().cloned().unwrap_or_default();
+    let tiles: Vec<(String, [f64; 2], [f64; 2])> = entries
+        .iter()
+        .filter(|e| e["role"] == "tile")
+        .map(|e| {
+            (
+                e["file"].as_str().unwrap_or("").to_string(),
+                [num(&e["origin"][0]), num(&e["origin"][1])],
+                [num(&e["size"][0]), num(&e["size"][1])],
+            )
+        })
+        .collect();
+    if tiles.is_empty() {
+        return Err("the plate has no tiles".into());
+    }
+    let quad = |k: &str| -> Vec<[f64; 4]> {
+        plate[k]
+            .as_array()
+            .map(|a| {
+                a.iter()
+                    .map(|r| [num(&r[0]), num(&r[1]), num(&r[2]), num(&r[3])])
+                    .collect()
+            })
+            .unwrap_or_default()
+    };
+    let (seams, boxes) = (quad("seams"), quad("connectors"));
+    let lo = [
+        tiles.iter().map(|t| t.1[0]).fold(f64::MAX, f64::min),
+        tiles.iter().map(|t| t.1[1]).fold(f64::MAX, f64::min),
+    ];
+    let (w, h) = (num(&plate["w"]), num(&plate["h"]));
+    let margin = num(&plate["margin"]);
+    let (layer, flip) = (num(&plate["layer"]).max(0.05), plate["flip"] == true);
+    let (thread_d, pitch) = hw::thread(p.s("pad_thread"))?;
+    let dia = hw::pad_diameter(p.s("pad_thread"))?;
+    if margin < dia - 1e-6 {
+        return Err(format!(
+            "the margin is {margin:.1} mm but a {} pad is {dia:.0} mm wide: raise the margin on the stencil node",
+            p.s("pad_thread")
+        ));
+    }
+    let height = p.f("pad_height");
+    let thick = num(&plate["thickness"]);
+    if !flip && (height < layer || thick + height < 4.0 * pitch) {
+        return Err(format!(
+            "pad height too small for an {} thread: plate + pad must be at least {} mm",
+            p.s("pad_thread"),
+            4.0 * pitch
+        ));
+    }
+    let mount = p.s("mount_screw") != "none";
+    let mp = hw::MountParams {
+        screw: p.s("mount_screw").into(),
+        clearance: p.f("mount_clearance"),
+        threaded: p.b("mount_threaded"),
+        offset: 0.0,
+        segments: p.f("segments") as usize,
+    };
+    let hole_d = if mount {
+        hw::thread(&mp.screw)?.0 + mp.clearance
+    } else {
+        0.0
+    };
+    let mut warnings = vec![];
+    let hole_spacing = if mount && margin < hole_d + 3.0 {
+        warnings.push(format!(
+            "margin of {margin:.1} mm is too small for {} holes (needs {:.1} mm)",
+            mp.screw,
+            hole_d + 3.0
+        ));
+        0.0
+    } else if mount {
+        p.f("hole_spacing")
+    } else {
+        0.0
+    };
+    let pad_r = dia / 2.0;
+    let keep = hw::Keepout {
+        seams: &seams,
+        boxes: &boxes,
+    };
+    let layout = hw::frame_layout(
+        lo,
+        w,
+        h,
+        margin,
+        p.f("long_edge"),
+        hole_spacing,
+        pad_r,
+        hole_d / 2.0,
+        &keep,
+    )?;
+    crate::progress::step("lay out pads", 0.05);
+    let pp = hw::PadParams {
+        count: 0,
+        thread: p.s("pad_thread").into(),
+        height,
+        clearance: p.f("thread_clearance"),
+        flip,
+        segments: p.f("segments") as usize,
+    };
+    let inside = |t: &(String, [f64; 2], [f64; 2]), c: (f64, f64), r: f64| {
+        c.0 - r >= t.1[0]
+            && c.0 + r <= t.1[0] + t.2[0]
+            && c.1 - r >= t.1[1]
+            && c.1 + r <= t.1[1] + t.2[1]
+    };
+    for (list, r, what) in [
+        (&layout.pads, pad_r, "pad"),
+        (&layout.holes, hole_d / 2.0, "hole"),
+    ] {
+        for &c in list {
+            if !tiles.iter().any(|t| inside(t, c, r)) {
+                return Err(format!(
+                    "a {what} at ({:.0}, {:.0}) mm would cross the edge of a tile: use another tile size",
+                    c.0, c.1
+                ));
+            }
+        }
+    }
+    let mut files = Vec::new();
+    let mut changed = 0usize;
+    for (name, data) in &src.files {
+        let Some(t) = tiles.iter().find(|t| &t.0 == name) else {
+            files.push((name.clone(), data.clone()));
+            continue;
+        };
+        let local = |list: &[(f64, f64)], r: f64| -> Vec<(f64, f64)> {
+            list.iter()
+                .filter(|&&c| inside(t, c, r))
+                .map(|&c| (c.0 - t.1[0], c.1 - t.1[1]))
+                .collect()
+        };
+        let (ps, hs) = (
+            local(&layout.pads, pad_r),
+            local(&layout.holes, hole_d / 2.0),
+        );
+        if ps.is_empty() && hs.is_empty() {
+            files.push((name.clone(), data.clone()));
+            continue;
+        }
+        let mut m = crate::mesh::Mesh::from_stl(data)?;
+        if !ps.is_empty() {
+            m = hw::add_pads_at(&m, &ps, &pp, pad_r, layer)?;
+        }
+        if !hs.is_empty() {
+            m = hw::drill_at(&m, &hs, &mp)?;
+        }
+        m.quantize_f32();
+        if !m.is_watertight() {
+            return Err(format!("verification failed: {name} is not watertight"));
+        }
+        if crate::tile_bridge::components(&m).0 != 1 {
+            return Err(format!("verification failed: {name} fell apart"));
+        }
+        changed += 1;
+        files.push((name.clone(), m.to_stl()));
+        crate::progress::step("fit pads", 0.05 + 0.9 * changed as f64 / tiles.len() as f64);
+    }
+    let pts = |l: &[(f64, f64)], r: f64| -> Vec<Json> {
+        l.iter()
+            .map(|c| json!({"x": c.0, "y": c.1, "r": r}))
+            .collect()
+    };
+    let mut meta = src.meta.clone();
+    meta["plate"]["pads"] = json!(pts(&layout.pads, pad_r));
+    meta["plate"]["holes"] = json!(pts(&layout.holes, hole_d / 2.0));
+    meta["pads"] = json!({
+        "pads": layout.pads.len(), "pad_diameter_mm": dia, "pad_thread": p.s("pad_thread"),
+        "thread_major_mm": thread_d, "holes": layout.holes.len(), "hole_diameter_mm": hole_d,
+        "warnings": warnings,
+    });
+    Ok(vec![(
+        "parts",
+        Value::Parts(Rc::new(Parts { files, meta })),
+    )])
+}

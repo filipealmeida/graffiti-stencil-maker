@@ -159,6 +159,24 @@ pub fn add_pads(
             }
         }
     }
+    let out = add_pads_at(solid, &cs, p, r, layer)?;
+    Ok((
+        out,
+        serde_json::json!({"pads": cs.len(), "pad_diameter_mm": dia, "pad_thread": p.thread, "thread_major_mm": d}),
+    ))
+}
+
+/// Raised pads (or, printed flipped, plain threaded holes) at `cs`, in the solid's own coordinates.
+pub fn add_pads_at(
+    solid: &Mesh,
+    cs: &[(f64, f64)],
+    p: &PadParams,
+    r: f64,
+    layer: f64,
+) -> Result<Mesh, String> {
+    let (_, hi) = solid.bounds();
+    let t = hi[2];
+    let rise = if p.flip { 0.0 } else { p.height };
     let mut out = solid.clone();
     if !p.flip {
         let pads = union_all(
@@ -190,11 +208,7 @@ pub fn add_pads(
             })
             .collect(),
     );
-    let out = out.subtract(&voids)?;
-    Ok((
-        out,
-        serde_json::json!({"pads": cs.len(), "pad_diameter_mm": dia, "pad_thread": p.thread, "thread_major_mm": d}),
-    ))
+    out.subtract(&voids)
 }
 
 pub struct MountParams {
@@ -317,6 +331,154 @@ pub fn drill_mounts(
     let out = solid.subtract(&cut)?;
     let info = serde_json::json!({"holes": m.points.len(), "pairs": m.pairs.len(), "diameter_mm": d, "threaded": p.threaded});
     Ok((out, m, info))
+}
+
+/// Through-holes (threaded or plain) at `pts`, in the solid's own coordinates.
+pub fn drill_at(solid: &Mesh, pts: &[(f64, f64)], p: &MountParams) -> Result<Mesh, String> {
+    let (screw_d, _) = thread(&p.screw)?;
+    let d = screw_d + p.clearance;
+    let top = solid.bounds().1[2] + 1.0;
+    let per_turn = (p.segments / 6).clamp(8, 16);
+    let cut = union_all(
+        pts.iter()
+            .map(|&(x, y)| {
+                let mut c = if p.threaded {
+                    thread_void(&p.screw, p.clearance / 2.0, -1.0, top, p.segments, per_turn)
+                        .unwrap()
+                } else {
+                    cylinder(d / 2.0, -1.0, top, p.segments)
+                };
+                c.translate([x, y, 0.0]);
+                c
+            })
+            .collect(),
+    );
+    solid.subtract(&cut)
+}
+
+/// What the layout keeps clear: seams (`[axis, pos, from, to]`) and connector footprints (`[x0, y0, x1, y1]`), absolute mm.
+pub struct Keepout<'a> {
+    pub seams: &'a [[f64; 4]],
+    pub boxes: &'a [[f64; 4]],
+}
+
+impl Keepout<'_> {
+    fn hits(&self, x: f64, y: f64, r: f64) -> bool {
+        self.seams.iter().any(|s| {
+            let (across, along) = if s[0] == 0.0 { (x, y) } else { (y, x) };
+            (across - s[1]).abs() < r && along > s[2] - r && along < s[3] + r
+        }) || self
+            .boxes
+            .iter()
+            .any(|b| (x.clamp(b[0], b[2]) - x).hypot(y.clamp(b[1], b[3]) - y) < r)
+    }
+}
+
+pub struct FrameLayout {
+    pub pads: Vec<(f64, f64)>,
+    pub holes: Vec<(f64, f64)>,
+}
+
+/// Pads and mounting holes on the middle of the frame band of a plate at `lo` of size `w` x `h` (absolute mm).
+/// Pads go on the corners and, on edges longer than `long_edge`, evenly between them; holes go in the gaps every
+/// `hole_spacing` mm (0 = none). A spot that would touch a seam or a connector slides along its edge until it is clear.
+#[allow(clippy::too_many_arguments)]
+pub fn frame_layout(
+    lo: [f64; 2],
+    w: f64,
+    h: f64,
+    margin: f64,
+    long_edge: f64,
+    hole_spacing: f64,
+    pad_r: f64,
+    hole_r: f64,
+    keep: &Keepout,
+) -> Result<FrameLayout, String> {
+    let c = margin / 2.0;
+    let (x0, x1, y0, y1) = (lo[0] + c, lo[0] + w - c, lo[1] + c, lo[1] + h - c);
+    let gap = 1.5;
+    let mut out = FrameLayout {
+        pads: vec![],
+        holes: vec![],
+    };
+    let free = |out: &FrameLayout, p: (f64, f64), r: f64| {
+        !keep.hits(p.0, p.1, r + gap)
+            && out
+                .pads
+                .iter()
+                .all(|q| (p.0 - q.0).hypot(p.1 - q.1) >= r + pad_r + gap)
+            && out
+                .holes
+                .iter()
+                .all(|q| (p.0 - q.0).hypot(p.1 - q.1) >= r + hole_r + gap)
+    };
+    // candidate positions along an edge: 0, +1, -1, +2, ... mm up to `reach`
+    let slide = |out: &FrameLayout, at: &dyn Fn(f64) -> (f64, f64), r: f64, reach: f64| {
+        let mut d = 0.0;
+        while d <= reach {
+            for s in [d, -d] {
+                let p = at(s);
+                if free(out, p, r) {
+                    return Some(p);
+                }
+            }
+            d += 1.0;
+        }
+        None
+    };
+    for (cx, cy, sx, sy) in [
+        (x0, y0, 1.0, 1.0),
+        (x1, y0, -1.0, 1.0),
+        (x0, y1, 1.0, -1.0),
+        (x1, y1, -1.0, -1.0),
+    ] {
+        // corners only slide inwards, along either edge
+        let p = slide(&out, &|d| (cx + sx * d.abs(), cy), pad_r, (x1 - x0) / 4.0)
+            .or_else(|| slide(&out, &|d| (cx, cy + sy * d.abs()), pad_r, (y1 - y0) / 4.0))
+            .ok_or_else(|| format!("no clear spot for the corner pad near ({cx:.0}, {cy:.0}) mm: a seam or connector is in the way"))?;
+        out.pads.push(p);
+    }
+    let edges: [(bool, f64, f64, f64); 4] = [
+        (true, y0, x0, x1),
+        (true, y1, x0, x1),
+        (false, x0, y0, y1),
+        (false, x1, y0, y1),
+    ];
+    let pt = |horiz: bool, fixed: f64, t: f64| if horiz { (t, fixed) } else { (fixed, t) };
+    for &(horiz, fixed, a, b) in &edges {
+        let n = if long_edge > 0.0 {
+            (((b - a) / long_edge).ceil() as usize).max(1) - 1
+        } else {
+            0
+        };
+        let mut ts = vec![a];
+        for k in 1..=n {
+            let want = a + (b - a) * k as f64 / (n + 1) as f64;
+            let p = slide(
+                &out,
+                &|d| pt(horiz, fixed, want + d),
+                pad_r,
+                ((b - a) / (2.0 * (n + 1) as f64) - pad_r).max(0.0),
+            )
+            .ok_or_else(|| format!("no clear spot for a pad on the edge near {:.0} mm", want))?;
+            out.pads.push(p);
+            ts.push(if horiz { p.0 } else { p.1 });
+        }
+        ts.push(b);
+        if hole_spacing > 0.0 {
+            for v in ts.windows(2) {
+                let m = (((v[1] - v[0]) / hole_spacing).ceil() as usize).max(1) - 1;
+                for k in 1..=m {
+                    let want = v[0] + (v[1] - v[0]) * k as f64 / (m + 1) as f64;
+                    let reach = (v[1] - v[0]) / (2.0 * (m + 1) as f64);
+                    if let Some(p) = slide(&out, &|d| pt(horiz, fixed, want + d), hole_r, reach) {
+                        out.holes.push(p);
+                    }
+                }
+            }
+        }
+    }
+    Ok(out)
 }
 
 fn hull(mut pts: Vec<[f64; 2]>) -> Vec<[f64; 2]> {
@@ -535,5 +697,43 @@ mod tests {
         )
         .unwrap();
         assert!(drilled.is_watertight() && !m.points.is_empty(), "{i}");
+    }
+
+    #[test]
+    fn frame_layout_slides_off_seams_and_adds_edge_pads() {
+        let seams = [[0.0, 50.0, 0.0, 400.0]];
+        let keep = Keepout {
+            seams: &seams,
+            boxes: &[],
+        };
+        // the nominal midpoint of the 400 mm bottom edge is x = 200; a seam at 50 only matters for the corner pad
+        let l = frame_layout(
+            [0.0, 0.0],
+            410.0,
+            100.0,
+            10.0,
+            300.0,
+            100.0,
+            5.0,
+            2.2,
+            &keep,
+        )
+        .unwrap();
+        assert_eq!(
+            l.pads.len(),
+            4 + 2,
+            "corners plus a midpoint on each long edge"
+        );
+        assert!(!l.holes.is_empty());
+        for p in l.pads.iter().chain(&l.holes) {
+            assert!((p.0 - 50.0).abs() > 5.0, "{p:?}");
+        }
+        let seams = [[0.0, 7.0, 0.0, 100.0]];
+        let near = Keepout {
+            seams: &seams,
+            boxes: &[],
+        };
+        let l = frame_layout([0.0, 0.0], 410.0, 100.0, 10.0, 0.0, 0.0, 5.0, 2.2, &near).unwrap();
+        assert!(l.pads.iter().all(|p| (p.0 - 7.0).abs() > 5.0));
     }
 }
