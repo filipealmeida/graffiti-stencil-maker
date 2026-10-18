@@ -399,6 +399,22 @@ test('undo and redo restore a deleted node', async ({ page }) => {
   await expect(page.locator('.react-flow__node')).toHaveCount(n + 1)
 })
 
+test('swapping the Image node picture can be undone and redone', async ({ page }) => {
+  await open(page)
+  await page.waitForTimeout(600)
+  const first = page.locator('.react-flow__node').filter({ hasText: 'Image' }).first()
+  const node = page.locator(`.react-flow__node[data-id="${await first.getAttribute('data-id')}"]`)
+  await expect(node).not.toContainText('dot.png')
+  await node.dispatchEvent('click')
+  await page.locator('aside input[type=file]').setInputFiles({ name: 'dot.png', mimeType: 'image/png', buffer: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64') })
+  await expect(node).toContainText('dot.png')
+  await page.waitForTimeout(600)
+  await page.getByRole('button', { name: /Undo/ }).click()
+  await expect(node).not.toContainText('dot.png')
+  await page.getByRole('button', { name: /Redo/ }).click()
+  await expect(node).toContainText('dot.png')
+})
+
 test('help text stays hidden until the Show help toggle is on', async ({ page }) => {
   await open(page)
   await page.locator('.react-flow__node').first().dispatchEvent('click')
@@ -415,6 +431,7 @@ test('the engine thread budget leaves at least one core free when threads are av
   await open(page)
   await page.getByRole('button', { name: 'Perf', exact: true }).click()
   const cores = await page.evaluate(() => navigator.hardwareConcurrency)
+  if (process.env.EXPECT_THREADS) await expect(page.locator('.perf')).toContainText('multi-threaded')
   const shown = Number((await page.locator('.perf').textContent())?.match(/engine uses (\d+)/)?.[1] ?? '1')
   expect(shown).toBeGreaterThanOrEqual(1)
   expect(shown).toBeLessThanOrEqual(Math.max(1, Math.min(Math.floor(cores / 2), cores - 1)))

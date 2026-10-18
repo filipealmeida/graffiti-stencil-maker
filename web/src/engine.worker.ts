@@ -10,6 +10,7 @@ type Req =
 
 let engine: Engine | null = null
 let threads = 1
+let why = 'threaded build not tried'
 
 /** Half of the cores, and always at least one left free for the page and the rest of the machine. */
 const budget = (cores: number) => Math.max(1, Math.min(Math.floor(cores / 2), cores - 1))
@@ -18,18 +19,20 @@ const budget = (cores: number) => Math.max(1, Math.min(Math.floor(cores / 2), co
 // pool cannot start) the single-threaded build runs the same engine.
 const ready = (async () => {
   const n = budget(navigator.hardwareConcurrency || 1)
-  if (n >= 2 && self.crossOriginIsolated && typeof SharedArrayBuffer !== 'undefined') {
+  if (n < 2) why = 'too few cores to share with the page'
+  else if (!self.crossOriginIsolated || typeof SharedArrayBuffer === 'undefined') why = 'page is not cross-origin isolated (needs COOP/COEP headers)'
+  else {
     try {
       const mtUrl = `${self.location.origin}/pkg-mt/stencil_wasm.js`
-      const probe = await fetch(mtUrl, { method: 'HEAD' })
-      if (!probe.ok) throw new Error('no threaded pkg')
       const mt = await import(/* @vite-ignore */ mtUrl)
       await mt.default()
       await mt.initThreadPool(n)
       engine = new mt.Engine() as unknown as Engine
       threads = n
+      why = 'threaded'
       return
     } catch (err) {
+      why = 'threaded build missing or failed to start'
       console.warn('multi-threaded engine unavailable, using one thread', err)
     }
   }
@@ -155,7 +158,7 @@ self.onmessage = async (ev: MessageEvent<Req>) => {
     if (m.op === 'has') return self.postMessage({ id: m.id, ok: e.has_image(m.imageId) })
     if (m.op === 'image') return self.postMessage({ id: m.id, ok: JSON.parse(e.add_image(new Uint8Array(m.bytes))) })
     if (m.op === 'cancel') { runToken++; return }
-    if (m.op === 'threads') return self.postMessage({ id: m.id, ok: threads })
+    if (m.op === 'threads') return self.postMessage({ id: m.id, ok: { n: threads, why } })
     self.postMessage({ id: m.id, ...(await runGraph(m)) })
   } catch (err) {
     self.postMessage({ id: m.id, error: String((err as any)?.message ?? err) })

@@ -132,19 +132,24 @@ impl Mesh {
         crossings % 2 == 1
     }
 
+    /// Every directed edge appears once and its reverse appears once too (a closed, consistently wound surface).
     pub fn is_watertight(&self) -> bool {
-        let mut e: HashMap<(usize, usize), i32> = HashMap::new();
+        let key = |a: usize, b: usize| ((a as u64) << 32) | b as u64;
+        let mut fwd = Vec::with_capacity(self.t.len() * 3);
+        let mut rev = Vec::with_capacity(self.t.len() * 3);
         for t in &self.t {
             for k in 0..3 {
                 let (a, b) = (t[k], t[(k + 1) % 3]);
                 if a == b {
                     return false;
                 }
-                *e.entry((a, b)).or_insert(0) += 1;
+                fwd.push(key(a, b));
+                rev.push(key(b, a));
             }
         }
-        e.iter()
-            .all(|(&(a, b), &n)| n == 1 && e.get(&(b, a)) == Some(&1))
+        fwd.sort_unstable();
+        rev.sort_unstable();
+        fwd.windows(2).all(|w| w[0] != w[1]) && fwd == rev
     }
 
     pub fn translate(&mut self, d: P3) {

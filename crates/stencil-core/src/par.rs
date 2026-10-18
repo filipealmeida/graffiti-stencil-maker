@@ -33,7 +33,6 @@ pub fn each_mut<T: Send, F: Fn(&mut T) + Sync + Send>(items: &mut [T], f: F) {
     items.iter_mut().for_each(f);
 }
 
-
 /// Maps every item, keeping the order.
 pub fn map<T: Sync, R: Send, F: Fn(&T) -> R + Sync + Send>(items: &[T], f: F) -> Vec<R> {
     #[cfg(any(not(target_arch = "wasm32"), feature = "threads"))]

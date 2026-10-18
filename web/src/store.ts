@@ -14,41 +14,19 @@ export interface StudioData extends Record<string, unknown> {
 export type StudioNode = Node<StudioData, 'studio'>
 
 export const STORE_KEY = 'studio.graph.v1'
-const LANES_KEY = 'studio.lanes.v1'
-const MIN_LANE = 320
-const GAP = 30
-export interface Lanes { stencil: number; post: number; end: number }
-const DEFAULT_LANES: Lanes = { stencil: 1180, post: 1740, end: 2140 }
-function loadLanes(): Lanes {
-  try {
-    const l = JSON.parse(localStorage.getItem(LANES_KEY) ?? 'null')
-    if (l && [l.stencil, l.post, l.end].every(Number.isFinite) && l.stencil >= MIN_LANE + GAP && l.post - l.stencil >= MIN_LANE + GAP && l.end - l.post >= MIN_LANE) return l
-  } catch { /* fall back to the default layout */ }
-  return DEFAULT_LANES
-}
-/** Left edge and width of a lane's usable area (nodes are placed inside it). */
-export function laneSpan(l: Lanes, stage: 'trace' | 'stencil' | 'post') {
-  if (stage === 'trace') return { x: 0, w: l.stencil - GAP }
-  if (stage === 'stencil') return { x: l.stencil, w: l.post - GAP - l.stencil }
-  return { x: l.post, w: l.end - l.post }
-}
-/** Moves one lane boundary, keeping every lane at least MIN_LANE wide. */
-export function resizeLane(l: Lanes, edge: keyof Lanes, x: number): Lanes {
-  const n = { ...l }
-  if (edge === 'stencil') n.stencil = Math.min(Math.max(x, MIN_LANE + GAP), l.post - GAP - MIN_LANE)
-  else if (edge === 'post') n.post = Math.min(Math.max(x, l.stencil + GAP + MIN_LANE), l.end - MIN_LANE)
-  else n.end = Math.max(x, l.post + MIN_LANE)
-  return n
-}
+/** Left edge and width of the column new nodes of a stage are placed in. */
+const COLUMNS = { trace: { x: 0, w: 1150 }, stencil: { x: 1180, w: 530 }, post: { x: 1740, w: 400 } }
+export function stageColumn(stage: 'trace' | 'stencil' | 'post') { return COLUMNS[stage] }
+export const WORLD_END = 2140
 const NODE_W = 240
 const NODE_H = 170
-/** First spot at or below/right of `want` inside the lane that overlaps no existing node. */
-export function freeSpot(nodes: StudioNode[], lane: { x: number; w: number }, want: { x: number; y: number }) {
+/** First spot at or below/right of `want` inside the column that overlaps no existing node. */
+export function freeSpot(nodes: StudioNode[], span: { x: number; w: number }, want: { x: number; y: number }) {
   const box = (n: StudioNode) => ({ x: n.position.x, y: n.position.y, w: n.measured?.width ?? NODE_W, h: n.measured?.height ?? NODE_H })
   const boxes = nodes.map(box)
   const hits = (x: number, y: number) => boxes.some((b) => x < b.x + b.w + 16 && b.x < x + NODE_W + 16 && y < b.y + b.h + 16 && b.y < y + NODE_H + 16)
-  const x0 = Math.min(Math.max(want.x, lane.x + 10), Math.max(lane.x + 10, lane.x + lane.w - NODE_W))
-  const columns = Math.max(1, Math.floor((lane.x + lane.w - x0) / (NODE_W + 24)))
+  const x0 = Math.min(Math.max(want.x, span.x + 10), Math.max(span.x + 10, span.x + span.w - NODE_W))
+  const columns = Math.max(1, Math.floor((span.x + span.w - x0) / (NODE_W + 24)))
   for (let row = 0; row < 60; row++) {
     for (let col = 0; col < columns; col++) {
       const x = x0 + col * (NODE_W + 24)
@@ -111,14 +89,10 @@ interface State {
   setRuns: (r: Record<string, NodeRun>, busy: boolean, error?: string | null) => void
   canUndo: boolean
   canRedo: boolean
-  lanes: Lanes
-  setLanes: (l: Lanes) => void
 }
 
 export const useStudio = create<State>((set, get) => ({
   canUndo: false, canRedo: false,
-  lanes: loadLanes(),
-  setLanes: (lanes) => { localStorage.setItem(LANES_KEY, JSON.stringify(lanes)); set({ lanes }) },
   types: {}, nodes: [], edges: [], runs: {}, selected: null, busy: false, error: null,
   logs: [], usage: loadUsage(), perfOpen: localStorage.getItem('stencil-perf') === '1', consoleOpen: true, bench: null, progress: { done: 0, total: 0 }, draft: false,
   addLogs: (l) => set((s) => ({ logs: [...s.logs, ...l.map((x, i) => ({ ...x, id: s.logs.length + i + Math.random() }))].slice(-500) })),
@@ -138,8 +112,8 @@ export const useStudio = create<State>((set, get) => ({
   addNode: (type, params, pos, title) => {
     const t = get().types[type]
     const id = uid(type)
-    const lane = laneSpan(get().lanes, t.stage)
-    const position = freeSpot(get().nodes, lane, pos ?? { x: lane.x + 30, y: 40 })
+    const span = stageColumn(t.stage)
+    const position = freeSpot(get().nodes, span, pos ?? { x: span.x + 30, y: 40 })
     const defaults = Object.fromEntries(t.params.map((p) => [p.name, p.default]))
     const node: StudioNode = { id, type: 'studio', position, data: { type, params: { ...defaults, ...params }, title } }
     const usage = { ...get().usage, [type]: (get().usage[type] ?? 0) + 1 }
@@ -165,7 +139,7 @@ export const useStudio = create<State>((set, get) => ({
   },
   paste: () => {
     if (!clip) return
-    const { types, nodes, lanes } = get()
+    const { types, nodes } = get()
     pasteCount++
     const map = new Map<string, string>()
     clip.nodes.forEach((n) => map.set(n.id, uid(n.data.type)))
@@ -173,9 +147,9 @@ export const useStudio = create<State>((set, get) => ({
     for (const n of clip.nodes) {
       const t = types[n.data.type]
       if (!t) continue
-      // a single node goes to the nearest free spot of its lane; a group keeps its shape and shifts as a block
+      // a single node goes to the nearest free spot of its column; a group keeps its shape and shifts as a block
       const want = { x: n.position.x + 40 * pasteCount, y: n.position.y + 40 * pasteCount }
-      const position = clip.nodes.length === 1 ? freeSpot(nodes, laneSpan(lanes, t.stage), want) : want
+      const position = clip.nodes.length === 1 ? freeSpot(nodes, stageColumn(t.stage), want) : want
       fresh.push({ ...n, id: map.get(n.id)!, position, selected: true, measured: undefined, data: { ...n.data, params: structuredClone(n.data.params) } })
     }
     if (!fresh.length) return
@@ -213,8 +187,8 @@ export const useStudio = create<State>((set, get) => ({
     set({ nodes: [], edges: [], runs: {}, selected: null })
     const src = addNode('source', { image_id: imageId }, { x: 40, y: 60 }, title)
     const thr = addNode('threshold', {}, { x: 420, y: 60 })
-    const st = addNode('stencil', {}, { x: laneSpan(get().lanes, 'stencil').x + 30, y: 60 })
-    const ex = addNode('export', {}, { x: laneSpan(get().lanes, 'post').x + 30, y: 60 })
+    const st = addNode('stencil', {}, { x: stageColumn('stencil').x + 30, y: 60 })
+    const ex = addNode('export', {}, { x: stageColumn('post').x + 30, y: 60 })
     connect({ source: src, sourceHandle: 'image', target: thr, targetHandle: 'image' })
     connect({ source: thr, sourceHandle: 'mask', target: st, targetHandle: 'mask' })
     connect({ source: st, sourceHandle: 'solid', target: ex, targetHandle: 'solid' })
@@ -226,8 +200,8 @@ export const useStudio = create<State>((set, get) => ({
     const src = addNode('source', { image_id: imageId, resolution: 600 }, { x: 40, y: 60 }, title)
     const red = addNode('reduce', { colours: 3 }, { x: 400, y: 60 })
     const tp = addNode('tone_patterns', {}, { x: 760, y: 60 })
-    const st = addNode('stencil', { width_mm: 100, margin_mm: 6, raised_bridges: true, z_bridging: 'easy', layer_height_mm: 0.2 }, { x: laneSpan(get().lanes, 'stencil').x + 30, y: 60 })
-    const ex = addNode('export', {}, { x: laneSpan(get().lanes, 'post').x + 30, y: 60 })
+    const st = addNode('stencil', { width_mm: 100, margin_mm: 6, raised_bridges: true, z_bridging: 'easy', layer_height_mm: 0.2 }, { x: stageColumn('stencil').x + 30, y: 60 })
+    const ex = addNode('export', {}, { x: stageColumn('post').x + 30, y: 60 })
     connect({ source: src, sourceHandle: 'image', target: red, targetHandle: 'image' })
     connect({ source: red, sourceHandle: 'image', target: tp, targetHandle: 'image' })
     connect({ source: tp, sourceHandle: 'mask', target: st, targetHandle: 'mask' })
@@ -239,11 +213,11 @@ export const useStudio = create<State>((set, get) => ({
     set({ nodes: [], edges: [], runs: {}, selected: null })
     const src = addNode('source', { image_id: imageId, resolution: 600 }, { x: 40, y: 60 }, title)
     const split = addNode('split_colours', { colours: 2 }, { x: 400, y: 60 })
-    const sp = laneSpan(get().lanes, 'stencil')
+    const sp = stageColumn('stencil')
     const plate = { width_mm: 100, margin_mm: 10, raised_bridges: true, z_bridging: 'easy' }
     const a = addNode('stencil', plate, { x: sp.x + 30, y: 60 }, 'Colour 1')
     const b = addNode('stencil', plate, { x: sp.x + 30, y: 300 }, 'Colour 2')
-    const set_ = addNode('colour_set', {}, { x: laneSpan(get().lanes, 'post').x + 30, y: 60 })
+    const set_ = addNode('colour_set', {}, { x: stageColumn('post').x + 30, y: 60 })
     connect({ source: src, sourceHandle: 'image', target: split, targetHandle: 'image' })
     connect({ source: split, sourceHandle: 'colour_1', target: a, targetHandle: 'mask' })
     connect({ source: split, sourceHandle: 'colour_2', target: b, targetHandle: 'mask' })
@@ -257,8 +231,8 @@ export const useStudio = create<State>((set, get) => ({
     const src = addNode('source', { image_id: imageId, resolution: 600 }, { x: 40, y: 60 }, title)
     const thr = addNode('threshold', {}, { x: 400, y: 60 })
     const tr = addNode('trace', {}, { x: 760, y: 60 })
-    const st = addNode('vector_stencil', {}, { x: laneSpan(get().lanes, 'stencil').x + 30, y: 60 })
-    const ex = addNode('export', {}, { x: laneSpan(get().lanes, 'post').x + 30, y: 60 })
+    const st = addNode('vector_stencil', {}, { x: stageColumn('stencil').x + 30, y: 60 })
+    const ex = addNode('export', {}, { x: stageColumn('post').x + 30, y: 60 })
     connect({ source: src, sourceHandle: 'image', target: thr, targetHandle: 'image' })
     connect({ source: thr, sourceHandle: 'mask', target: tr, targetHandle: 'mask' })
     connect({ source: tr, sourceHandle: 'shapes', target: st, targetHandle: 'shapes' })

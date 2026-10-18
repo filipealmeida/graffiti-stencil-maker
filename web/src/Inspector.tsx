@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { api, artifactUrl } from './api'
 import { useStudio } from './store'
 import ParamForm from './ParamForm'
-import { SourceActions } from './StudioNode'
+import SourceActions from './SourceActions'
 
 export default function Inspector() {
   const id = useStudio((s) => s.selected)

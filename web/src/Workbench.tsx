@@ -3,7 +3,7 @@ import { api, artifactUrl, partUrl } from './api'
 import Console from './Console'
 import ImageView from './ImageView'
 import ParamForm from './ParamForm'
-import { SourceActions } from './StudioNode'
+import SourceActions from './SourceActions'
 import { useStudio } from './store'
 const Viewer3D = lazy(() => import('./Viewer3D'))
 

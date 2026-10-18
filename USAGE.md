@@ -87,11 +87,11 @@ project controls.
 The **+ trace / + stencil / + post** menus add nodes by stage; long menus flow into several columns and scroll
 inside themselves when they reach the bottom of the page. **+ All** lists every node, most used first; the badge
 (and the tooltip) shows how many times you added that node in this browser. Select an Image node and its side panel has **Open…** (replaces the loaded picture) and **Download** (saves the original picture). The **Perf** button toggles an
-overlay with the engine worker count and state, the share of the last 10 s the engine was computing, how late the page's
+overlay with the engine worker count, state and mode (multi-threaded, or single-threaded and why), the share of the last 10 s the engine was computing, how late the page's
 timer fires (UI lag) and the CPU core count. Browsers do not expose real CPU use, so those figures are what the page
 can measure, and the engine runs in a single worker.
 
-Edits can be undone with **Undo**/**Redo** in the toolbar or Ctrl+Z / Ctrl+Shift+Z (Ctrl+Y). Edits made within
+Edits (parameters, nodes, links and swapping an Image node's picture) can be undone with **Undo**/**Redo** in the toolbar or Ctrl+Z / Ctrl+Shift+Z (Ctrl+Y). Edits made within
 half a second, such as a slider drag, count as one step; the last 100 steps are kept for the session.
 
 Each settled edit starts one run, which evaluates the graph node by node; results appear as nodes finish and older
@@ -115,7 +115,7 @@ and watertightness before export.
 - **Progress and ETA**: each running node shows its message, elapsed time and an estimated time left; the top status line is announced to screen readers.
 - **Badges** on nodes flag problems (islands remaining, not watertight, bridges under 1 mm, empty/full masks, heavy meshes).
 - **Tooltips and units**: hover or focus a slider for a short explanation; ↺ resets it.
-- **Performance**: the vector stencil uses a spatial index for bridge selection and near-contact repair and stops repairing once the mesh is watertight (a 287-island project: 19 s → 2.8 s easy, ~73 s → 13 s steps). The CLI runs contours in parallel; in the browser, if a threaded WASM package is available and shared memory is allowed, the engine uses half the cores and leaves at least one free, else it falls back to one worker.
+- **Performance**: the vector stencil uses a spatial index for bridge selection and near-contact repair and stops repairing once the mesh is watertight (a 287-island project: 19 s → 2.8 s easy, ~73 s → 10 s steps). Noding only re-checks edges a repair created, and the watertight check runs once. The CLI runs contours in parallel; in the browser, if a threaded WASM package is available and shared memory is allowed, the engine uses half the cores and leaves at least one free, else it falls back to one worker.
 - **Fix**: *Delete islands under (mm²)* in the vector stencil now really uses mm².
 
 - **Command palette**: press `Ctrl+K` (or the `⌘K` button) and type a node or template name to insert it quickly.

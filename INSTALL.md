@@ -43,7 +43,8 @@ including GitHub Pages. The CI workflow builds the WASM package before building 
 
 `stencil studio` serves the web studio from inside the CLI executable, so one file is all you need to run it.
 The studio must be built first (the steps above, ending with `npm run build`), because `web/dist/` is embedded at
-compile time:
+compile time. The server gzips text and WASM (the 3.7 MB engine travels as about 1.6 MB), serves the hashed build
+files with a one-year cache and the rest with ETag revalidation, so reloads reuse the engine from the browser cache:
 
 ```sh
 cargo build --release -p stencil-cli --features studio

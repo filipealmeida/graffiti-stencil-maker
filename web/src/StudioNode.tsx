@@ -6,37 +6,6 @@ import { etaSeconds, formatEta, nodeStarts, useNow } from './eta'
 
 export const KIND_COLOR: Record<Kind, string> = { image: '#4aa3ff', mask: '#ffa24a', shapes: '#f0d24a', solid: '#5fd38d', parts: '#c28bff', any: '#8a93a0' }
 
-/** Replace the picture loaded in an Image node, or save the one loaded. */
-export function SourceActions({ id, imageId, title }: { id: string; imageId: string; title?: string }) {
-  const open = async (f: File) => {
-    try {
-      const img = await api.upload(f)
-      useStudio.setState((st) => ({ nodes: st.nodes.map((n) => (n.id === id ? { ...n, data: { ...n.data, title: img.name } } : n)) }))
-      useStudio.getState().setParam(id, 'image_id', img.id)
-    } catch (e) {
-      useStudio.setState({ error: String(e instanceof Error ? e.message : e) })
-    }
-  }
-  const download = async () => {
-    const img = await api.storedImage(imageId)
-    if (!img) return useStudio.setState({ error: 'the picture is no longer stored in this browser' })
-    const url = URL.createObjectURL(new Blob([img.bytes]))
-    const a = document.createElement('a')
-    a.href = url
-    a.download = img.name || title || 'image'
-    a.click()
-    setTimeout(() => URL.revokeObjectURL(url), 10_000)
-  }
-  return (
-    <div className="node-actions">
-      <label className="btn" title="Replace the picture loaded in this node">Open…
-        <input type="file" accept=".png,.jpg,.jpeg,.bmp,.svg" hidden onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) open(f) }} />
-      </label>
-      <button title="Download the original picture loaded in this node" onClick={download}>Download</button>
-    </div>
-  )
-}
-
 /** What a running node is doing and how long it has left. */
 function RunNote({ id, message, progress, ms }: { id: string; message?: string; progress?: number; ms?: number }) {
   const now = useNow(true)

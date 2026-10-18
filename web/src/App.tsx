@@ -15,9 +15,11 @@ import Perf from "./Perf";
 import Workbench from "./Workbench";
 import StudioEdge from "./StudioEdge";
 import StudioNodeView, { KIND_COLOR } from "./StudioNode";
-import { etaSeconds, formatEta, useNow } from "./eta";
+import Status from "./Status";
+import CommandPalette from "./CommandPalette";
 import {
-  laneSpan,
+  stageColumn,
+  WORLD_END,
   redo,
   resetHistory,
   runGraph,
@@ -32,32 +34,6 @@ const nodeTypes = { studio: StudioNodeView };
 const edgeTypes = { default: StudioEdge };
 const DRAFT_DELAY = 150;
 
-/** The one-line state of the engine: working (with the time left when it is long), draft, error or ready. */
-function Status() {
-  const busy = useStudio((s) => s.busy);
-  const error = useStudio((s) => s.error);
-  const draft = useStudio((s) => s.draft);
-  const runs = useStudio((s) => s.runs);
-  const now = useNow(busy);
-  const left = busy ? etaSeconds(runs, now) : null;
-  const text = error
-    ? `⚠ ${error}`
-    : busy
-      ? `${draft ? "refining" : "working"}…${left !== null && left >= 3 ? ` ${formatEta(left)}` : ""}`
-      : draft
-        ? "draft preview"
-        : "ready";
-  return (
-    <span
-      className={`status${busy ? " busy" : ""}`}
-      role="status"
-      aria-live="polite"
-    >
-      {text}
-    </span>
-  );
-}
-
 function Canvas() {
   const s = useStudio();
   const rf = useReactFlow();
@@ -65,8 +41,6 @@ function Canvas() {
   const [pname, setPname] = useState("project");
   const [menu, setMenu] = useState<Stage | "templates" | "all" | null>(null);
   const [cmdOpen, setCmdOpen] = useState(false);
-  const [cmdQ, setCmdQ] = useState("");
-  const cmdIn = useRef<HTMLInputElement>(null);
   // wait for the new nodes to be measured, then bring the whole graph into view
   const fit = useCallback(() => {
     setTimeout(
@@ -141,10 +115,6 @@ function Canvas() {
       window.removeEventListener("pointercancel", up);
     };
   }, []);
-
-  useEffect(() => {
-    if (cmdOpen) setTimeout(() => cmdIn.current?.focus(), 0);
-  }, [cmdOpen]);
 
   useEffect(() => {
     Promise.all([api.nodeTypes(), api.restoreImages()]).then(([t]) => {
@@ -266,7 +236,7 @@ function Canvas() {
 
   const addFromMenu = (t: NodeType) => {
     const c = rf.screenToFlowPosition({ x: window.innerWidth * 0.3, y: 160 });
-    const sp = laneSpan(s.lanes, t.stage);
+    const sp = stageColumn(t.stage);
     s.addNode(t.id, {}, { x: t.stage === "trace" ? c.x : sp.x + 30, y: c.y });
     setMenu(null);
   };
@@ -313,9 +283,8 @@ function Canvas() {
   );
   const stageNodes = (st: Stage) =>
     Object.values(s.types).filter((t) => t.stage === st);
-  const cmdItems = useMemo(() => {
-    const q = cmdQ.trim().toLowerCase();
-    const actions = [
+  const cmdActions = useMemo(
+    () => [
       ...Object.values(s.types).map((t) => ({
         id: `node:${t.id}`,
         title: t.label,
@@ -328,13 +297,10 @@ function Canvas() {
         note: doc,
         run: () => runTemplate(make),
       })),
-    ];
-    return q
-      ? actions
-          .filter((a) => `${a.title} ${a.note}`.toLowerCase().includes(q))
-          .slice(0, 14)
-      : actions.slice(0, 14);
-  }, [cmdQ, s.types, templates, s.nodes]);
+    ],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [s.types, s.nodes],
+  );
   return (
     <div
       className="app"
@@ -533,37 +499,7 @@ function Canvas() {
         <Status />
       </header>
       {cmdOpen && (
-        <div
-          className="cmdpal-back"
-          onMouseDown={(e) => {
-            if (e.target === e.currentTarget) setCmdOpen(false);
-          }}
-        >
-          <div className="cmdpal" role="dialog" aria-label="Command palette">
-            <input
-              ref={cmdIn}
-              value={cmdQ}
-              onChange={(e) => setCmdQ(e.target.value)}
-              placeholder="Type a node or template…"
-              aria-label="Command palette"
-            />
-            <div className="cmdpal-list">
-              {cmdItems.map((a) => (
-                <button
-                  key={a.id}
-                  onClick={() => {
-                    a.run();
-                    setCmdOpen(false);
-                  }}
-                >
-                  <b>{a.title}</b>
-                  <small>{a.note}</small>
-                </button>
-              ))}
-              {cmdItems.length === 0 && <p className="mut">No matches.</p>}
-            </div>
-          </div>
-        </div>
+        <CommandPalette actions={cmdActions} onClose={() => setCmdOpen(false)} />
       )}
       <main>
         <div className="canvas">
@@ -587,7 +523,7 @@ function Canvas() {
             autoPanOnNodeDrag={false}
             translateExtent={[
               [-800, -600],
-              [s.lanes.end + 800, 3600],
+              [WORLD_END + 800, 3600],
             ]}
             proOptions={{ hideAttribution: true }}
             defaultViewport={{ x: 20, y: 60, zoom: 0.7 }}

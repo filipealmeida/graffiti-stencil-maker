@@ -15,7 +15,8 @@ base64 = "0.22"
 rust-embed = { version = "8", features = ["mime-guess"], optional = true }
 tiny_http = { version = "0.12", optional = true }
 open = { version = "5", optional = true }
+flate2 = { version = "1", optional = true }
 
 [features]
 # Embeds web/dist (build the studio first) and adds `stencil studio`.
-studio = ["dep:rust-embed", "dep:tiny_http", "dep:open"]
+studio = ["dep:rust-embed", "dep:tiny_http", "dep:open", "dep:flate2"]
