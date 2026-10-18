@@ -313,53 +313,74 @@ fn slide(a: Pt, b: Pt, by: f64, width: f64) -> (Pt, Pt) {
 /// resolves (a strip corner a few lattice units from an outline vertex); the plate is then built again with every
 /// bridge slid sideways by a fraction of its width.
 pub(crate) fn build(shapes: &Shapes, detail: f64, p: &Params) -> Result<Output, String> {
-    let mut last = build_once(shapes, detail, p, 0.0);
-    let mut used: Option<String> = None;
-    // a different bridge width moves the strip corners relative to the outline, so it is the second lever; the last
-    // resort is single flat strips instead of stepped ramps, which have far fewer corners to pinch
-    'tries: for (widen, easy) in [
+    let first = build_once(shapes, detail, p, 0.0);
+    if !matches!(&first, Err(e) if e.contains("watertight verification")) {
+        return first;
+    }
+    // In order of preference: a slightly moved bridge keeps the design; flat strips instead of ramps have far fewer
+    // corners to pinch; another width moves the corners relative to the outline.
+    let mut tries: Vec<(f64, bool, f64)> = vec![];
+    for (widen, easy) in [
         (1.0, false),
+        (1.0, true),
         (1.15, false),
         (0.87, false),
-        (1.0, true),
         (1.15, true),
         (0.87, true),
     ] {
+        for k in 0..=4 {
+            if widen == 1.0 && !easy && k == 0 {
+                continue;
+            }
+            let side = if k % 2 == 1 { 1.0 } else { -1.0 };
+            tries.push((widen, easy, side * 0.06 * ((k + 1) / 2) as f64));
+        }
+    }
+    let attempt = |&(widen, easy, nudge): &(f64, bool, f64)| {
         let mut q = p.clone();
         q.bridge_mm = p.bridge_mm * widen;
         if easy {
             q.z_bridging = ZBridging::Easy;
         }
-        for k in 0..=4 {
-            if widen == 1.0 && !easy && k == 0 {
-                continue;
-            }
-            if !matches!(&last, Err(e) if e.contains("watertight verification")) {
-                break 'tries;
-            }
-            let side = if k % 2 == 1 { 1.0 } else { -1.0 };
-            let nudge = side * 0.06 * ((k + 1) / 2) as f64;
-            last = build_once(shapes, detail, &q, nudge);
-            if last.is_ok() {
-                let mut what = vec![];
-                if widen != 1.0 {
-                    what.push(format!(
-                        "bridges {:.2} mm wide instead of {:.2} mm",
-                        q.bridge_mm, p.bridge_mm
-                    ));
+        let r = build_once(shapes, detail, &q, nudge);
+        (widen, easy, q.bridge_mm, r)
+    };
+    // the attempts are independent, so a batch runs side by side and the first success in preference order wins
+    #[cfg(not(target_arch = "wasm32"))]
+    let lanes = rayon::current_num_threads().clamp(1, 8);
+    #[cfg(target_arch = "wasm32")]
+    let lanes = 1;
+    let mut last = first;
+    for batch in tries.chunks(lanes) {
+        #[cfg(not(target_arch = "wasm32"))]
+        let results: Vec<_> = {
+            use rayon::prelude::*;
+            batch.par_iter().map(attempt).collect()
+        };
+        #[cfg(target_arch = "wasm32")]
+        let results: Vec<_> = batch.iter().map(attempt).collect();
+        for (widen, easy, bridge, r) in results {
+            match r {
+                Ok(mut o) => {
+                    let mut what = vec![];
+                    if widen != 1.0 {
+                        what.push(format!(
+                            "bridges {bridge:.2} mm wide instead of {:.2} mm",
+                            p.bridge_mm
+                        ));
+                    }
+                    if easy && p.z_bridging != ZBridging::Easy {
+                        what.push("flat bridge strips instead of stepped ramps".to_string());
+                    }
+                    if what.is_empty() {
+                        what.push("bridges moved sideways".to_string());
+                    }
+                    o.fallback = Some(format!("the plate only verified with {}", what.join(", ")));
+                    return Ok(o);
                 }
-                if easy && p.z_bridging != ZBridging::Easy {
-                    what.push("flat bridge strips instead of stepped ramps".to_string());
-                }
-                if what.is_empty() {
-                    what.push("bridges moved sideways".to_string());
-                }
-                used = Some(what.join(", "));
+                Err(e) => last = Err(e),
             }
         }
-    }
-    if let (Ok(o), Some(u)) = (&mut last, used) {
-        o.fallback = Some(format!("the plate only verified with {u}"));
     }
     last
 }
