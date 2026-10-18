@@ -20,6 +20,12 @@ export function badgesFor(type: string, params: Record<string, unknown>, info: I
   if ((type === 'stencil' || type === 'vector_stencil') && n(params.bridge_mm) > 0 && n(params.bridge_mm) < 1) {
     out.push({ level: 'warn', text: `bridge ${n(params.bridge_mm)} mm is thinner than a nozzle` })
   }
+  if (info?.kind === 'parts') {
+    for (const w of info.meta?.pads?.warnings ?? []) out.push({ level: 'warn', text: String(w) })
+    const t = info.meta?.tiling
+    if (n(t?.reinforced_seams) > 0) out.push({ level: 'info', text: `${n(t.reinforced_seams)} seams reinforced` })
+    if (n(t?.dropped_specks) > 0) out.push({ level: 'warn', text: `${n(t.dropped_specks)} tiny pieces dropped` })
+  }
   if (info?.kind === 'mask' && typeof info.coverage === 'number') {
     if (info.coverage < 0.005) out.push({ level: 'warn', text: 'mask is almost empty' })
     else if (info.coverage > 0.995) out.push({ level: 'warn', text: 'mask is almost all paint' })

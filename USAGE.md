@@ -111,6 +111,15 @@ and watertightness before export.
 ## Colour sets, live preview and feedback
 
 - **Colour set node** (post stage, or Templates → *Colour set*): takes up to six solids (one per colour) of the *same* plate size and drills matching registration holes (0–4, diagonal / L / corners) through every plate, so layers line up. With *pins* on it also outputs a pin STL sized to the holes. Holes must fit inside the margin, or the node reports why. Output: one STL per colour plus pins, exportable as a ZIP.
+
+## Tiles, pads and screws (three post nodes)
+
+Chain **Tiles → Pads & mounting holes → Screws, nuts & fit test** (Templates → *Tiles & mounting*). The older *Tiles & mounting* node still works.
+
+- **Tiles:** cuts the stencil into tiles no larger than *max width / height*, as evenly as possible, and joins them with glued connector rods in blind holes at the seams. A seam may move up to *seam may move* mm to cross more material. Where no connector fits, *Add material* puts a block at the seam (it interrupts the artwork there). Pieces a cut leaves hanging get their own bridges (width, count, raised and Z-bridging options), so no tile has islands. Pieces of 4 mm or less that cannot be held are dropped and counted in the node's badge. Every tile is checked watertight and in one piece.
+- **Pads & mounting holes:** takes the Tiles output. Pads go on the corners of the margin band and, on edges longer than *Add pads along edges longer than*, evenly between; through-holes follow every *Hole every* mm. Anything that would hit a seam or a connector slides along its edge until it is clear. *Joiner holes* adds a pair of holes either side of each seam that crosses the frame (widened automatically to clear the connectors). The margin must be at least the pad thread plus 4 mm.
+- **Screws, nuts & fit test:** bolt, nut and the connector fit-test strip. Connect it after Pads & mounting holes and it also prints a joiner and an extender plate sized for the mounting screw, to bridge the seams over the frame.
+
 - **Live preview**: while a slider is dragged a coarse draft (lower resolution, easy bridging, low vector detail) runs; releasing the slider runs the full quality pass. The status line says "draft preview" until then.
 - **Progress and ETA**: each running node shows its message, elapsed time and an estimated time left; the top status line is announced to screen readers.
 - **Badges** on nodes flag problems (islands remaining, not watertight, bridges under 1 mm, empty/full masks, heavy meshes).

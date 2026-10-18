@@ -700,10 +700,30 @@ fn pads_node_fits_pads_and_holes_clear_of_seams() {
         let Some(Value::Parts(p)) = e.value(&key, "parts") else {
             panic!()
         };
+        let p = p.clone();
         let plate = &p.meta["plate"];
         let pads = plate["pads"].as_array().unwrap();
         assert!(pads.len() > 4, "corners plus edge pads: {}", pads.len());
         assert!(!plate["holes"].as_array().unwrap().is_empty());
+        let joins = plate["joins"].as_array().unwrap();
+        assert!(!joins.is_empty(), "{}", p.meta["pads"]);
+        assert!(plate["mounting"]["offset"].as_f64().unwrap() >= 12.0);
+        g["nodes"]
+            .as_array_mut()
+            .unwrap()
+            .push(json!({"id": "hw", "type": "hardware", "params": {"screw": "M4"}}));
+        g["edges"]
+            .as_array_mut()
+            .unwrap()
+            .push(json!({"from": ["pd", "parts"], "to": ["hw", "parts"]}));
+        let r2 = e.run(&g, None, &|| 0.0);
+        assert_eq!(r2["nodes"]["hw"]["state"], "done", "{r2}");
+        let hk = r2["nodes"]["hw"]["key"].as_str().unwrap().to_string();
+        let Some(Value::Parts(hp)) = e.value(&hk, "parts") else {
+            panic!()
+        };
+        assert!(hp.files.iter().any(|f| f.0.starts_with("joiner_")));
+        assert!(hp.files.iter().any(|f| f.0.starts_with("extender_")));
         for pad in pads {
             let x = pad["x"].as_f64().unwrap();
             for s in plate["seams"].as_array().unwrap() {

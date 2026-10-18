@@ -85,6 +85,7 @@ interface State {
   colourStarter: (imageId: string, title: string) => void
   vectorStarter: (imageId: string, title: string) => void
   colourSetStarter: (imageId: string, title: string) => void
+  tiledStarter: (imageId: string, title: string) => void
   graph: () => GraphJson
   setRuns: (r: Record<string, NodeRun>, busy: boolean, error?: string | null) => void
   canUndo: boolean
@@ -224,6 +225,23 @@ export const useStudio = create<State>((set, get) => ({
     connect({ source: a, sourceHandle: 'solid', target: set_, targetHandle: 'colour_1' })
     connect({ source: b, sourceHandle: 'solid', target: set_, targetHandle: 'colour_2' })
     set({ selected: set_ })
+  },
+  tiledStarter: (imageId, title) => {
+    const { addNode, connect } = get()
+    set({ nodes: [], edges: [], runs: {}, selected: null })
+    const src = addNode('source', { image_id: imageId }, { x: 40, y: 60 }, title)
+    const thr = addNode('threshold', {}, { x: 420, y: 60 })
+    const st = addNode('stencil', { width_mm: 400, margin_mm: 12, thickness_mm: 6 }, { x: stageColumn('stencil').x + 30, y: 60 })
+    const px = stageColumn('post').x + 30
+    const tiles = addNode('tiles', { max_x: 200, max_y: 200 }, { x: px, y: 60 })
+    const pads = addNode('pads', {}, { x: px, y: 300 })
+    const hw = addNode('hardware', {}, { x: px, y: 540 })
+    connect({ source: src, sourceHandle: 'image', target: thr, targetHandle: 'image' })
+    connect({ source: thr, sourceHandle: 'mask', target: st, targetHandle: 'mask' })
+    connect({ source: st, sourceHandle: 'solid', target: tiles, targetHandle: 'solid' })
+    connect({ source: tiles, sourceHandle: 'parts', target: pads, targetHandle: 'parts' })
+    connect({ source: pads, sourceHandle: 'parts', target: hw, targetHandle: 'parts' })
+    set({ selected: tiles })
   },
   vectorStarter: (imageId, title) => {
     const { addNode, connect } = get()

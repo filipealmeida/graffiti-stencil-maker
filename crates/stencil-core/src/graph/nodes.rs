@@ -387,7 +387,7 @@ pub(super) fn run_remesh(_: &Engine, i: &HashMap<String, Value>, p: &P) -> Resul
 
 pub(super) fn run_hardware(
     _: &Engine,
-    _: &HashMap<String, Value>,
+    i: &HashMap<String, Value>,
     p: &P,
 ) -> Result<Outputs, String> {
     use crate::hardware as hw;
@@ -423,12 +423,40 @@ pub(super) fn run_hardware(
             m.to_stl(),
         ));
     }
+    let mut meta = json!({});
+    if let Some(Value::Parts(src)) = i.get("parts") {
+        let plate = &src.meta["plate"];
+        let joins = plate["joins"].as_array().map_or(0, |j| j.len());
+        let m = &plate["mounting"];
+        if plate.is_null() || m.is_null() {
+            return Err(
+                "the parts have no mounting description: connect a Pads & mounting holes node"
+                    .into(),
+            );
+        }
+        if joins > 0 {
+            let screw = m["screw"].as_str().unwrap_or("M4");
+            let (j, e) = hw::join_plates(
+                screw,
+                m["threaded"] == true,
+                m["clearance"].as_f64().unwrap_or(0.4) / 2.0,
+                m["offset"].as_f64().unwrap_or(0.0),
+                p.f("extend"),
+                p.f("joiner_thickness"),
+                seg,
+            )?;
+            for (mesh, n) in [(j, "joiner"), (e, "extender")] {
+                if !mesh.is_watertight() {
+                    return Err(format!("verification failed: {n} plate is not watertight"));
+                }
+                files.push((format!("{n}_{screw}.stl"), mesh.to_stl()));
+            }
+        }
+        meta["joiners"] = json!({"seams_joined": joins, "screw": m["screw"]});
+    }
     Ok(vec![(
         "parts",
-        Value::Parts(Rc::new(Parts {
-            files,
-            meta: json!({}),
-        })),
+        Value::Parts(Rc::new(Parts { files, meta })),
     )])
 }
 
@@ -757,6 +785,81 @@ pub(super) fn run_pads(_: &Engine, i: &HashMap<String, Value>, p: &P) -> Result<
         hole_d / 2.0,
         &keep,
     )?;
+    let mut layout = layout;
+    let mut joins: Vec<Json> = vec![];
+    let mut off = p.f("joiner_offset");
+    if mount && off > 0.0 && hole_spacing > 0.0 {
+        let hole_r = hole_d / 2.0;
+        let c = margin / 2.0;
+        let tol = 0.5;
+        // one offset serves every joiner plate, so widen it until the connectors at the seams are cleared
+        let place = |off: f64| -> (Vec<(f64, f64)>, Vec<Json>, usize) {
+            let (mut holes, mut joins, mut skipped) = (vec![], vec![], 0);
+            for s in &seams {
+                let (across, from, to) = (s[1], s[2], s[3]);
+                let (lo_a, hi_a) = if s[0] == 0.0 {
+                    (lo[1], lo[1] + h)
+                } else {
+                    (lo[0], lo[0] + w)
+                };
+                let (lo_c, hi_c) = if s[0] == 0.0 {
+                    (lo[1] + c, lo[1] + h - c)
+                } else {
+                    (lo[0] + c, lo[0] + w - c)
+                };
+                for (touches, band) in [
+                    ((from - lo_a).abs() < tol, lo_c),
+                    ((to - hi_a).abs() < tol, hi_c),
+                ] {
+                    if !touches {
+                        continue;
+                    }
+                    let pt = |t: f64| if s[0] == 0.0 { (t, band) } else { (band, t) };
+                    let (a, b) = (pt(across - off), pt(across + off));
+                    let ok = [a, b].iter().all(|&q| {
+                        !keep.hits(q.0, q.1, hole_r + 1.5)
+                            && layout
+                                .holes
+                                .iter()
+                                .chain(&holes)
+                                .all(|o| (q.0 - o.0).hypot(q.1 - o.1) >= 2.0 * hole_r + 1.5)
+                            && layout
+                                .pads
+                                .iter()
+                                .all(|o| (q.0 - o.0).hypot(q.1 - o.1) >= hole_r + pad_r + 1.5)
+                    });
+                    if ok {
+                        holes.push(a);
+                        holes.push(b);
+                        joins.push(json!({"axis": s[0], "a": [a.0, a.1], "b": [b.0, b.1]}));
+                    } else {
+                        skipped += 1;
+                    }
+                }
+            }
+            (holes, joins, skipped)
+        };
+        let mut best = place(off);
+        let mut best_off = off;
+        let mut k = 1.0;
+        while best.2 > 0 && k <= 20.0 {
+            let t = place(off + k);
+            if t.2 < best.2 {
+                best = t;
+                best_off = off + k;
+            }
+            k += 1.0;
+        }
+        off = best_off;
+        if best.2 > 0 {
+            warnings.push(format!(
+                "{} seam(s) crossing the frame have no clear spot for a joiner plate",
+                best.2
+            ));
+        }
+        layout.holes.extend(best.0);
+        joins = best.1;
+    }
     crate::progress::step("lay out pads", 0.05);
     let pp = hw::PadParams {
         count: 0,
@@ -832,9 +935,14 @@ pub(super) fn run_pads(_: &Engine, i: &HashMap<String, Value>, p: &P) -> Result<
     let mut meta = src.meta.clone();
     meta["plate"]["pads"] = json!(pts(&layout.pads, pad_r));
     meta["plate"]["holes"] = json!(pts(&layout.holes, hole_d / 2.0));
+    meta["plate"]["joins"] = json!(joins);
+    meta["plate"]["mounting"] = json!({
+        "screw": p.s("mount_screw"), "threaded": p.b("mount_threaded"),
+        "clearance": p.f("mount_clearance"), "offset": off,
+    });
     meta["pads"] = json!({
         "pads": layout.pads.len(), "pad_diameter_mm": dia, "pad_thread": p.s("pad_thread"),
-        "thread_major_mm": thread_d, "holes": layout.holes.len(), "hole_diameter_mm": hole_d,
+        "thread_major_mm": thread_d, "joins": joins.len(), "holes": layout.holes.len(), "hole_diameter_mm": hole_d,
         "warnings": warnings,
     });
     Ok(vec![(

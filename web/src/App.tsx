@@ -266,6 +266,11 @@ function Canvas() {
       "image → split colours → one stencil per colour → colour set. Layers with registration holes and pins, as one ZIP.",
       s.colourSetStarter,
     ],
+    [
+      "Tiles & mounting",
+      "image → threshold → stencil → tiles → pads & holes → screws. A big stencil in printable tiles, with mounting pads and joiner plates.",
+      s.tiledStarter,
+    ],
   ] as const;
   const runTemplate = (make: (imageId: string, title: string) => void) => {
     const src = s.nodes.find((n) => n.data.type === "source");

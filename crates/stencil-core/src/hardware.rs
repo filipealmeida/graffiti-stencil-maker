@@ -363,7 +363,7 @@ pub struct Keepout<'a> {
 }
 
 impl Keepout<'_> {
-    fn hits(&self, x: f64, y: f64, r: f64) -> bool {
+    pub fn hits(&self, x: f64, y: f64, r: f64) -> bool {
         self.seams.iter().any(|s| {
             let (across, along) = if s[0] == 0.0 { (x, y) } else { (y, x) };
             (across - s[1]).abs() < r && along > s[2] - r && along < s[3] + r
