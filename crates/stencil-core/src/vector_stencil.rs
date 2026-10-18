@@ -16,6 +16,8 @@ mod tests;
 use repair::*;
 
 const UNITS_PER_MM: f64 = 10_000.0;
+/// Bridges shorter than this are one flat strip instead of a ramp of steps.
+const MIN_RAMP_MM: f64 = 0.15;
 
 fn area(poly: &[Pt]) -> f64 {
     poly.iter()
@@ -110,7 +112,9 @@ fn bridge_steps(
             to_int(&bridge_polygon(a, b, width)),
         )]
     };
-    if easy {
+    // An island hairline-close to the plate cannot hold a ramp: every step would be a few lattice units long, and
+    // the stacked outlines pinch. A single strip does the job there.
+    if easy || distance_sq(a, b) < MIN_RAMP_MM * MIN_RAMP_MM {
         return whole();
     }
     let n = (base_layers - 1) as i64;
@@ -297,7 +301,32 @@ fn polygon_mesh(
     Ok(mesh)
 }
 
+/// Both ends of a bridge moved sideways by `by` bridge widths.
+fn slide(a: Pt, b: Pt, by: f64, width: f64) -> (Pt, Pt) {
+    let d = [b[0] - a[0], b[1] - a[1]];
+    let len = d[0].hypot(d[1]).max(1e-9);
+    let (nx, ny) = (-d[1] / len * by * width, d[0] / len * by * width);
+    ([a[0] + nx, a[1] + ny], [b[0] + nx, b[1] + ny])
+}
+
+/// Builds the plate. Where a bridge lands, rounding to the integer grid can leave a sliver pinch that no repair
+/// resolves (a strip corner a few lattice units from an outline vertex); the plate is then built again with every
+/// bridge slid sideways by a fraction of its width.
 pub(crate) fn build(shapes: &Shapes, detail: f64, p: &Params) -> Result<Output, String> {
+    let mut last = build_once(shapes, detail, p, 0.0);
+    for k in 1..=8 {
+        match &last {
+            Err(e) if e.contains("watertight verification") => {
+                let side = if k % 2 == 1 { 1.0 } else { -1.0 };
+                last = build_once(shapes, detail, p, side * 0.06 * ((k + 1) / 2) as f64);
+            }
+            _ => break,
+        }
+    }
+    last
+}
+
+fn build_once(shapes: &Shapes, detail: f64, p: &Params, nudge: f64) -> Result<Output, String> {
     validate(p)?;
     if shapes.w == 0 || shapes.h == 0 || shapes.loops.is_empty() {
         return Err("vector input contains no closed outlines".into());
@@ -380,6 +409,7 @@ pub(crate) fn build(shapes: &Shapes, detail: f64, p: &Params) -> Result<Output, 
         let outline = outer_contour(&material[i]).ok_or("vector island has no outline")?;
         let outline = to_mm(outline);
         let (a, b) = closest_pair(&outline, &frame).ok_or("frame has no boundary")?;
+        let (a, b) = slide(a, b, nudge, p.bridge_mm);
         bridges.push(to_int(&bridge_polygon(a, b, p.bridge_mm)));
         links.push((a, b));
         let mut chosen = vec![a];
@@ -402,6 +432,7 @@ pub(crate) fn build(shapes: &Shapes, detail: f64, p: &Params) -> Result<Output, 
                 .all(|c| distance_sq(*c, from) >= spacing * spacing);
             if apart {
                 chosen.push(from);
+                let (from, to) = slide(from, to, nudge, p.bridge_mm);
                 bridges.push(to_int(&bridge_polygon(from, to, p.bridge_mm)));
                 links.push((from, to));
             }
@@ -519,7 +550,10 @@ pub(crate) fn build(shapes: &Shapes, detail: f64, p: &Params) -> Result<Output, 
         }
         // mirroring keeps the topology, so a mesh already verified above needs no second check
         if !verified && !stack.is_watertight() {
-            return Err("vector mesh with raised bridges failed watertight verification".into());
+            return Err(format!(
+                "vector mesh with raised bridges failed watertight verification (bad edges: {:?})",
+                stack.bad_edges(4)
+            ));
         }
         let stl = stack.to_stl();
         let stats = Stats {

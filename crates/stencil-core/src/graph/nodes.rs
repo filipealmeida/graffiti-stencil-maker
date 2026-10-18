@@ -450,6 +450,9 @@ pub(super) fn run_export(_: &Engine, i: &HashMap<String, Value>, p: &P) -> Resul
         clearance: p.f("clearance"),
         segments: p.f("segments") as usize,
         thickness: s.stats["thickness_mm"].as_f64().unwrap_or(0.0),
+        shift_mm: 0.0,
+        avoid: Vec::new(),
+        reinforce: false,
         bridge: s.stats["plate_top_mm"].as_f64().map(|top| {
             let lh = s.stats["layer_height_mm"].as_f64().unwrap_or(0.2);
             crate::tile_bridge::BridgeParams {
@@ -570,4 +573,84 @@ pub(super) fn run_export(_: &Engine, i: &HashMap<String, Value>, p: &P) -> Resul
         ("parts", Value::Parts(Rc::new(parts))),
         ("solid", Value::Solid(s.clone())),
     ])
+}
+
+pub(super) fn run_tiles(_: &Engine, i: &HashMap<String, Value>, p: &P) -> Result<Outputs, String> {
+    use crate::tiles;
+    let Some(Value::Solid(s)) = i.get("solid") else {
+        return Err("input 'solid' missing".into());
+    };
+    let st = &s.stats;
+    let (lh, thickness) = (
+        st["layer_height_mm"].as_f64().unwrap_or(0.2),
+        st["thickness_mm"].as_f64().unwrap_or(0.0),
+    );
+    let bridge = match (p.b("bridge_islands"), st["plate_top_mm"].as_f64()) {
+        (true, Some(top)) => Some(crate::tile_bridge::BridgeParams {
+            bridge_mm: p.f("bridge_mm"),
+            per_island: p.f("bridges_per_island") as usize,
+            raised: p.b("raised_bridges"),
+            easy: p.s("z_bridging") == "easy",
+            base_layers: (thickness / lh).round() as u32,
+            layer_height: lh,
+            plate_top: top,
+            flip: st["flip"].as_bool().unwrap_or(false),
+        }),
+        _ => None,
+    };
+    let tp = tiles::TileParams {
+        max_x: p.f("max_x"),
+        max_y: p.f("max_y"),
+        shape: if p.s("connector") == "round" {
+            tiles::Shape::Round
+        } else {
+            tiles::Shape::Hex
+        },
+        diameter: p.s("connector_d").parse().unwrap_or(3.0),
+        depth: p.f("depth"),
+        clearance: p.f("clearance"),
+        segments: p.f("segments") as usize,
+        thickness,
+        shift_mm: p.f("seam_shift"),
+        avoid: Vec::new(),
+        reinforce: p.b("reinforce"),
+        bridge,
+    };
+    let mesh = crate::mesh::Mesh::from_stl(&s.stl)?;
+    crate::progress::step("read plate", 0.05);
+    let t = tiles::tile(&mesh, &tp)?;
+    crate::progress::step("cut tiles", 0.9);
+    let mut files = Vec::new();
+    let mut parts = Vec::new();
+    for x in &t.tiles {
+        if !x.mesh.is_watertight() {
+            return Err(format!("verification failed: {} is not watertight", x.name));
+        }
+        let file = format!("{}.stl", x.name);
+        parts.push(json!({"file": file, "role": "tile", "origin": x.origin, "size": x.size}));
+        files.push((file, x.mesh.to_stl()));
+    }
+    if let Some(r) = &t.rod {
+        files.push((
+            format!(
+                "connector_{}_d{}mm.stl",
+                p.s("connector"),
+                p.s("connector_d")
+            ),
+            r.to_stl(),
+        ));
+    }
+    let (lo, hi) = mesh.bounds();
+    let meta = json!({
+        "tiling": t.info,
+        "plate": {
+            "w": hi[0] - lo[0], "h": hi[1] - lo[1], "thickness": thickness, "layer": lh,
+            "top": st["plate_top_mm"], "flip": st["flip"], "margin": st["margin_mm"],
+            "seams": t.seams, "connectors": t.connectors, "parts": parts,
+        },
+    });
+    Ok(vec![(
+        "parts",
+        Value::Parts(Rc::new(Parts { files, meta })),
+    )])
 }

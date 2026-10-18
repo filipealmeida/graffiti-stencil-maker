@@ -646,3 +646,32 @@ fn colour_set_rejects_mismatched_plates_and_small_margins() {
         "{r}"
     );
 }
+
+#[test]
+fn tiles_node_cuts_a_stencil_and_describes_the_plate() {
+    let mut e = Engine::new();
+    let id = e.add_image(test_png()).unwrap()["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let mut g = graph(&id, 6.0);
+    g["nodes"][3] = json!({"id": "ex", "type": "tiles", "params": {"max_x": 60.0, "max_y": 60.0}});
+    let r = e.run(&g, None, &|| 0.0);
+    assert_eq!(r["nodes"]["ex"]["state"], "done", "{r}");
+    let key = r["nodes"]["ex"]["key"].as_str().unwrap().to_string();
+    let Some(Value::Parts(p)) = e.value(&key, "parts") else {
+        panic!()
+    };
+    let plate = &p.meta["plate"];
+    assert!(plate["w"].as_f64().unwrap() > 60.0);
+    let parts = plate["parts"].as_array().unwrap();
+    assert!(parts.len() >= 2 && parts.iter().all(|x| x["role"] == "tile"));
+    assert!(!plate["seams"].as_array().unwrap().is_empty());
+    for (name, bytes) in &p.files {
+        let m = crate::mesh::Mesh::from_stl(bytes).unwrap();
+        assert!(m.is_watertight(), "{name}");
+        if name.starts_with("stencil_") {
+            assert_eq!(crate::tile_bridge::components(&m).0, 1, "{name}");
+        }
+    }
+}

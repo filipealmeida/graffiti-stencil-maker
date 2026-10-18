@@ -152,6 +152,59 @@ impl Mesh {
         fwd.windows(2).all(|w| w[0] != w[1]) && fwd == rev
     }
 
+    /// Rounds the vertices to the single precision an STL file stores, welds the ones that become identical and
+    /// drops the triangles that collapse, so the mesh checked is the mesh a slicer reads.
+    pub fn quantize_f32(&mut self) {
+        let mut ids: std::collections::HashMap<[u32; 3], usize> = Default::default();
+        let mut v: Vec<P3> = Vec::new();
+        let map: Vec<usize> = self
+            .v
+            .iter()
+            .map(|p| {
+                let q = [p[0] as f32, p[1] as f32, p[2] as f32];
+                let key = q.map(f32::to_bits);
+                *ids.entry(key).or_insert_with(|| {
+                    v.push(q.map(f64::from));
+                    v.len() - 1
+                })
+            })
+            .collect();
+        self.t = self
+            .t
+            .iter()
+            .map(|t| [map[t[0]], map[t[1]], map[t[2]]])
+            .filter(|t| t[0] != t[1] && t[1] != t[2] && t[0] != t[2])
+            .collect();
+        self.v = v;
+    }
+
+    /// Up to `limit` edges that break watertightness, as (from, to, times used, times reversed used).
+    pub fn bad_edges(&self, limit: usize) -> Vec<(P3, P3, usize, usize)> {
+        let mut edges: std::collections::HashMap<(usize, usize), usize> = Default::default();
+        for t in &self.t {
+            for k in 0..3 {
+                *edges.entry((t[k], t[(k + 1) % 3])).or_default() += 1;
+            }
+        }
+        let mut bad: Vec<_> = edges
+            .iter()
+            .filter(|&(&(a, b), &n)| n != 1 || edges.get(&(b, a)) != Some(&1))
+            .map(|(&(a, b), &n)| (a, b, n))
+            .collect();
+        bad.sort_unstable();
+        bad.truncate(limit);
+        bad.into_iter()
+            .map(|(a, b, n)| {
+                (
+                    self.v[a],
+                    self.v[b],
+                    n,
+                    edges.get(&(b, a)).copied().unwrap_or(0),
+                )
+            })
+            .collect()
+    }
+
     pub fn translate(&mut self, d: P3) {
         for p in &mut self.v {
             for k in 0..3 {
