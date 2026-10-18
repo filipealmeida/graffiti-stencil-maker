@@ -3,6 +3,7 @@ import { api, artifactUrl, partUrl } from './api'
 import Console from './Console'
 import ImageView from './ImageView'
 import ParamForm from './ParamForm'
+import { SourceActions } from './StudioNode'
 import { useStudio } from './store'
 const Viewer3D = lazy(() => import('./Viewer3D'))
 
@@ -87,6 +88,7 @@ export default function Workbench() {
       <div className="bench-body">
         <aside className="bench-params">
           <p className="mut">{t.doc}</p>
+          {t.id === 'source' && <SourceActions id={node.id} imageId={String(node.data.params.image_id)} title={node.data.title} />}
           <ParamForm node={node} type={t} />
           {run?.state === 'error' && <div className="err">{run.error}</div>}
         </aside>

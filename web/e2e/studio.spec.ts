@@ -354,6 +354,14 @@ test('the Image node opens a replacement picture and downloads its own, inside t
   expect(await page.locator('.react-flow__node').count()).toBe(before)
 })
 
+test('the Image node workbench (double-click) has Open and Download', async ({ page }) => {
+  await open(page)
+  await page.locator('.react-flow__node').filter({ hasText: 'Image' }).first().dispatchEvent('dblclick')
+  const bench = page.locator('.bench-params')
+  await expect(bench.getByRole('button', { name: 'Download' })).toBeVisible()
+  await expect(bench.getByText('Open…')).toBeVisible()
+})
+
 test('Tiles & mounting has a connector depth slider', async ({ page }) => {
   await open(page)
   await page.getByRole('button', { name: '+ post' }).click()
