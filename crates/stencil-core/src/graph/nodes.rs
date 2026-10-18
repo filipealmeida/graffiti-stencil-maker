@@ -774,17 +774,21 @@ pub(super) fn run_pads(_: &Engine, i: &HashMap<String, Value>, p: &P) -> Result<
         seams: &seams,
         boxes: &boxes,
     };
-    let layout = hw::frame_layout(
-        lo,
-        w,
-        h,
-        margin,
-        p.f("long_edge"),
-        hole_spacing,
-        pad_r,
-        hole_d / 2.0,
-        &keep,
-    )?;
+    let layout_args = |spacing: f64, fixed: &[(f64, f64)]| {
+        hw::frame_layout(
+            lo,
+            w,
+            h,
+            margin,
+            p.f("long_edge"),
+            spacing,
+            pad_r,
+            hole_d / 2.0,
+            fixed,
+            &keep,
+        )
+    };
+    let layout = layout_args(0.0, &[])?;
     let mut layout = layout;
     let mut joins: Vec<Json> = vec![];
     let mut off = p.f("joiner_offset");
@@ -857,8 +861,11 @@ pub(super) fn run_pads(_: &Engine, i: &HashMap<String, Value>, p: &P) -> Result<
                 best.2
             ));
         }
-        layout.holes.extend(best.0);
+        layout.holes = best.0;
         joins = best.1;
+    }
+    if hole_spacing > 0.0 {
+        layout = layout_args(hole_spacing, &layout.holes)?;
     }
     crate::progress::step("lay out pads", 0.05);
     let pp = hw::PadParams {

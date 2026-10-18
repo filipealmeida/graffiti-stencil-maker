@@ -314,13 +314,30 @@ fn slide(a: Pt, b: Pt, by: f64, width: f64) -> (Pt, Pt) {
 /// bridge slid sideways by a fraction of its width.
 pub(crate) fn build(shapes: &Shapes, detail: f64, p: &Params) -> Result<Output, String> {
     let mut last = build_once(shapes, detail, p, 0.0);
-    for k in 1..=8 {
-        match &last {
-            Err(e) if e.contains("watertight verification") => {
-                let side = if k % 2 == 1 { 1.0 } else { -1.0 };
-                last = build_once(shapes, detail, p, side * 0.06 * ((k + 1) / 2) as f64);
+    // a different bridge width moves the strip corners relative to the outline, so it is the second lever
+    // last resort: single flat strips instead of stepped ramps, which have far fewer corners to pinch
+    'tries: for (widen, easy) in [
+        (1.0, false),
+        (1.15, false),
+        (0.87, false),
+        (1.0, true),
+        (1.15, true),
+        (0.87, true),
+    ] {
+        let mut q = p.clone();
+        q.bridge_mm = p.bridge_mm * widen;
+        if easy {
+            q.z_bridging = ZBridging::Easy;
+        }
+        for k in 0..=4 {
+            if widen == 1.0 && !easy && k == 0 {
+                continue;
             }
-            _ => break,
+            if !matches!(&last, Err(e) if e.contains("watertight verification")) {
+                break 'tries;
+            }
+            let side = if k % 2 == 1 { 1.0 } else { -1.0 };
+            last = build_once(shapes, detail, &q, side * 0.06 * ((k + 1) / 2) as f64);
         }
     }
     last

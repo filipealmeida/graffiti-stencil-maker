@@ -708,6 +708,11 @@ fn pads_node_fits_pads_and_holes_clear_of_seams() {
         let joins = plate["joins"].as_array().unwrap();
         assert!(!joins.is_empty(), "{}", p.meta["pads"]);
         assert!(plate["mounting"]["offset"].as_f64().unwrap() >= 12.0);
+        assert!(
+            p.meta["pads"]["warnings"].as_array().unwrap().is_empty(),
+            "{}",
+            p.meta["pads"]
+        );
         g["nodes"]
             .as_array_mut()
             .unwrap()

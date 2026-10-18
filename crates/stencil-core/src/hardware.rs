@@ -392,6 +392,7 @@ pub fn frame_layout(
     hole_spacing: f64,
     pad_r: f64,
     hole_r: f64,
+    fixed_holes: &[(f64, f64)],
     keep: &Keepout,
 ) -> Result<FrameLayout, String> {
     let c = margin / 2.0;
@@ -399,7 +400,7 @@ pub fn frame_layout(
     let gap = 1.5;
     let mut out = FrameLayout {
         pads: vec![],
-        holes: vec![],
+        holes: fixed_holes.to_vec(),
     };
     let free = |out: &FrameLayout, p: (f64, f64), r: f64| {
         !keep.hits(p.0, p.1, r + gap)
@@ -716,6 +717,7 @@ mod tests {
             100.0,
             5.0,
             2.2,
+            &[],
             &keep,
         )
         .unwrap();
@@ -733,7 +735,19 @@ mod tests {
             seams: &seams,
             boxes: &[],
         };
-        let l = frame_layout([0.0, 0.0], 410.0, 100.0, 10.0, 0.0, 0.0, 5.0, 2.2, &near).unwrap();
+        let l = frame_layout(
+            [0.0, 0.0],
+            410.0,
+            100.0,
+            10.0,
+            0.0,
+            0.0,
+            5.0,
+            2.2,
+            &[],
+            &near,
+        )
+        .unwrap();
         assert!(l.pads.iter().all(|p| (p.0 - 7.0).abs() > 5.0));
     }
 }
