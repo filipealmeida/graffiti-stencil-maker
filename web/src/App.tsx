@@ -267,7 +267,7 @@ function Canvas() {
       s.colourSetStarter,
     ],
     [
-      "Tiles & mounting",
+      "Tiles, pads & screws",
       "image → threshold → stencil → tiles → pads & holes → screws. A big stencil in printable tiles, with mounting pads and joiner plates.",
       s.tiledStarter,
     ],

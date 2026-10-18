@@ -74,7 +74,7 @@ The graph is arranged into three stages:
    and straight edges by quadric error, inside the layer interval. Creases survive, topology never changes and the mesh stays
    watertight; if a collapse set would break that the step is skipped. On a 307k-triangle plate it gave 225k at 0.02 mm and 142k
    at 0.1 mm. Old projects with the *Complexity reducer* are opened as Remesh.
-3. **Post-process:** Tiles & mounting splits plates (the `depth` slider sets how far each connector sinks into each tile, 4–20 mm, default 10; the rod is `2 × depth − 1` mm long and tiles must be at least `depth / 0.4` mm wide), adds optional hardware features, and exports parts as a ZIP.
+3. **Post-process:** Tiles & mounting (old) splits plates (the `depth` slider sets how far each connector sinks into each tile, 4–20 mm, default 10; the rod is `2 × depth − 1` mm long and tiles must be at least `depth / 0.4` mm wide), adds optional hardware features, and exports parts as a ZIP.
    Pieces that a seam cuts off from the rest of their tile are bridged again per tile (same bridge width, count and
    raised-bridge settings as the stencil); `bridged_tiles` in the tiling info counts them. If a tile still has loose
    pieces the export fails with a clear error instead of emitting islands.
@@ -114,7 +114,7 @@ and watertightness before export.
 
 ## Tiles, pads and screws (three post nodes)
 
-Chain **Tiles → Pads & mounting holes → Screws, nuts & fit test** (Templates → *Tiles & mounting*). The older *Tiles & mounting* node still works.
+Chain **Tiles → Pads & mounting holes → Screws, nuts & fit test** (Templates → *Tiles, pads & screws*). The older *Tiles & mounting (old)* node still works.
 
 - **Tiles:** cuts the stencil into tiles no larger than *max width / height*, as evenly as possible, and joins them with glued connector rods in blind holes at the seams. A seam may move up to *seam may move* mm to cross more material. Where no connector fits, *Add material* puts a block at the seam (it interrupts the artwork there). Pieces a cut leaves hanging get their own bridges (width, count, raised and Z-bridging options), so no tile has islands. Pieces of 4 mm or less that cannot be held are dropped and counted in the node's badge. Every tile is checked watertight and in one piece.
 - **Pads & mounting holes:** takes the Tiles output. Pads go on the corners of the margin band and, on edges longer than *Add pads along edges longer than*, evenly between; through-holes follow every *Hole every* mm. Anything that would hit a seam or a connector slides along its edge until it is clear. *Joiner holes* adds a pair of holes either side of each seam that crosses the frame (widened automatically to clear the connectors). The margin must be at least the pad thread plus 4 mm.
