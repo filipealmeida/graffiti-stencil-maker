@@ -15,6 +15,7 @@ export function badgesFor(type: string, params: Record<string, unknown>, info: I
     if (n(s.overhang_area_mm2) > 0.5) out.push({ level: 'warn', text: `overhang ${n(s.overhang_area_mm2).toFixed(0)} mm²` })
     if (n(s.islands_deleted) > 0) out.push({ level: 'warn', text: `${n(s.islands_deleted)} island${n(s.islands_deleted) > 1 ? 's' : ''} deleted` })
     if (n(s.triangles) > 1_500_000) out.push({ level: 'warn', text: `${(n(s.triangles) / 1e6).toFixed(1)} M triangles: heavy to slice` })
+    if (typeof s.fallback === 'string') out.push({ level: 'warn', text: s.fallback })
     if (n(s.islands_found) > 0 && n(s.islands_remaining) === 0) out.push({ level: 'info', text: `${n(s.islands_found)} islands bridged` })
   }
   if ((type === 'stencil' || type === 'vector_stencil') && n(params.bridge_mm) > 0 && n(params.bridge_mm) < 1) {

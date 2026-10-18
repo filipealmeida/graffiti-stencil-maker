@@ -314,8 +314,9 @@ fn slide(a: Pt, b: Pt, by: f64, width: f64) -> (Pt, Pt) {
 /// bridge slid sideways by a fraction of its width.
 pub(crate) fn build(shapes: &Shapes, detail: f64, p: &Params) -> Result<Output, String> {
     let mut last = build_once(shapes, detail, p, 0.0);
-    // a different bridge width moves the strip corners relative to the outline, so it is the second lever
-    // last resort: single flat strips instead of stepped ramps, which have far fewer corners to pinch
+    let mut used: Option<String> = None;
+    // a different bridge width moves the strip corners relative to the outline, so it is the second lever; the last
+    // resort is single flat strips instead of stepped ramps, which have far fewer corners to pinch
     'tries: for (widen, easy) in [
         (1.0, false),
         (1.15, false),
@@ -337,8 +338,28 @@ pub(crate) fn build(shapes: &Shapes, detail: f64, p: &Params) -> Result<Output, 
                 break 'tries;
             }
             let side = if k % 2 == 1 { 1.0 } else { -1.0 };
-            last = build_once(shapes, detail, &q, side * 0.06 * ((k + 1) / 2) as f64);
+            let nudge = side * 0.06 * ((k + 1) / 2) as f64;
+            last = build_once(shapes, detail, &q, nudge);
+            if last.is_ok() {
+                let mut what = vec![];
+                if widen != 1.0 {
+                    what.push(format!(
+                        "bridges {:.2} mm wide instead of {:.2} mm",
+                        q.bridge_mm, p.bridge_mm
+                    ));
+                }
+                if easy && p.z_bridging != ZBridging::Easy {
+                    what.push("flat bridge strips instead of stepped ramps".to_string());
+                }
+                if what.is_empty() {
+                    what.push("bridges moved sideways".to_string());
+                }
+                used = Some(what.join(", "));
+            }
         }
+    }
+    if let (Ok(o), Some(u)) = (&mut last, used) {
+        o.fallback = Some(format!("the plate only verified with {u}"));
     }
     last
 }
@@ -589,7 +610,11 @@ fn build_once(shapes: &Shapes, detail: f64, p: &Params, nudge: f64) -> Result<Ou
             ..Stats::default()
         };
         crate::progress::step("extrude mesh", 0.9);
-        return Ok(Output { stl, stats });
+        return Ok(Output {
+            stl,
+            stats,
+            fallback: None,
+        });
     } else {
         if !bridges.is_empty() {
             material = material.as_slice().overlay(
@@ -626,5 +651,9 @@ fn build_once(shapes: &Shapes, detail: f64, p: &Params, nudge: f64) -> Result<Ou
         stl_bytes: stl.len(),
         ..Stats::default()
     };
-    Ok(Output { stl, stats })
+    Ok(Output {
+        stl,
+        stats,
+        fallback: None,
+    })
 }

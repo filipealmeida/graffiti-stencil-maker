@@ -130,6 +130,8 @@ impl Stats {
 pub struct Output {
     pub stl: Vec<u8>,
     pub stats: Stats,
+    /// Set when the plate only verified after the bridges were changed (vector mode).
+    pub fallback: Option<String>,
 }
 
 pub fn make_stencil(bytes: &[u8], p: &Params) -> Result<Output, String> {
@@ -264,7 +266,11 @@ pub fn stencil_from_paint(
     let stl = mesh.to_stl();
     stats.stl_bytes = stl.len();
     progress::step("write STL", 1.0);
-    Ok(Output { stl, stats })
+    Ok(Output {
+        stl,
+        stats,
+        fallback: None,
+    })
 }
 
 pub(crate) fn validate(p: &Params) -> Result<(), String> {

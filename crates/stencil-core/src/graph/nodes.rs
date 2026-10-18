@@ -163,6 +163,9 @@ pub(super) fn finish_solid(o: crate::Output, p: &P) -> Result<Outputs, String> {
     stats["bridges_per_island"] = json!(p.f("bridges_per_island"));
     stats["raised_bridges"] = json!(p.b("raised_bridges"));
     stats["z_bridging"] = json!(p.s("z_bridging"));
+    if let Some(f) = &o.fallback {
+        stats["fallback"] = json!(f);
+    }
     Ok(vec![(
         "solid",
         Value::Solid(Rc::new(Solid { stl: o.stl, stats })),
