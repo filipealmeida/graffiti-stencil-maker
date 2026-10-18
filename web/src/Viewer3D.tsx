@@ -5,6 +5,15 @@ import { STLLoader } from 'three/examples/jsm/loaders/STLLoader.js'
 import { SimplifyModifier } from 'three/examples/jsm/modifiers/SimplifyModifier.js'
 
 export interface Part { name: string; url: string }
+/** The plate description a Tiles node (and Pads node) attaches to its parts. */
+export interface PlateMeta {
+  w: number; h: number
+  parts: { file: string; origin: [number, number]; size: [number, number] }[]
+  connectors?: number[][]
+  pads?: { x: number; y: number; r: number }[]
+  holes?: { x: number; y: number; r: number }[]
+  joins?: { a: [number, number]; b: [number, number] }[]
+}
 interface Scene3D {
   meshes: THREE.Mesh[]
   geos: { hi: THREE.BufferGeometry; lo?: THREE.BufferGeometry }[]
@@ -21,7 +30,7 @@ interface Scene3D {
 // the camera survives regenerations so a finished run doesn't reset the user's view
 let savedCam: { pos: THREE.Vector3; target: THREE.Vector3 } | null = null
 
-export default function Viewer3D({ parts }: { parts: Part[] }) {
+export default function Viewer3D({ parts, plate }: { parts: Part[]; plate?: PlateMeta | null }) {
   const host = useRef<HTMLDivElement>(null)
   const sc = useRef<Scene3D | null>(null)
   const [wire, setWire] = useState(false)
@@ -31,6 +40,7 @@ export default function Viewer3D({ parts }: { parts: Part[] }) {
   const [explode, setExplode] = useState(0)
   const [hidden, setHidden] = useState<Set<string>>(new Set())
   const [clip, setClip] = useState(1)
+  const [layout, setLayout] = useState(true)
   const [status, setStatus] = useState('loading…')
   const [ready, setReady] = useState(0)
   const [dims, setDims] = useState<{ total: string; parts: Record<string, string> }>({ total: '', parts: {} })
@@ -201,6 +211,61 @@ export default function Viewer3D({ parts }: { parts: Part[] }) {
     })
   }, [wire, shading, detail, interacting, explode, clip, ready, hidden])
 
+  // seams, connectors, pads, holes and joiner lines drawn on each tile, so they follow it as the spacing changes
+  useEffect(() => {
+    const s = sc.current
+    if (!s || !plate) return
+    const made: { owner: THREE.Object3D; obj: THREE.Object3D }[] = []
+    const mat = (c: number) => new THREE.LineBasicMaterial({ color: c, depthTest: false, transparent: true })
+    const seamMat = mat(0xffc400), connMat = mat(0x4fc3f7), padMat = mat(0x66ff66), holeMat = mat(0xff6e6e), joinMat = mat(0xd081ff)
+    const ring = (cx: number, cy: number, r: number, z: number, m: THREE.Material) => {
+      const pts: THREE.Vector3[] = []
+      for (let i = 0; i < 40; i++) pts.push(new THREE.Vector3(cx + r * Math.cos((i / 40) * 2 * Math.PI), cy + r * Math.sin((i / 40) * 2 * Math.PI), z))
+      return new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(pts), m)
+    }
+    const poly = (pts: [number, number][], z: number, m: THREE.Material) => new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(pts.map(([x, y]) => new THREE.Vector3(x, y, z))), m)
+    const seg = (a: [number, number], b: [number, number], z: number, m: THREE.Material) => new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(a[0], a[1], z), new THREE.Vector3(b[0], b[1], z)]), m)
+    const lox = Math.min(...plate.parts.map((p) => p.origin[0])), loy = Math.min(...plate.parts.map((p) => p.origin[1]))
+    const hix = lox + plate.w, hiy = loy + plate.h
+    parts.forEach((p, i) => {
+      const t = plate.parts.find((q) => q.file === p.name)
+      if (!t) return
+      const [ox, oy] = t.origin, [w, h] = t.size
+      const z = s.boxes[i].max.z + 0.05
+      const add = (obj: THREE.Object3D) => { s.meshes[i].add(obj); made.push({ owner: s.meshes[i], obj }) }
+      const near = (v: number, edge: number) => Math.abs(v - edge) < 0.01
+      // only the borders that are seams, not the outer edge of the plate
+      const edges: [boolean, [number, number], [number, number]][] = [
+        [!near(oy, loy), [0, 0], [w, 0]], [!near(oy + h, hiy), [0, h], [w, h]],
+        [!near(ox, lox), [0, 0], [0, h]], [!near(ox + w, hix), [w, 0], [w, h]],
+      ]
+      edges.forEach(([on, a, b]) => on && add(seg(a, b, z, seamMat)))
+      const inside = (x: number, y: number) => x >= ox && x <= ox + w && y >= oy && y <= oy + h
+      for (const c of plate.connectors ?? []) {
+        const x0 = Math.max(c[0], ox), y0 = Math.max(c[1], oy), x1 = Math.min(c[2], ox + w), y1 = Math.min(c[3], oy + h)
+        if (x0 < x1 && y0 < y1) add(poly([[x0 - ox, y0 - oy], [x1 - ox, y0 - oy], [x1 - ox, y1 - oy], [x0 - ox, y1 - oy]], z, connMat))
+      }
+      for (const q of plate.pads ?? []) if (inside(q.x, q.y)) add(ring(q.x - ox, q.y - oy, q.r, z, padMat))
+      for (const q of plate.holes ?? []) if (inside(q.x, q.y)) add(ring(q.x - ox, q.y - oy, q.r, z, holeMat))
+      for (const j of plate.joins ?? []) {
+        // the joiner plate spans a seam: draw its line, clipped to this tile
+        let t0 = 0, t1 = 1
+        for (const [k, lo, hi] of [[0, ox, ox + w], [1, oy, oy + h]] as const) {
+          const d = j.b[k] - j.a[k]
+          if (Math.abs(d) < 1e-9) { if (j.a[k] < lo || j.a[k] > hi) t1 = -1; continue }
+          const [u, v] = [(lo - j.a[k]) / d, (hi - j.a[k]) / d]
+          t0 = Math.max(t0, Math.min(u, v)); t1 = Math.min(t1, Math.max(u, v))
+        }
+        if (t0 < t1) {
+          const at = (t: number): [number, number] => [j.a[0] + (j.b[0] - j.a[0]) * t - ox, j.a[1] + (j.b[1] - j.a[1]) * t - oy]
+          add(seg(at(t0), at(t1), z, joinMat))
+        }
+      }
+    })
+    made.forEach((m) => { m.obj.visible = layout })
+    return () => made.forEach((m) => { m.owner.remove(m.obj); (m.obj as THREE.Line).geometry?.dispose() })
+  }, [ready, plate, layout])
+
   // refit the camera so every part stays inside the panel as the spacing changes
   const fitRef = useRef(-1)
   useEffect(() => {
@@ -243,6 +308,7 @@ export default function Viewer3D({ parts }: { parts: Part[] }) {
         <label><input type="checkbox" checked={wire} onChange={(e) => setWire(e.target.checked)} /> wireframe</label>
         <label>shading <select value={shading} onChange={(e) => setShading(e.target.value as 'smooth' | 'flat')}><option value="smooth">smooth</option><option value="flat">flat</option></select></label>
         <label>detail <select value={detail} onChange={(e) => setDetail(e.target.value as 'auto' | 'high' | 'low')}><option value="auto">auto</option><option value="high">high</option><option value="low">low</option></select></label>
+        {plate && <label title="seams (yellow), connectors (blue), pads (green), holes (red), joiner plates (purple)"><input type="checkbox" checked={layout} onChange={(e) => setLayout(e.target.checked)} /> layout</label>}
         <label>layers up to <input type="range" min={0.01} max={1} step={0.01} value={clip} onChange={(e) => setClip(+e.target.value)} /></label>
         {parts.length > 1 && <label>{tiled ? 'spacing (mm)' : 'explode'} <input type="range" min={0} max={tiled ? 150 : 12} step={tiled ? 1 : 0.25} value={explode} onChange={(e) => setExplode(+e.target.value)} /></label>}
         <span className="mut">{parts.length > 1 ? `${parts.length} parts` : ''}</span>

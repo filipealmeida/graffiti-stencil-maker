@@ -100,7 +100,7 @@ export default function Workbench() {
           )}
           <Suspense fallback={<div className="mut center">loading 3D viewer…</div>}>
             {cur?.kind === 'solid' && <Viewer3D parts={solidParts()} />}
-            {cur?.kind === 'parts' && <Viewer3D parts={partsList()} />}
+            {cur?.kind === 'parts' && <Viewer3D parts={partsList()} plate={info?.meta?.plate} />}
           </Suspense>
         </section>
       </div>

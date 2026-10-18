@@ -462,3 +462,15 @@ test('viewer exposes smooth and flat shading', async ({ page }) => {
   await page.locator('.v3bar select').first().selectOption('flat')
   await page.locator('.v3bar select').first().selectOption('smooth')
 })
+
+test('the viewer shows the tile layout of a Pads node and can hide it', async ({ page }) => {
+  await open(page)
+  await page.getByRole('button', { name: /Templates/ }).click()
+  await page.locator('.menu button').filter({ hasText: 'Tiles, pads & screws' }).click()
+  await page.locator('.react-flow__node').filter({ hasText: 'Pads & mounting holes' }).first().dispatchEvent('dblclick')
+  const toggle = page.locator('.v3bar label').filter({ hasText: 'layout' }).locator('input')
+  await expect(toggle).toBeVisible({ timeout: 80_000 })
+  await expect(toggle).toBeChecked()
+  await toggle.uncheck()
+  await expect(toggle).not.toBeChecked()
+})
