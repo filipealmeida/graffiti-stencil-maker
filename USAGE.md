@@ -58,7 +58,14 @@ stencil --list-params tile_layout
 stencil --project tiled.json --sweep tile_layout.max_x=40,50,60 -o sweep/
 stencil --project tiled.json --sweep tile_layout.seam_shift=0,4,8,12 -o seams/   # which seam position steps least
 stencil --project tiled.json --batch pictures/ --strict -o batch/
+stencil --project tiled.json --set vector_stencil.tile_method=cut_whole -o cut/   # fewer seam steps, slower
 ```
+
+**Tile method** (Vector stencil with a Tile layout). `per_tile` (default) bridges each tile on its own. `cut_whole` bridges the
+whole plate once, cuts the tiles from it so neighbours meet with the same ramps, and re-bridges only what the cut leaves loose.
+On the mounting sandbox it cut seam steps from 78 mm to 12 mm but took about 4× longer (14 s against 3.5 s); on the inverted one
+it made no difference (6 mm) and took 8× longer. Loose pieces of 10 mm or less that nothing can hold are dropped and reported as
+a warning ("loose pieces dropped where tiles were cut"): paint may reach through there. Larger ones fail the build; use `per_tile`.
 
 ## Studio
 

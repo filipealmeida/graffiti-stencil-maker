@@ -536,6 +536,13 @@ pub(super) fn stencil_params(vector: bool) -> Vec<Json> {
                 false,
             ),
         );
+        v.push(choice(
+            "tile_method",
+            "Tile method (with a Tile layout): per_tile bridges every tile alone; cut_whole bridges the plate once, cuts it and re-bridges only the loose pieces",
+            "per_tile",
+            &["per_tile", "cut_whole"],
+            Some("Tiling"),
+        ));
     }
     v
 }

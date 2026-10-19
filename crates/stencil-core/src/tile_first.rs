@@ -456,7 +456,13 @@ fn drop_slivers(mesh: &mut Mesh) {
 pub enum Method<'a> {
     Raster(&'a Params),
     Vector(&'a Params, f64),
+    /// Like `Vector`, but the plate is bridged once as a whole and each tile is cut from it, so neighbouring tiles
+    /// meet at a seam with the same ramps. Only the pieces a cut leaves loose are bridged again.
+    Cut(&'a Params, f64),
 }
+
+/// A piece of a cut tile this small that nothing can hold is dropped (and reported) instead of failing the plate.
+const FRAGMENT_MM: f64 = 10.0;
 
 pub struct Built {
     pub tiles: Vec<tiles::Tile>,
@@ -476,6 +482,100 @@ struct TileOut {
     bridges: usize,
     fallback: Option<String>,
     top: f64,
+    dropped: usize,
+}
+
+/// The whole plate, bridged as one: the printed mesh and what the build said about it.
+type Whole = (Mesh, Output);
+
+fn whole_plate(l: &Layout, shapes: &Shapes, detail: f64, p: &Params) -> Result<Whole, String> {
+    let win = Window {
+        origin: [0.0, 0.0],
+        size: [l.width, l.height],
+        solid: l.pockets.iter().map(|pk| pk.block(&l.spec)).collect(),
+    };
+    let out = vector_stencil::build_with(shapes, detail, p, Some(&win))?;
+    Ok((Mesh::from_stl(&out.stl)?, out))
+}
+
+/// One tile cut from the bridged plate. Returns the tile as a stencil output and how many loose fragments were dropped.
+fn cut_tile(
+    whole: &Whole,
+    p: &Params,
+    l: &Layout,
+    (x0, x1, y0, y1): (f64, f64, f64, f64),
+) -> Result<(Output, usize), String> {
+    let (global, out) = whole;
+    let top = out.stats.thickness_mm;
+    // the printed plate is mirrored about its width when flipped
+    let (px0, px1) = if p.flip {
+        (l.width - x1, l.width - x0)
+    } else {
+        (x0, x1)
+    };
+    let clip = Mesh::cuboid([px0, y0, -1.0], [px1, y1, top + 1.0]);
+    let mut m = global.intersect(&clip)?;
+    let loose = crate::tile_bridge::components(&m).0.saturating_sub(1);
+    let layer = p.layer_height_mm;
+    let bp = crate::tile_bridge::BridgeParams {
+        bridge_mm: p.bridge_mm,
+        per_island: p.bridges_per_island as usize,
+        raised: p.raised_bridges,
+        easy: p.z_bridging == crate::ZBridging::Easy,
+        base_layers: (p.thickness_mm / layer).round() as u32,
+        layer_height: layer,
+        plate_top: top,
+        flip: p.flip,
+    };
+    for _ in 0..3 {
+        let Some(b) = crate::tile_bridge::bridge_mesh(&m, &[], &bp)? else {
+            break;
+        };
+        m = m.union(&b)?.intersect(&clip)?;
+    }
+    let mut dropped = 0;
+    let (left, of) = crate::tile_bridge::components(&m);
+    if left > 1 {
+        let mut tris = vec![0usize; left];
+        let mut lo = vec![[f64::MAX; 2]; left];
+        let mut hi = vec![[f64::MIN; 2]; left];
+        for (t, &o) in m.t.iter().zip(&of) {
+            tris[o] += 1;
+            for &vi in t {
+                for k in 0..2 {
+                    lo[o][k] = lo[o][k].min(m.v[vi][k]);
+                    hi[o][k] = hi[o][k].max(m.v[vi][k]);
+                }
+            }
+        }
+        let main = (0..left).max_by_key(|&c| tris[c]).unwrap_or(0);
+        let small = |c: usize| (hi[c][0] - lo[c][0]).max(hi[c][1] - lo[c][1]) <= FRAGMENT_MM;
+        if !(0..left).all(|c| c == main || small(c)) {
+            return Err(format!(
+                "the cut leaves {} loose pieces that cannot be bridged: set the Tile method to per_tile",
+                left - 1
+            ));
+        }
+        m.t =
+            m.t.iter()
+                .zip(&of)
+                .filter(|(_, &o)| o == main)
+                .map(|(t, _)| *t)
+                .collect();
+        dropped = left - 1;
+    }
+    m.translate([-px0, -y0, 0.0]);
+    let mut stats = out.stats.clone();
+    stats.islands_found = loose;
+    stats.bridge_pixels = 0;
+    stats.islands_remaining = 0;
+    stats.watertight = m.is_watertight();
+    let o = Output {
+        stl: m.to_stl(),
+        stats,
+        fallback: None,
+    };
+    Ok((o, dropped))
 }
 
 fn build_tile(
@@ -484,6 +584,7 @@ fn build_tile(
     p: &Params,
     (i, j): (usize, usize),
     zs: &[f64],
+    whole: Option<&Whole>,
 ) -> Result<TileOut, String> {
     let (nx, ny) = (l.xs.len() - 1, l.ys.len() - 1);
     let (x0, x1, y0, y1) = (l.xs[i], l.xs[i + 1], l.ys[j], l.ys[j + 1]);
@@ -494,6 +595,7 @@ fn build_tile(
         if p.flip { nx - i } else { i + 1 }
     );
     let fail = |e: String| format!("tile {name}: {e}");
+    let mut dropped = 0usize;
     let out: Output = match (m, &l.source) {
         (Method::Raster(_), Source::Raster { w, h, cell, paint }) => {
             let cells = |v: f64| (v / cell).round() as usize;
@@ -527,10 +629,16 @@ fn build_tile(
             };
             vector_stencil::build_with(shapes, *detail, p, Some(&win)).map_err(fail)?
         }
+        (Method::Cut(..), Source::Vector(_)) => {
+            let whole = whole.ok_or("the whole plate was not built")?;
+            let (o, d) = cut_tile(whole, p, l, (x0, x1, y0, y1)).map_err(fail)?;
+            dropped = d;
+            o
+        }
         (Method::Raster(_), _) => {
             return Err("this layout was made from shapes: connect it to a Vector stencil".into())
         }
-        (Method::Vector(..), _) => {
+        (Method::Vector(..) | Method::Cut(..), _) => {
             return Err("this layout was made from a mask: connect it to a Stencil".into())
         }
     };
@@ -602,6 +710,7 @@ fn build_tile(
         bridges: out.stats.bridge_pixels,
         fallback: out.fallback,
         top: out.stats.thickness_mm,
+        dropped,
     })
 }
 
@@ -712,7 +821,7 @@ fn seam_steps(l: &Layout, outs: &[TileOut], flip: bool, layer: f64) -> f64 {
 /// Builds every tile (in parallel where threads exist), drills the pockets and describes the plate.
 pub fn build(l: &Layout, m: &Method) -> Result<Built, String> {
     let p = match m {
-        Method::Raster(p) | Method::Vector(p, _) => *p,
+        Method::Raster(p) | Method::Vector(p, _) | Method::Cut(p, _) => *p,
     };
     let (nx, ny) = (l.xs.len() - 1, l.ys.len() - 1);
     let c = &l.spec;
@@ -724,7 +833,17 @@ pub fn build(l: &Layout, m: &Method) -> Result<Built, String> {
         .rev()
         .flat_map(|j| (0..nx).map(move |i| (i, j)))
         .collect();
-    let results = crate::par::map(&cells, |&cell| build_tile(l, m, p, cell, &zs));
+    let whole = match (m, &l.source) {
+        (Method::Cut(_, detail), Source::Vector(shapes)) => {
+            let w = whole_plate(l, shapes, *detail, p)?;
+            crate::progress::step("bridge the whole plate", 0.5);
+            Some(w)
+        }
+        _ => None,
+    };
+    let results = crate::par::map(&cells, |&cell| {
+        build_tile(l, m, p, cell, &zs, whole.as_ref())
+    });
     let mut outs = Vec::new();
     for r in results {
         outs.push(r?);
@@ -743,6 +862,8 @@ pub fn build(l: &Layout, m: &Method) -> Result<Built, String> {
         "pre_tiled": true, "islands_bridged": outs.iter().map(|o| o.islands).sum::<usize>(),
         "bridges": outs.iter().map(|o| o.bridges).sum::<usize>(),
         "fallback_tiles": fallbacks,
+        "tile_method": if matches!(m, Method::Cut(..)) { "cut_whole" } else { "per_tile" },
+        "dropped_fragments": outs.iter().map(|o| o.dropped).sum::<usize>(),
         "seam_step_mm": (seam_steps(l, &outs, p.flip, p.layer_height_mm) * 10.0).round() / 10.0,
         "hole_depth_mm": c.depth, "rod_length_mm": tiles::rod_length(c.depth),
         "paint_under_blocks_mm2": (l.paint_under_blocks_mm2() * 10.0).round() / 10.0,
@@ -976,6 +1097,30 @@ mod tests {
             let p = Params { flip, ..params() };
             let b = build(&l, &Method::Vector(&p, 1.0)).unwrap();
             check(&b, 4);
+        }
+    }
+
+    #[test]
+    fn a_plate_cut_from_the_whole_has_watertight_single_piece_tiles() {
+        let paint = art(120);
+        let shapes = crate::trace::trace(
+            &paint,
+            120,
+            120,
+            &crate::trace::TraceParams {
+                smooth_px: 1.0,
+                corner_deg: 60.0,
+                tolerance_px: 0.4,
+                min_area_px: 4.0,
+            },
+        );
+        let l = from_shapes(&shapes, &lp()).unwrap();
+        for flip in [false, true] {
+            let p = Params { flip, ..params() };
+            let b = build(&l, &Method::Cut(&p, 1.0)).unwrap();
+            check(&b, 4);
+            assert_eq!(b.info["tile_method"], "cut_whole");
+            assert!(b.info["seam_step_mm"].is_number());
         }
     }
 

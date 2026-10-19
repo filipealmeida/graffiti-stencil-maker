@@ -271,7 +271,13 @@ pub(super) fn run_vector_stencil(
             frame_largest: true,
             ..q
         };
-        return tiled_parts(l, crate::tile_first::Method::Vector(&q, p.f("detail")), p);
+        let detail = p.f("detail");
+        let method = if p.s("tile_method") == "cut_whole" {
+            crate::tile_first::Method::Cut(&q, detail)
+        } else {
+            crate::tile_first::Method::Vector(&q, detail)
+        };
+        return tiled_parts(l, method, p);
     }
     let Some(Value::Shapes(s)) = i.get("shapes") else {
         return Err("input 'shapes' missing: connect shapes, or a tile layout".into());

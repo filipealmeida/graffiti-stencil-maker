@@ -117,6 +117,15 @@ pub fn findings(ty: &str, params: &Json, infos: &[Json]) -> Vec<Finding> {
                     format!("{} tiny pieces dropped", n(&t["dropped_specks"])),
                 );
             }
+            if n(&t["dropped_fragments"]) > 0.0 {
+                add(
+                    Level::Warn,
+                    format!(
+                        "{} loose pieces dropped where tiles were cut: paint may reach through there",
+                        n(&t["dropped_fragments"])
+                    ),
+                );
+            }
             if n(&t["seam_step_mm"]) > 0.0 {
                 add(
                     Level::Info,

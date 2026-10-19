@@ -176,6 +176,7 @@ Every parameter `--set NODE.PARAM=VALUE` accepts. Generated with `stencil --list
 | `max_overhang_deg` | Overhang check angle (deg, 0 = 45) | float | `0.0` | 0.0 to 89.0 |
 | `min_island_mm2` | Delete islands under (mm²) | float | `0.0` | 0.0 to 100000.0 |
 | `min_contact_mm` | Minimum surface contact (mm) | float | `0.0` | 0.0 to 3.0 |
+| `tile_method` | Tile method (with a Tile layout): per_tile bridges every tile alone; cut_whole bridges the plate once, cuts it and re-bridges only the loose pieces | choice | `"per_tile"` | per_tile \| cut_whole |
 
 ### Tile layout (`tile_layout`)
 
