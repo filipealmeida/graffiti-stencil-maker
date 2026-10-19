@@ -325,7 +325,7 @@ pub(super) fn catalogue() -> Vec<NodeDef> {
         },
         NodeDef {
             id: "tiles",
-            label: "Tiles",
+            label: "Tiles (old)",
             stage: "post",
             inputs: vec![("solid", "solid", true)],
             outputs: vec![("parts", "parts")],

@@ -389,7 +389,7 @@ test('the Tiles, pads & screws template chains tiles, pads and screws', async ({
   await open(page)
   await page.getByRole('button', { name: /Templates/ }).click()
   await page.locator('.menu button').filter({ hasText: 'Tiles, pads & screws' }).click()
-  for (const t of ['Tiles', 'Pads & mounting holes', 'Screws, nuts & fit test'])
+  for (const t of ['Tiles (old)', 'Pads & mounting holes', 'Screws, nuts & fit test'])
     await expect(page.locator('.react-flow__node').filter({ hasText: t }).first()).toBeVisible()
   await expect(page.locator('.react-flow__edge')).toHaveCount(5)
 })
