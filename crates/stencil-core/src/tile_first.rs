@@ -143,6 +143,8 @@ pub struct LayoutParams {
     pub max_x: f64,
     pub max_y: f64,
     pub spec: Connectors,
+    /// How far a seam may move off the even grid to cross less paint (never past the largest tile size).
+    pub seam_shift: f64,
 }
 
 fn check_plate(lp: &LayoutParams) -> Result<(), String> {
@@ -194,8 +196,8 @@ pub fn from_mask(
             })
             .collect()
     };
-    let xs = snap(tiles::grid(width, lp.max_x), w);
-    let ys = snap(tiles::grid(height, lp.max_y), h);
+    let mut xs = snap(tiles::grid(width, lp.max_x), w);
+    let mut ys = snap(tiles::grid(height, lp.max_y), h);
     let cover = Cover {
         paint: full.clone(),
         gw: w,
@@ -205,6 +207,7 @@ pub fn from_mask(
         cw: cell,
         ch: cell,
     };
+    shift_seams(lp, &mut xs, &mut ys, &cover, cell);
     let pockets = plan(&lp.spec, &xs, &ys, &cover)?;
     for pk in &pockets {
         let b = pk.block(&lp.spec);
@@ -261,8 +264,9 @@ pub fn from_shapes(shapes: &Shapes, lp: &LayoutParams) -> Result<Layout, String>
         cw: art_w / gw as f64,
         ch: art_h / gh as f64,
     };
-    let xs = tiles::grid(lp.width, lp.max_x);
-    let ys = tiles::grid(height, lp.max_y);
+    let mut xs = tiles::grid(lp.width, lp.max_x);
+    let mut ys = tiles::grid(height, lp.max_y);
+    shift_seams(lp, &mut xs, &mut ys, &cover, 0.0);
     let pockets = plan(&lp.spec, &xs, &ys, &cover)?;
     Ok(Layout {
         width: lp.width,
@@ -279,6 +283,61 @@ pub fn from_shapes(shapes: &Shapes, lp: &LayoutParams) -> Result<Layout, String>
 
 fn overlap(a: [f64; 4], b: [f64; 4], gap: f64) -> bool {
     a[0] < b[2] + gap && b[0] < a[2] + gap && a[1] < b[3] + gap && b[1] < a[3] + gap
+}
+
+/// Moves every inner grid line (within the shift, the largest tile size and the smallest workable tile) to where
+/// the pockets that then fit cover the least paint. `quantum` keeps raster seams on cell boundaries.
+fn shift_seams(lp: &LayoutParams, xs: &mut [f64], ys: &mut [f64], cover: &Cover, quantum: f64) {
+    if lp.seam_shift <= 0.0 {
+        return;
+    }
+    let low = tiles::min_tile(lp.spec.depth);
+    let cost = |xs: &[f64], ys: &[f64]| -> f64 {
+        plan(&lp.spec, xs, ys, cover).map_or(f64::MAX, |ps| {
+            ps.iter().map(|p| cover.paint_mm2(p.block(&lp.spec))).sum()
+        })
+    };
+    let mut best = cost(xs, ys);
+    for axis in 0..2 {
+        let (count, max) = if axis == 0 {
+            (xs.len(), lp.max_x)
+        } else {
+            (ys.len(), lp.max_y)
+        };
+        for i in 1..count.saturating_sub(1) {
+            let g: &mut [f64] = if axis == 0 { &mut *xs } else { &mut *ys };
+            let old = g[i];
+            let lo = (old - lp.seam_shift).max(g[i - 1] + low).max(if max > 0.0 {
+                g[i + 1] - max
+            } else {
+                f64::MIN
+            });
+            let hi = (old + lp.seam_shift).min(g[i + 1] - low).min(if max > 0.0 {
+                g[i - 1] + max
+            } else {
+                f64::MAX
+            });
+            let step = if quantum > 0.0 { quantum } else { 1.0 };
+            let mut v = if quantum > 0.0 {
+                (lo / step).ceil() * step
+            } else {
+                lo
+            };
+            let mut pick = old;
+            while v <= hi + 1e-9 {
+                let g: &mut [f64] = if axis == 0 { &mut *xs } else { &mut *ys };
+                g[i] = v;
+                let c = cost(xs, ys) + 0.001 * (v - old).abs();
+                if c < best - 1e-9 {
+                    best = c;
+                    pick = v;
+                }
+                v += step;
+            }
+            let g: &mut [f64] = if axis == 0 { &mut *xs } else { &mut *ys };
+            g[i] = pick;
+        }
+    }
 }
 
 /// Pockets along every seam segment, each where the fewest paint is under its block.
@@ -311,6 +370,8 @@ fn plan(c: &Connectors, xs: &[f64], ys: &[f64], cover: &Cover) -> Result<Vec<Poc
     }
     let hw = c.half_width();
     let reach = c.depth + WALL_MM;
+    // seams of one axis run along the other axis' extent
+    let edge = [(ys[0], ys[ny]), (xs[0], xs[nx])];
     let mut pockets: Vec<Pocket> = Vec::new();
     let mut blocks: Vec<[f64; 4]> = Vec::new();
     for (axis, s, a, b) in seams {
@@ -320,14 +381,17 @@ fn plan(c: &Connectors, xs: &[f64], ys: &[f64], cover: &Cover) -> Result<Vec<Poc
                 "a seam segment is only {len:.1} mm long: it cannot hold a connector pocket"
             ));
         }
-        // keep clear of the ends, where another seam or the plate edge is
-        let inset = (reach + hw + 0.5).min(len / 2.0 - 1e-6).max(hw);
+        // keep clear of the ends where another seam crosses; at the plate edge only the end wall is needed
+        let (ea, eb) = (a <= edge[axis].0 + 1e-6, b >= edge[axis].1 - 1e-6);
+        let near = hw + WALL_MM + 0.5;
+        let far = (reach + hw + 0.5).min(len / 2.0 - 1e-6).max(hw);
+        let (ina, inb) = (if ea { near } else { far }, if eb { near } else { far });
         let n = ((len / c.spacing.max(5.0) - 1e-9).ceil() as usize).max(1);
         let cell = len / n as f64;
         for k in 0..n {
             let mid = a + cell * (k as f64 + 0.5);
-            let lo = (a + inset).max(a + cell * k as f64 + hw);
-            let hi = (b - inset).min(a + cell * (k + 1) as f64 - hw);
+            let lo = (a + ina).max(a + cell * k as f64 + hw);
+            let hi = (b - inb).min(a + cell * (k + 1) as f64 - hw);
             let (lo, hi) = if hi < lo { (mid, mid) } else { (lo, hi) };
             let mut options: Vec<f64> = Vec::new();
             let mut u = lo;
@@ -358,6 +422,34 @@ fn plan(c: &Connectors, xs: &[f64], ys: &[f64], cover: &Cover) -> Result<Vec<Poc
         }
     }
     Ok(pockets)
+}
+
+/// A boolean can leave closed fragments no thicker than a rounding error in two directions where a cutter just touches a corner;
+/// they are no part of the tile, so they go.
+fn drop_slivers(mesh: &mut Mesh) {
+    let (n, of) = crate::tile_bridge::components(mesh);
+    if n < 2 {
+        return;
+    }
+    let mut lo = vec![[f64::MAX; 3]; n];
+    let mut hi = vec![[f64::MIN; 3]; n];
+    for (t, &k) in mesh.t.iter().zip(&of) {
+        for &i in t {
+            for a in 0..3 {
+                lo[k][a] = lo[k][a].min(mesh.v[i][a]);
+                hi[k][a] = hi[k][a].max(mesh.v[i][a]);
+            }
+        }
+    }
+    let tiny = |k: usize| (0..3).filter(|&a| hi[k][a] - lo[k][a] < 0.05).count() >= 2;
+    if (0..n).all(tiny) {
+        return;
+    }
+    let mut k = 0;
+    mesh.t.retain(|_| {
+        k += 1;
+        !tiny(of[k - 1])
+    });
 }
 
 /// How the tiles are built: the stencil parameters of the plate, with the mesh detail for outlines.
@@ -471,13 +563,32 @@ fn build_tile(
         mesh = mesh.subtract(&cutters).map_err(fail)?;
     }
     mesh.quantize_f32();
+    drop_slivers(&mut mesh);
     if !mesh.is_watertight() {
         return Err(fail("not watertight after drilling the pockets".into()));
     }
-    let pieces = crate::tile_bridge::components(&mesh).0;
+    let (pieces, of) = crate::tile_bridge::components(&mesh);
     if pieces != 1 {
+        let mut boxes = vec![[f64::MAX, f64::MAX, f64::MIN, f64::MIN]; pieces];
+        for (t, &k) in mesh.t.iter().zip(&of) {
+            for &i in t {
+                let v = mesh.v[i];
+                boxes[k][0] = boxes[k][0].min(v[0]);
+                boxes[k][1] = boxes[k][1].min(v[1]);
+                boxes[k][2] = boxes[k][2].max(v[0]);
+                boxes[k][3] = boxes[k][3].max(v[1]);
+            }
+        }
+        boxes.sort_by(|a, b| {
+            ((a[2] - a[0]) * (a[3] - a[1])).total_cmp(&((b[2] - b[0]) * (b[3] - b[1])))
+        });
+        let small: Vec<String> = boxes[..pieces - 1]
+            .iter()
+            .map(|b| format!("x {:.1}-{:.1}, y {:.1}-{:.1}", b[0], b[2], b[1], b[3]))
+            .collect();
         return Err(fail(format!(
-            "{pieces} separate pieces after drilling the pockets: use fewer or smaller connectors"
+            "{pieces} separate pieces after drilling the pockets ({}): use fewer or smaller connectors",
+            small.join("; ")
         )));
     }
     Ok(TileOut {
@@ -492,6 +603,110 @@ fn build_tile(
         fallback: out.fallback,
         top: out.stats.thickness_mm,
     })
+}
+
+/// The height of the printed top surface at a point (none where there is no material), from the upward faces.
+fn top_at(tris: &[[[f64; 3]; 3]], x: f64, y: f64) -> Option<f64> {
+    let mut best: Option<f64> = None;
+    for t in tris {
+        let d =
+            (t[1][1] - t[2][1]) * (t[0][0] - t[2][0]) + (t[2][0] - t[1][0]) * (t[0][1] - t[2][1]);
+        if d.abs() < 1e-12 {
+            continue;
+        }
+        let a = ((t[1][1] - t[2][1]) * (x - t[2][0]) + (t[2][0] - t[1][0]) * (y - t[2][1])) / d;
+        let b = ((t[2][1] - t[0][1]) * (x - t[2][0]) + (t[0][0] - t[2][0]) * (y - t[2][1])) / d;
+        let c = 1.0 - a - b;
+        if a >= -1e-9 && b >= -1e-9 && c >= -1e-9 {
+            let z = a * t[0][2] + b * t[1][2] + c * t[2][2];
+            if best.is_none_or(|v| z > v) {
+                best = Some(z);
+            }
+        }
+    }
+    best
+}
+
+/// The length of seam (mm) where both neighbouring tiles have material at the cut but more than a layer apart in height, so
+/// the assembled stencil has a step there.
+fn seam_steps(l: &Layout, outs: &[TileOut], flip: bool, layer: f64) -> f64 {
+    let (nx, ny) = (l.xs.len() - 1, l.ys.len() - 1);
+    // outs run from the top row down, left to right
+    let at = |i: usize, j: usize| &outs[(ny - 1 - j) * nx + i].tile;
+    let strip = |t: &tiles::Tile, edge: usize| -> Vec<[[f64; 3]; 3]> {
+        let (tw, th) = (t.size[0], t.size[1]);
+        t.mesh
+            .t
+            .iter()
+            .map(|f| [t.mesh.v[f[0]], t.mesh.v[f[1]], t.mesh.v[f[2]]])
+            .filter(|f| {
+                let up = (f[1][0] - f[0][0]) * (f[2][1] - f[0][1])
+                    - (f[1][1] - f[0][1]) * (f[2][0] - f[0][0])
+                    > 0.0;
+                let (lo, hi) = (0..3).fold((f64::MAX, f64::MIN), |(lo, hi), k| {
+                    let v = if edge < 2 { f[k][0] } else { f[k][1] };
+                    (lo.min(v), hi.max(v))
+                });
+                let (near_lo, near_hi) = (lo < 0.5, hi > (if edge < 2 { tw } else { th }) - 0.5);
+                // printed x is mirrored on a flipped plate
+                let want_low = if edge < 2 {
+                    (edge == 0) != flip
+                } else {
+                    edge == 2
+                };
+                up && if want_low { near_lo } else { near_hi }
+            })
+            .collect()
+    };
+    const INSET: f64 = 0.15;
+    let mut steps = 0.0;
+    let mut sample =
+        |a: &[[[f64; 3]; 3]], pa: (f64, f64), b: &[[[f64; 3]; 3]], pb: (f64, f64), du: f64| {
+            if let (Some(za), Some(zb)) = (top_at(a, pa.0, pa.1), top_at(b, pb.0, pb.1)) {
+                if (za - zb).abs() > 1.5 * layer {
+                    steps += du;
+                }
+            }
+        };
+    let px = |x: f64, w: f64| if flip { w - x } else { x };
+    for i in 0..nx - 1 {
+        for j in 0..ny {
+            let (left, right) = (at(i, j), at(i + 1, j));
+            let (sa, sb) = (strip(left, 1), strip(right, 0));
+            let (y0, y1) = (l.ys[j], l.ys[j + 1]);
+            let n = ((y1 - y0) / 0.25) as usize;
+            for k in 0..n {
+                let y = y0 + (k as f64 + 0.5) * (y1 - y0) / n as f64;
+                sample(
+                    &sa,
+                    (px(left.size[0] - INSET, left.size[0]), y - y0),
+                    &sb,
+                    (px(INSET, right.size[0]), y - y0),
+                    (y1 - y0) / n as f64,
+                );
+            }
+        }
+    }
+    for j in 0..ny - 1 {
+        for i in 0..nx {
+            let (below, above) = (at(i, j), at(i, j + 1));
+            let (sa, sb) = (strip(below, 3), strip(above, 2));
+            let (x0, x1) = (l.xs[i], l.xs[i + 1]);
+            let n = ((x1 - x0) / 0.25) as usize;
+            for k in 0..n {
+                let x = x0 + (k as f64 + 0.5) * (x1 - x0) / n as f64;
+                let u = px(x - x0, x1 - x0);
+                sample(
+                    &sa,
+                    (u, below.size[1] - INSET),
+                    &sb,
+                    (u, INSET),
+                    (x1 - x0) / n as f64,
+                );
+            }
+        }
+    }
+    steps
 }
 
 /// Builds every tile (in parallel where threads exist), drills the pockets and describes the plate.
@@ -528,6 +743,7 @@ pub fn build(l: &Layout, m: &Method) -> Result<Built, String> {
         "pre_tiled": true, "islands_bridged": outs.iter().map(|o| o.islands).sum::<usize>(),
         "bridges": outs.iter().map(|o| o.bridges).sum::<usize>(),
         "fallback_tiles": fallbacks,
+        "seam_step_mm": (seam_steps(l, &outs, p.flip, p.layer_height_mm) * 10.0).round() / 10.0,
         "hole_depth_mm": c.depth, "rod_length_mm": tiles::rod_length(c.depth),
         "paint_under_blocks_mm2": (l.pockets.iter().map(|pk| l.cover.paint_mm2(pk.block(c))).sum::<f64>() * 10.0).round() / 10.0,
     });
@@ -642,6 +858,7 @@ mod tests {
             max_x: 70.0,
             max_y: 70.0,
             spec: spec(),
+            seam_shift: 0.0,
         }
     }
 
@@ -664,6 +881,63 @@ mod tests {
             check(&b, 4);
             assert_eq!(b.connectors.len(), l.pockets.len());
         }
+    }
+
+    #[test]
+    fn a_seam_may_move_to_cover_less_paint_without_breaking_the_tile_limits() {
+        let paint = art(120);
+        let under = |l: &Layout| {
+            l.pockets
+                .iter()
+                .map(|p| l.cover.paint_mm2(p.block(&l.spec)))
+                .sum::<f64>()
+        };
+        let even = from_mask(&paint, 120, 120, &lp()).unwrap();
+        let moved = from_mask(
+            &paint,
+            120,
+            120,
+            &LayoutParams {
+                seam_shift: 10.0,
+                ..lp()
+            },
+        )
+        .unwrap();
+        assert!(under(&moved) <= under(&even) + 1e-6);
+        for g in [&moved.xs, &moved.ys] {
+            assert!(g
+                .windows(2)
+                .all(|v| v[1] - v[0] <= 70.0 + 1e-6 && v[1] - v[0] >= tiles::min_tile(10.0)));
+        }
+        let p = params();
+        let b = build(&moved, &Method::Raster(&p)).unwrap();
+        check(&b, 4);
+        assert!(b.info["seam_step_mm"].as_f64().is_some());
+    }
+
+    #[test]
+    fn fragments_no_thicker_than_rounding_are_dropped_but_real_pieces_stay() {
+        let mut m = Mesh::default();
+        let mut add = |o: [f64; 3], s: f64| {
+            let b = m.v.len();
+            m.v.extend([
+                o,
+                [o[0] + s, o[1], o[2]],
+                [o[0], o[1] + s, o[2]],
+                [o[0], o[1], o[2] + 3.0],
+            ]);
+            m.t.extend([
+                [b, b + 2, b + 1],
+                [b, b + 1, b + 3],
+                [b + 1, b + 2, b + 3],
+                [b + 2, b, b + 3],
+            ]);
+        };
+        add([0.0; 3], 5.0);
+        add([20.0, 0.0, 0.0], 0.001);
+        drop_slivers(&mut m);
+        assert_eq!(crate::tile_bridge::components(&m).0, 1);
+        assert_eq!(m.t.len(), 4);
     }
 
     #[test]

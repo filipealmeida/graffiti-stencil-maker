@@ -32,6 +32,7 @@ export const PARAM_HELP: Record<string, string> = {
   max_x: 'Largest tile width. The plate is cut into tiles that fit your printer bed. 0 = no cutting.',
   max_y: 'Largest tile height. 0 = no cutting.',
   connector_d: 'Diameter of the rods that join tiles. Print the fit-test strip first to pick the clearance.',
+  seam_shift: 'How far a seam may move off the even grid to cross less artwork. It never makes a tile larger than the largest size, so there is no room to move when the plate divides exactly.',
   spacing: 'Distance between connectors along a seam.',
   connector: 'Shape of the connector rod: hex or round.',
   depth: 'How far each connector rod goes into a tile. Deeper joins are stiffer.',

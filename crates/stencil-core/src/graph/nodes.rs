@@ -990,6 +990,7 @@ pub(super) fn run_tile_layout(
         margin: p.f("margin_mm"),
         max_x: p.f("max_x"),
         max_y: p.f("max_y"),
+        seam_shift: p.f("seam_shift"),
         spec: tf::Connectors {
             shape: if p.s("connector") == "round" {
                 Shape::Round
