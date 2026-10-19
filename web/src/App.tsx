@@ -168,7 +168,7 @@ function Canvas() {
       try {
         const img = await api.upload(f);
         if (!useStudio.getState().nodes.length) {
-          useStudio.getState().starter(img.id, img.name);
+          useStudio.getState().vectorStarter(img.id, img.name);
           fit();
         } else
           useStudio

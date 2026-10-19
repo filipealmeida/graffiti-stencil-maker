@@ -54,7 +54,7 @@ pub(super) fn catalogue() -> Vec<NodeDef> {
             outputs: vec![("image", "image")],
             params: vec![
                 json!({"name": "image_id", "label": "Image", "kind": "text", "default": "", "group": null}),
-                num("resolution", "Working resolution (px, longest side)", 500.0, 20.0, 2000.0, 10.0, None, true),
+                num("resolution", "Working resolution (px, longest side)", 1000.0, 20.0, 2000.0, 10.0, None, true),
             ],
             doc: "The input picture, resized to the working resolution that every mask downstream is traced at.",
             run: run_source,
@@ -415,7 +415,7 @@ pub(super) fn stencil_params(vector: bool) -> Vec<Json> {
         num(
             "width_mm",
             "Plate width (mm)",
-            100.0,
+            200.0,
             20.0,
             2000.0,
             1.0,
@@ -425,7 +425,7 @@ pub(super) fn stencil_params(vector: bool) -> Vec<Json> {
         num(
             "thickness_mm",
             "Thickness (mm)",
-            2.0,
+            5.0,
             0.2,
             100.0,
             0.2,
@@ -463,12 +463,12 @@ pub(super) fn stencil_params(vector: bool) -> Vec<Json> {
             Some("Bridges"),
             true,
         ),
-        flag("raised_bridges", "Raised bridges", false, Some("Bridges")),
+        flag("raised_bridges", "Raised bridges", true, Some("Bridges")),
         choice(
             "z_bridging",
             "Z bridging",
-            "steps",
-            &["steps", "easy"],
+            "easy",
+            &["easy", "steps"],
             Some("Bridges"),
         ),
         num(
@@ -528,7 +528,7 @@ pub(super) fn stencil_params(vector: bool) -> Vec<Json> {
             num(
                 "detail",
                 "Mesh detail (samples per mm)",
-                3.0,
+                5.0,
                 0.5,
                 20.0,
                 0.5,

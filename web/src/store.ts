@@ -204,7 +204,7 @@ export const useStudio = create<State>((set, get) => ({
   colourStarter: (imageId, title) => {
     const { addNode, connect } = get()
     set({ nodes: [], edges: [], runs: {}, selected: null })
-    const src = addNode('source', { image_id: imageId, resolution: 600 }, { x: 40, y: 60 }, title)
+    const src = addNode('source', { image_id: imageId }, { x: 40, y: 60 }, title)
     const red = addNode('reduce', { colours: 3 }, { x: 400, y: 60 })
     const tp = addNode('tone_patterns', {}, { x: 760, y: 60 })
     const st = addNode('stencil', { width_mm: 100, margin_mm: 6, raised_bridges: true, z_bridging: 'easy', layer_height_mm: 0.2 }, { x: stageColumn('stencil').x + 30, y: 60 })
@@ -218,7 +218,7 @@ export const useStudio = create<State>((set, get) => ({
   colourSetStarter: (imageId, title) => {
     const { addNode, connect } = get()
     set({ nodes: [], edges: [], runs: {}, selected: null })
-    const src = addNode('source', { image_id: imageId, resolution: 600 }, { x: 40, y: 60 }, title)
+    const src = addNode('source', { image_id: imageId }, { x: 40, y: 60 }, title)
     const split = addNode('split_colours', { colours: 2 }, { x: 400, y: 60 })
     const sp = stageColumn('stencil')
     const plate = { width_mm: 100, margin_mm: 10, raised_bridges: true, z_bridging: 'easy' }
@@ -252,7 +252,7 @@ export const useStudio = create<State>((set, get) => ({
   tilesFirstStarter: (imageId, title) => {
     const { addNode, connect } = get()
     set({ nodes: [], edges: [], runs: {}, selected: null })
-    const src = addNode('source', { image_id: imageId, resolution: 600 }, { x: 40, y: 60 }, title)
+    const src = addNode('source', { image_id: imageId }, { x: 40, y: 60 }, title)
     const thr = addNode('threshold', {}, { x: 400, y: 60 })
     const lay = addNode('tile_layout', { width_mm: 400, margin_mm: 12, max_x: 200, max_y: 200 }, { x: stageColumn('stencil').x + 30, y: 60 })
     const st = addNode('stencil', { thickness_mm: 6 }, { x: stageColumn('stencil').x + 30, y: 360 })
@@ -270,7 +270,7 @@ export const useStudio = create<State>((set, get) => ({
   vectorStarter: (imageId, title) => {
     const { addNode, connect } = get()
     set({ nodes: [], edges: [], runs: {}, selected: null })
-    const src = addNode('source', { image_id: imageId, resolution: 600 }, { x: 40, y: 60 }, title)
+    const src = addNode('source', { image_id: imageId }, { x: 40, y: 60 }, title)
     const thr = addNode('threshold', {}, { x: 400, y: 60 })
     const tr = addNode('trace', {}, { x: 760, y: 60 })
     const st = addNode('vector_stencil', {}, { x: stageColumn('stencil').x + 30, y: 60 })

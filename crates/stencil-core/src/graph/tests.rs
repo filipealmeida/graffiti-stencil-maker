@@ -100,6 +100,7 @@ fn tiles_a_real_stencil_into_watertight_parts_and_zip() {
         .to_string();
     let mut g = graph(&id, 6.0);
     g["nodes"][3]["params"] = json!({"max_x": 60.0, "max_y": 60.0});
+    g["nodes"][2]["params"]["width_mm"] = json!(100.0);
     let t0 = std::time::Instant::now();
     let r = e.run(&g, None, &|| 0.0);
     assert_eq!(r["nodes"]["ex"]["state"], "done", "{r}");
@@ -555,8 +556,8 @@ fn colour_set_graph(id: &str, margin: f64, second_margin: f64, params: Json) -> 
         "nodes": [
             {"id": "s", "type": "source", "params": {"image_id": id, "resolution": 120}},
             {"id": "t", "type": "threshold", "params": {}},
-            {"id": "a", "type": "stencil", "params": {"margin_mm": margin}},
-            {"id": "b", "type": "stencil", "params": {"margin_mm": second_margin, "flip": true, "width_mm": if second_margin == margin { 100.0 } else { 120.0 }}},
+            {"id": "a", "type": "stencil", "params": {"margin_mm": margin, "width_mm": 100.0, "thickness_mm": 2.0}},
+            {"id": "b", "type": "stencil", "params": {"margin_mm": second_margin, "thickness_mm": 2.0, "flip": true, "width_mm": if second_margin == margin { 100.0 } else { 120.0 }}},
             {"id": "cs", "type": "colour_set", "params": params},
         ],
         "edges": [

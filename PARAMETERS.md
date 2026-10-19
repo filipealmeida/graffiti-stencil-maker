@@ -7,7 +7,7 @@ Every parameter `--set NODE.PARAM=VALUE` accepts. Generated with `stencil --list
 | Parameter | Label | Type | Default | Range or choices |
 |---|---|---|---|---|
 | `image_id` | Image | text | `""` | text |
-| `resolution` | Working resolution (px, longest side) | int | `500.0` | 20.0 to 2000.0 |
+| `resolution` | Working resolution (px, longest side) | int | `1000.0` | 20.0 to 2000.0 |
 
 ### Text (`text`)
 
@@ -144,14 +144,14 @@ Every parameter `--set NODE.PARAM=VALUE` accepts. Generated with `stencil --list
 
 | Parameter | Label | Type | Default | Range or choices |
 |---|---|---|---|---|
-| `width_mm` | Plate width (mm) | float | `100.0` | 20.0 to 2000.0 |
-| `thickness_mm` | Thickness (mm) | float | `2.0` | 0.2 to 100.0 |
+| `width_mm` | Plate width (mm) | float | `200.0` | 20.0 to 2000.0 |
+| `thickness_mm` | Thickness (mm) | float | `5.0` | 0.2 to 100.0 |
 | `margin_mm` | Margin (mm) | float | `8.0` | 0.0 to 500.0 |
 | `flip` | Print upside down | bool | `false` | true \| false |
 | `bridge_mm` | Bridge width (mm) | float | `1.6` | 0.6 to 50.0 |
 | `bridges_per_island` | Bridges per island | int | `1.0` | 1.0 to 5.0 |
-| `raised_bridges` | Raised bridges | bool | `false` | true \| false |
-| `z_bridging` | Z bridging | choice | `"steps"` | steps \| easy |
+| `raised_bridges` | Raised bridges | bool | `true` | true \| false |
+| `z_bridging` | Z bridging | choice | `"easy"` | easy \| steps |
 | `layer_height_mm` | Layer height (mm) | float | `0.2` | 0.05 to 5.0 |
 | `extra_top_layers` | Extra top layers | int | `1.0` | 0.0 to 50.0 |
 | `max_overhang_deg` | Overhang check angle (deg, 0 = 45) | float | `0.0` | 0.0 to 89.0 |
@@ -162,15 +162,15 @@ Every parameter `--set NODE.PARAM=VALUE` accepts. Generated with `stencil --list
 
 | Parameter | Label | Type | Default | Range or choices |
 |---|---|---|---|---|
-| `detail` | Mesh detail (samples per mm) | float | `3.0` | 0.5 to 20.0 |
-| `width_mm` | Plate width (mm) | float | `100.0` | 20.0 to 2000.0 |
-| `thickness_mm` | Thickness (mm) | float | `2.0` | 0.2 to 100.0 |
+| `detail` | Mesh detail (samples per mm) | float | `5.0` | 0.5 to 20.0 |
+| `width_mm` | Plate width (mm) | float | `200.0` | 20.0 to 2000.0 |
+| `thickness_mm` | Thickness (mm) | float | `5.0` | 0.2 to 100.0 |
 | `margin_mm` | Margin (mm) | float | `8.0` | 0.0 to 500.0 |
 | `flip` | Print upside down | bool | `false` | true \| false |
 | `bridge_mm` | Bridge width (mm) | float | `1.6` | 0.6 to 50.0 |
 | `bridges_per_island` | Bridges per island | int | `1.0` | 1.0 to 5.0 |
-| `raised_bridges` | Raised bridges | bool | `false` | true \| false |
-| `z_bridging` | Z bridging | choice | `"steps"` | steps \| easy |
+| `raised_bridges` | Raised bridges | bool | `true` | true \| false |
+| `z_bridging` | Z bridging | choice | `"easy"` | easy \| steps |
 | `layer_height_mm` | Layer height (mm) | float | `0.2` | 0.05 to 5.0 |
 | `extra_top_layers` | Extra top layers | int | `1.0` | 0.0 to 50.0 |
 | `max_overhang_deg` | Overhang check angle (deg, 0 = 45) | float | `0.0` | 0.0 to 89.0 |

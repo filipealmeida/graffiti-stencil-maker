@@ -25,7 +25,7 @@ function png(): Buffer {
   return Buffer.concat([Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), chunk('IHDR', ihdr), chunk('IDAT', deflateSync(raw)), chunk('IEND', Buffer.alloc(0))])
 }
 
-async function open(page: Page) {
+async function open(page: Page, template: string | null = 'Simple') {
   await page.addInitScript(() => {
     const w = window as any
     w.__workers = 0
@@ -37,8 +37,20 @@ async function open(page: Page) {
   })
   await page.goto('/')
   await page.setInputFiles('label.btn input[type=file] >> nth=0', { name: 'disc.png', mimeType: 'image/png', buffer: png() })
-  await settled(page)
+  if (template) {
+    await expect(page.locator('.react-flow__node').first()).toBeVisible()
+    await page.getByRole('button', { name: /Templates/ }).click()
+    await page.locator('.menu button').filter({ hasText: template }).first().click()
+    await settled(page)
+  }
 }
+
+test('a dropped image builds the Vector template by default', async ({ page }) => {
+  await open(page, null)
+  const nodes = page.locator('.react-flow__node')
+  await expect(nodes.filter({ hasText: 'Vector stencil' })).toBeVisible()
+  await expect(nodes.filter({ hasText: 'Trace' })).toBeVisible()
+})
 
 const states = (page: Page) => page.locator('[title=done],[title=error],[title=running],[title=pending]').evaluateAll((l) => l.map((e) => e.getAttribute('title')))
 const settled = (page: Page) => expect.poll(() => states(page), { timeout: 60_000 }).toEqual(Array(4).fill('done'))
@@ -546,7 +558,7 @@ test('presets export to a file and import again, keeping the ones already there'
   await page.evaluate(() => localStorage.removeItem('stencil-presets'))
   await page.reload()
   await page.setInputFiles('label.btn input[type=file] >> nth=0', { name: 'disc.png', mimeType: 'image/png', buffer: png() })
-  await settled(page)
+  await expect(page.locator('.react-flow__node').filter({ hasText: 'Threshold' }).first()).toBeVisible()
   await page.locator('.react-flow__node').filter({ hasText: 'Threshold' }).first().click()
   const said: string[] = []
   page.on('dialog', (d) => { said.push(d.message()); void d.accept() })
