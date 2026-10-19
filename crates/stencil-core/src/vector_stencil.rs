@@ -313,7 +313,27 @@ fn slide(a: Pt, b: Pt, by: f64, width: f64) -> (Pt, Pt) {
 /// resolves (a strip corner a few lattice units from an outline vertex); the plate is then built again with every
 /// bridge slid sideways by a fraction of its width.
 pub(crate) fn build(shapes: &Shapes, detail: f64, p: &Params) -> Result<Output, String> {
-    let first = build_once(shapes, detail, p, 0.0);
+    build_with(shapes, detail, p, None)
+}
+
+/// A rectangle of the plate built on its own (a tile cut before bridging), with boxes that stay solid.
+pub(crate) struct Window {
+    /// Lower-left corner in plate millimetres.
+    pub origin: [f64; 2],
+    pub size: [f64; 2],
+    /// `[x0, y0, x1, y1]` in plate millimetres, already clipped to the window.
+    pub solid: Vec<[f64; 4]>,
+}
+
+/// Like `build`, for the part of the plate inside `window` (everything, when `None`). The result is in window
+/// coordinates and has a frame only where the window touches the plate's edge.
+pub(crate) fn build_with(
+    shapes: &Shapes,
+    detail: f64,
+    p: &Params,
+    window: Option<&Window>,
+) -> Result<Output, String> {
+    let first = build_once(shapes, detail, p, 0.0, window);
     if !matches!(&first, Err(e) if e.contains("watertight verification")) {
         return first;
     }
@@ -342,7 +362,7 @@ pub(crate) fn build(shapes: &Shapes, detail: f64, p: &Params) -> Result<Output, 
         if easy {
             q.z_bridging = ZBridging::Easy;
         }
-        let r = build_once(shapes, detail, &q, nudge);
+        let r = build_once(shapes, detail, &q, nudge, window);
         (widen, easy, q.bridge_mm, r)
     };
     // the attempts are independent, so a batch runs side by side and the first success in preference order wins
@@ -385,7 +405,13 @@ pub(crate) fn build(shapes: &Shapes, detail: f64, p: &Params) -> Result<Output, 
     last
 }
 
-fn build_once(shapes: &Shapes, detail: f64, p: &Params, nudge: f64) -> Result<Output, String> {
+fn build_once(
+    shapes: &Shapes,
+    detail: f64,
+    p: &Params,
+    nudge: f64,
+    window: Option<&Window>,
+) -> Result<Output, String> {
     validate(p)?;
     if shapes.w == 0 || shapes.h == 0 || shapes.loops.is_empty() {
         return Err("vector input contains no closed outlines".into());
@@ -398,7 +424,11 @@ fn build_once(shapes: &Shapes, detail: f64, p: &Params, nudge: f64) -> Result<Ou
     let art_width = p.width_mm - 2.0 * margin;
     let mm_per_px = art_width / shapes.w as f64;
     let art_height = shapes.h as f64 * mm_per_px;
-    let height = art_height + 2.0 * margin;
+    let plate_height = art_height + 2.0 * margin;
+    let (origin, width, height) = match window {
+        Some(w) => (w.origin, w.size[0], w.size[1]),
+        None => ([0.0, 0.0], p.width_mm, plate_height),
+    };
     let tolerance_px = (0.25 / detail) / mm_per_px;
     let polys: Vec<Vec<Pt>> = shapes
         .flatten(tolerance_px.max(1e-4))
@@ -408,8 +438,8 @@ fn build_once(shapes: &Shapes, detail: f64, p: &Params, nudge: f64) -> Result<Ou
             poly.into_iter()
                 .map(|pt| {
                     [
-                        margin + pt[0] * mm_per_px,
-                        margin + (shapes.h as f64 - pt[1]) * mm_per_px,
+                        margin + pt[0] * mm_per_px - origin[0],
+                        margin + (shapes.h as f64 - pt[1]) * mm_per_px - origin[1],
                     ]
                 })
                 .collect()
@@ -420,12 +450,7 @@ fn build_once(shapes: &Shapes, detail: f64, p: &Params, nudge: f64) -> Result<Ou
     }
 
     let paint: Vec<Vec<IntPoint<i32>>> = polys.iter().map(|poly| to_int(poly)).collect();
-    let plate = to_int(&[
-        [0.0, 0.0],
-        [p.width_mm, 0.0],
-        [p.width_mm, height],
-        [0.0, height],
-    ]);
+    let plate = to_int(&[[0.0, 0.0], [width, 0.0], [width, height], [0.0, height]]);
     let mut material = if paint.is_empty() {
         vec![vec![plate.clone()]]
     } else {
@@ -433,6 +458,26 @@ fn build_once(shapes: &Shapes, detail: f64, p: &Params, nudge: f64) -> Result<Ou
             .as_slice()
             .overlay(paint.as_slice(), OverlayRule::Difference, FillRule::EvenOdd)
     };
+    // A bridge runs a little past its ends, so in a window it would stick out over the cut edge.
+    let clip: Option<Vec<Vec<IntPoint<i32>>>> = window.map(|_| vec![plate.clone()]);
+    if let Some(w) = window.filter(|w| !w.solid.is_empty()) {
+        let boxes: Vec<Vec<IntPoint<i32>>> = w
+            .solid
+            .iter()
+            .map(|b| {
+                to_int(&[
+                    [b[0] - origin[0], b[1] - origin[1]],
+                    [b[2] - origin[0], b[1] - origin[1]],
+                    [b[2] - origin[0], b[3] - origin[1]],
+                    [b[0] - origin[0], b[3] - origin[1]],
+                ])
+            })
+            .collect();
+        material =
+            material
+                .as_slice()
+                .overlay(boxes.as_slice(), OverlayRule::Union, FillRule::NonZero);
+    }
     if material.is_empty() {
         return Err("vector boolean produced an empty stencil".into());
     }
@@ -442,8 +487,12 @@ fn build_once(shapes: &Shapes, detail: f64, p: &Params, nudge: f64) -> Result<Ou
     }
 
     let islands_found = material.len().saturating_sub(1);
+    // a window has no frame in its corner, so the biggest piece is the one the others are bridged to
     let main = (0..material.len())
-        .find(|&i| outer_contour(&material[i]).is_some_and(|c| contains(&to_mm(c), [1e-6, 1e-6])))
+        .find(|&i| {
+            window.is_none()
+                && outer_contour(&material[i]).is_some_and(|c| contains(&to_mm(c), [1e-6, 1e-6]))
+        })
         .or_else(|| {
             (0..material.len())
                 .max_by(|&a, &b| shape_area(&material[a]).total_cmp(&shape_area(&material[b])))
@@ -538,11 +587,18 @@ fn build_once(shapes: &Shapes, detail: f64, p: &Params, nudge: f64) -> Result<Ou
             jobs.push((cumulative.clone(), Vec::new()));
         }
         crate::par::each_mut(&mut jobs, |(strips, out)| {
-            let merged = material.as_slice().overlay(
+            let mut merged = material.as_slice().overlay(
                 strips.as_slice(),
                 OverlayRule::Union,
                 FillRule::NonZero,
             );
+            if let Some(c) = &clip {
+                merged = merged.as_slice().overlay(
+                    c.as_slice(),
+                    OverlayRule::Intersect,
+                    FillRule::NonZero,
+                );
+            }
             *out = repair_point_contacts(&merged);
         });
         runs.extend(jobs.into_iter().map(|(_, run)| run));
@@ -603,7 +659,7 @@ fn build_once(shapes: &Shapes, detail: f64, p: &Params, nudge: f64) -> Result<Ou
         let mut stack = done.unwrap_or_else(|| crate::remesh::build(&planes, &runs));
         if p.flip {
             for v in &mut stack.v {
-                v[0] = p.width_mm - v[0];
+                v[0] = width - v[0];
                 v[2] = thickness - v[2];
             }
         }
@@ -616,7 +672,7 @@ fn build_once(shapes: &Shapes, detail: f64, p: &Params, nudge: f64) -> Result<Ou
         }
         let stl = stack.to_stl();
         let stats = Stats {
-            width_mm: p.width_mm,
+            width_mm: width,
             height_mm: height,
             thickness_mm: thickness,
             layers,
@@ -643,6 +699,13 @@ fn build_once(shapes: &Shapes, detail: f64, p: &Params, nudge: f64) -> Result<Ou
                 OverlayRule::Union,
                 FillRule::NonZero,
             );
+            if let Some(c) = &clip {
+                material = material.as_slice().overlay(
+                    c.as_slice(),
+                    OverlayRule::Intersect,
+                    FillRule::NonZero,
+                );
+            }
         }
         crate::progress::step("bridge islands", 0.5);
         // A tiny union makes point-touching outlines share a manifold boundary.
@@ -653,12 +716,12 @@ fn build_once(shapes: &Shapes, detail: f64, p: &Params, nudge: f64) -> Result<Ou
                 material.len()
             ));
         }
-        polygon_mesh(&material, p.width_mm, thickness, p.flip)?
+        polygon_mesh(&material, width, thickness, p.flip)?
     };
     crate::progress::step("extrude mesh", 0.9);
     let stl = mesh.to_stl();
     let stats = Stats {
-        width_mm: p.width_mm,
+        width_mm: width,
         height_mm: height,
         thickness_mm: thickness,
         layers,

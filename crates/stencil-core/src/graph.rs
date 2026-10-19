@@ -46,6 +46,8 @@ pub enum Value {
     Shapes(Rc<crate::trace::Shapes>),
     Solid(Rc<Solid>),
     Parts(Rc<Parts>),
+    /// A plate divided into tiles, before it is a solid.
+    Tiles(Rc<crate::tile_first::Layout>),
 }
 
 impl Value {
@@ -56,6 +58,7 @@ impl Value {
             Value::Shapes(_) => "shapes",
             Value::Solid(_) => "solid",
             Value::Parts(_) => "parts",
+            Value::Tiles(_) => "tiles",
         }
     }
 
@@ -69,6 +72,10 @@ impl Value {
             }
             Value::Shapes(s) => Ok(("image/svg+xml", s.to_svg().into_bytes())),
             Value::Solid(s) => Ok(("model/stl", s.stl.clone())),
+            Value::Tiles(l) => {
+                let (w, h, rgb) = l.preview();
+                Ok(("image/png", png(w, h, image::ColorType::Rgb8, &rgb)?))
+            }
             Value::Parts(p) => match p.files.as_slice() {
                 [(_, b)] => Ok(("model/stl", b.clone())),
                 files => Ok(("application/zip", crate::zip::zip(files))),
@@ -90,6 +97,10 @@ impl Value {
             Value::Solid(s) => {
                 json!({"kind": "solid", "stats": s.stats, "bytes": s.stl.len(), "tiles": []})
             }
+            Value::Tiles(l) => json!({
+                "kind": "tiles", "width": l.width, "height": l.height,
+                "grid": [l.xs.len() - 1, l.ys.len() - 1], "pockets": l.pockets.len(),
+            }),
             Value::Parts(p) => {
                 let files: Map<String, Json> = p
                     .files

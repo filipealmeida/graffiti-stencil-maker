@@ -271,6 +271,11 @@ function Canvas() {
       "image → threshold → stencil → tiles → pads & holes → screws. A big stencil in printable tiles, with mounting pads and joiner plates.",
       s.tiledStarter,
     ],
+    [
+      "Tiles first",
+      "image → threshold → tile layout → stencil (per tile) → pads & holes → screws. Cut into tiles before bridging, so every tile is island-free by itself.",
+      s.tilesFirstStarter,
+    ],
   ] as const;
   const runTemplate = (make: (imageId: string, title: string) => void) => {
     const src = s.nodes.find((n) => n.data.type === "source");

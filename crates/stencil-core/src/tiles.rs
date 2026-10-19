@@ -262,7 +262,7 @@ fn shift_seams(
     Ok(out)
 }
 
-fn row_heights(shape: Shape, d: f64, t: f64) -> Vec<f64> {
+pub(crate) fn row_heights(shape: Shape, d: f64, t: f64) -> Vec<f64> {
     let ext = z_extent(shape, d);
     let n = (((t - 2.0 * WALL_MM + ROW_GAP_MM) / (ext + ROW_GAP_MM)).floor() as usize)
         .clamp(1, MAX_ROWS);
@@ -275,7 +275,7 @@ fn row_heights(shape: Shape, d: f64, t: f64) -> Vec<f64> {
         .collect()
 }
 
-fn rod(shape: Shape, r: f64, len: f64, segments: usize, axis: usize) -> Mesh {
+pub(crate) fn rod(shape: Shape, r: f64, len: f64, segments: usize, axis: usize) -> Mesh {
     let n = if shape == Shape::Hex {
         6
     } else {
@@ -292,7 +292,11 @@ pub fn connector_rod(shape: Shape, d: f64, depth: f64, segments: usize) -> Mesh 
 }
 
 pub fn check(p: &TileParams, height: f64) -> Result<(), String> {
-    if !DIAMETERS.contains(&p.diameter) {
+    check_connector(p.shape, p.diameter, height)
+}
+
+pub fn check_connector(shape: Shape, diameter: f64, height: f64) -> Result<(), String> {
+    if !DIAMETERS.contains(&diameter) {
         return Err("connector diameter must be 2.5, 3, 4, 5 or 6 mm".into());
     }
     if height <= MIN_HEIGHT_MM {
@@ -300,9 +304,9 @@ pub fn check(p: &TileParams, height: f64) -> Result<(), String> {
             "connectors need a plate thicker than {MIN_HEIGHT_MM} mm (it is {height:.1} mm)"
         ));
     }
-    let need = z_extent(p.shape, p.diameter) + 2.0 * WALL_MM;
+    let need = z_extent(shape, diameter) + 2.0 * WALL_MM;
     if need > height + 1e-9 {
-        return Err(format!("a connector of diameter {} mm needs a plate at least {:.1} mm thick (it is {height:.1} mm)", p.diameter, need));
+        return Err(format!("a connector of diameter {diameter} mm needs a plate at least {need:.1} mm thick (it is {height:.1} mm)"));
     }
     Ok(())
 }

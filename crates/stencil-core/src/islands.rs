@@ -223,12 +223,21 @@ pub(crate) fn bridge_islands(
     radius: i64,
     rise: &mut [f32],
     per_island: usize,
+    largest_frame: bool,
 ) -> usize {
     let (islands, label) = label_islands(g);
     if islands == 0 {
         return 0;
     }
-    let frame = label[0];
+    let frame = if largest_frame {
+        let mut size = vec![0usize; islands + 2];
+        for &l in &label {
+            size[l as usize] += 1;
+        }
+        (1..size.len()).max_by_key(|&l| size[l]).unwrap_or(1) as u32
+    } else {
+        label[0]
+    };
     bridge_labelled(g, &label, frame, radius, rise, per_island, None)
 }
 

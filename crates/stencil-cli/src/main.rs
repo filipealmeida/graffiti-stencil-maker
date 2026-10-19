@@ -207,7 +207,9 @@ fn main() {
             continue;
         };
         // a node that offers parts has the solid as a convenience copy: write the parts only
-        let prefer_parts = outs.contains_key("parts");
+        let prefer_parts = outs
+            .get("parts")
+            .is_some_and(|m| m["available"].as_bool() != Some(false));
         for (out, meta) in outs {
             let kind = meta["type"].as_str().unwrap_or("");
             if !matches!(kind, "solid" | "parts") || (prefer_parts && kind == "solid") {

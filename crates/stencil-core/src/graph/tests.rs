@@ -746,3 +746,105 @@ fn pads_node_fits_pads_and_holes_clear_of_seams() {
         }
     }
 }
+
+/// The picture through Tile layout, the per-tile stencil, Pads and Screws.
+fn pre_tiled_chain(vector: bool, flip: bool) -> (Engine, Json) {
+    let mut e = Engine::new();
+    let id = e.add_image(test_png()).unwrap()["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let (shape_node, shape_port, stencil) = if vector {
+        ("tr", "shapes", "vector_stencil")
+    } else {
+        ("t", "mask", "stencil")
+    };
+    let mut nodes = vec![
+        json!({"id": "s", "type": "source", "params": {"image_id": id, "resolution": 120}}),
+        json!({"id": "t", "type": "threshold", "params": {}}),
+        json!({"id": "tl", "type": "tile_layout", "params": {"width_mm": 140.0, "margin_mm": 12.0, "max_x": 80.0, "max_y": 80.0}}),
+        json!({"id": "st", "type": stencil, "params": {"thickness_mm": 6.0, "flip": flip}}),
+        json!({"id": "pd", "type": "pads", "params": {"long_edge": 100.0, "hole_spacing": 60.0}}),
+        json!({"id": "hw", "type": "hardware", "params": {"screw": "M4"}}),
+    ];
+    let mut edges = vec![
+        json!({"from": ["s", "image"], "to": ["t", "image"]}),
+        json!({"from": [shape_node, shape_port], "to": ["tl", shape_port]}),
+        json!({"from": ["tl", "tiles"], "to": ["st", "tiles"]}),
+        json!({"from": ["st", "parts"], "to": ["pd", "parts"]}),
+        json!({"from": ["pd", "parts"], "to": ["hw", "parts"]}),
+    ];
+    if vector {
+        nodes.push(json!({"id": "tr", "type": "trace", "params": {}}));
+        edges.push(json!({"from": ["t", "mask"], "to": ["tr", "mask"]}));
+    }
+    let g = json!({"nodes": nodes, "edges": edges});
+    let r = e.run(&g, None, &|| 0.0);
+    (e, r)
+}
+
+#[test]
+fn tiling_before_bridging_gives_island_free_tiles_that_pads_and_screws_accept() {
+    for vector in [false, true] {
+        for flip in [false, true] {
+            let (e, r) = pre_tiled_chain(vector, flip);
+            for n in ["tl", "st", "pd", "hw"] {
+                assert_eq!(r["nodes"][n]["state"], "done", "{vector} {flip} {n}: {r}");
+            }
+            let key = r["nodes"]["st"]["key"].as_str().unwrap().to_string();
+            let Some(Value::Parts(p)) = e.value(&key, "parts") else {
+                panic!()
+            };
+            assert_eq!(p.meta["tiling"]["pre_tiled"], true);
+            assert_eq!(p.meta["tiling"]["tiles"], 4);
+            assert!(!p.meta["plate"]["connectors"].as_array().unwrap().is_empty());
+            assert_eq!(p.meta["plate"]["flip"], flip);
+            for (name, bytes) in &p.files {
+                let m = crate::mesh::Mesh::from_stl(bytes).unwrap();
+                assert!(m.is_watertight(), "{name}");
+                if name.starts_with("stencil_") {
+                    assert_eq!(crate::tile_bridge::components(&m).0, 1, "{name}");
+                }
+            }
+            let pk = r["nodes"]["pd"]["key"].as_str().unwrap().to_string();
+            let Some(Value::Parts(pp)) = e.value(&pk, "parts") else {
+                panic!()
+            };
+            assert!(!pp.meta["plate"]["pads"].as_array().unwrap().is_empty());
+            assert!(
+                pp.meta["pads"]["warnings"].as_array().unwrap().is_empty(),
+                "{}",
+                pp.meta["pads"]
+            );
+        }
+    }
+}
+
+#[test]
+fn a_layout_made_from_the_wrong_source_is_refused_by_the_stencil() {
+    let mut e = Engine::new();
+    let id = e.add_image(test_png()).unwrap()["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let g = json!({
+        "nodes": [
+            {"id": "s", "type": "source", "params": {"image_id": id, "resolution": 120}},
+            {"id": "t", "type": "threshold", "params": {}},
+            {"id": "tl", "type": "tile_layout", "params": {}},
+            {"id": "v", "type": "vector_stencil", "params": {}},
+            {"id": "st", "type": "stencil", "params": {}},
+        ],
+        "edges": [
+            {"from": ["s", "image"], "to": ["t", "image"]},
+            {"from": ["t", "mask"], "to": ["tl", "mask"]},
+            {"from": ["tl", "tiles"], "to": ["v", "tiles"]},
+            {"from": ["tl", "tiles"], "to": ["st", "tiles"]},
+        ]
+    });
+    let r = e.run(&g, None, &|| 0.0);
+    assert_eq!(r["nodes"]["v"]["state"], "error", "{r}");
+    assert_eq!(r["nodes"]["st"]["state"], "done", "{r}");
+    let g2 = json!({"nodes": [{"id": "tl", "type": "tile_layout", "params": {}}], "edges": []});
+    assert_eq!(e.run(&g2, None, &|| 0.0)["nodes"]["tl"]["state"], "error");
+}

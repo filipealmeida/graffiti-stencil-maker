@@ -121,6 +121,14 @@ Chain **Tiles → Pads & mounting holes → Screws, nuts & fit test** (Templates
 - **Screws, nuts & fit test:** bolt, nut and the connector fit-test strip. Connect it after Pads & mounting holes and it also prints a joiner and an extender plate sized for the mounting screw, to bridge the seams over the frame.
 - **Layout overlay:** open any of these nodes (double-click) and the 3D viewer draws seams (yellow), connector footprints (blue), pads (green), mounting holes (red) and joiner-plate lines (purple) on each tile, and they follow the tiles when you change the spacing. Untick *layout* to hide them.
 
+### Tiling before bridging (Templates → *Tiles first*)
+
+Chain **Tile layout → Stencil (or Vector stencil) → Pads → Screws**. The mask (or traced shapes) goes to both Tile layout and the stencil node; the layout's `tiles` output goes to the stencil's *tiles* input.
+
+- **Tile layout:** fixes the plate width and margin and cuts it on an even grid no larger than *max width / height*. Along each seam it picks connector spots with the least paint under them and reserves a solid block there (end wall included), so connector holes never need extra material afterwards. The preview shows paint (dark), blocks (blue) and seams (red). Tiles narrower than the connector depth allows are refused.
+- **Stencil / Vector stencil with *tiles* connected:** runs once per tile, so every tile is bridged on its own and is island-free by construction, and bridges may reach the seam edge. The plate width and margin come from the layout (the stencil's own width and margin are ignored). A layout made from a mask works with Stencil, one made from shapes with Vector stencil. The *parts* output feeds Pads and Screws unchanged. Connector holes are drilled per tile and each tile is checked watertight and in one piece.
+- **Trade-offs:** blocks cost some artwork (the badge shows the mm² of paint under blocks), and neighbouring tiles bridge independently, so a bridge may differ across a seam. A tile that needs it falls back to sideways bridges (shown in the badge). It is also faster than tiling afterwards (about 5–7 s versus 17–19 s on the sandbox projects). The older Tiles node remains for comparison.
+
 - **Live preview**: while a slider is dragged a coarse draft (lower resolution, easy bridging, low vector detail) runs; releasing the slider runs the full quality pass. The status line says "draft preview" until then.
 - **Progress and ETA**: each running node shows its message, elapsed time and an estimated time left; the top status line is announced to screen readers.
 - **Badges** on nodes flag problems (islands remaining, not watertight, bridges under 1 mm, empty/full masks, heavy meshes).

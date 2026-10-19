@@ -4,7 +4,7 @@ import { useStudio, type StudioNode } from './store'
 import { badgesFor } from './badges'
 import { etaSeconds, formatEta, nodeStarts, useNow } from './eta'
 
-export const KIND_COLOR: Record<Kind, string> = { image: '#4aa3ff', mask: '#ffa24a', shapes: '#f0d24a', solid: '#5fd38d', parts: '#c28bff', any: '#8a93a0' }
+export const KIND_COLOR: Record<Kind, string> = { image: '#4aa3ff', mask: '#ffa24a', shapes: '#f0d24a', tiles: '#ff7a9c', solid: '#5fd38d', parts: '#c28bff', any: '#8a93a0' }
 
 /** What a running node is doing and how long it has left. */
 function RunNote({ id, message, progress, ms }: { id: string; message?: string; progress?: number; ms?: number }) {
@@ -54,7 +54,7 @@ export default function StudioNodeView({ id, data, selected }: NodeProps<StudioN
         {shown.map((p) => (
           <div className="port out" key={p.name}>
             <span>{p.name}</span>
-            {done && run.key && run.outputs?.[p.name]?.available && (p.type === 'image' || p.type === 'mask' || p.type === 'shapes') && (
+            {done && run.key && run.outputs?.[p.name]?.available && (p.type === 'image' || p.type === 'mask' || p.type === 'shapes' || p.type === 'tiles') && (
               <img className={`thumb ${p.type}${run.stale ? ' stale' : ''}`} src={artifactUrl(run.key, p.name, 96)} alt="" draggable={false} />
             )}
             <Handle type="source" position={Position.Right} id={p.name} style={{ background: KIND_COLOR[p.type] }} />

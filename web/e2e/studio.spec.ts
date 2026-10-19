@@ -394,6 +394,17 @@ test('the Tiles, pads & screws template chains tiles, pads and screws', async ({
   await expect(page.locator('.react-flow__edge')).toHaveCount(5)
 })
 
+test('the Tiles first template cuts before bridging and feeds pads', async ({ page }) => {
+  await open(page)
+  await page.getByRole('button', { name: /Templates/ }).click()
+  await page.locator('.menu button').filter({ hasText: 'Tiles first' }).click()
+  for (const t of ['Tile layout', 'Stencil', 'Pads & mounting holes'])
+    await expect(page.locator('.react-flow__node').filter({ hasText: t }).first()).toBeVisible()
+  await expect(page.locator('.react-flow__edge')).toHaveCount(6)
+  await page.locator('.react-flow__node').filter({ hasText: 'Pads & mounting holes' }).first().dispatchEvent('dblclick')
+  await expect(page.locator('.v3bar label').filter({ hasText: 'layout' }).locator('input')).toBeVisible({ timeout: 80_000 })
+})
+
 test('undo and redo restore a deleted node', async ({ page }) => {
   await open(page)
   await page.waitForTimeout(600)

@@ -30,6 +30,7 @@ pub mod svg;
 pub mod text;
 mod thin;
 mod tile_bridge;
+pub mod tile_first;
 pub mod tiles;
 pub mod trace;
 pub mod transform;
@@ -62,6 +63,23 @@ pub struct Params {
     pub min_contact_mm: f64,
     /// Angle (from vertical) used for the overhang statistic; 0 means 45.
     pub max_overhang_deg: f64,
+    /// Bridge islands to the largest piece instead of the one at the grid's corner: a tile cut out of a plate has
+    /// no frame to hold on to.
+    pub frame_largest: bool,
+}
+
+/// The grid a raster stencil is built on: the margin in cells, the grid size and the cell size in mm. The
+/// artwork grid is padded by the margin and the whole thing scaled to `width_mm`.
+pub(crate) fn plate_grid(
+    gw: usize,
+    gh: usize,
+    width_mm: f64,
+    margin_mm: f64,
+) -> (usize, usize, usize, f64) {
+    let px = width_mm / gw as f64;
+    let mpx = (margin_mm / px).ceil() as usize;
+    let (w, h) = (gw + 2 * mpx, gh + 2 * mpx);
+    (mpx, w, h, width_mm / w as f64)
 }
 
 /// How raised bridges climb: `Steps` grows the island layer by layer; `Easy` runs islands the full height and
@@ -92,6 +110,7 @@ impl Default for Params {
             min_island_mm2: 0.0,
             min_contact_mm: 0.0,
             max_overhang_deg: 0.0,
+            frame_largest: false,
         }
     }
 }
@@ -166,9 +185,7 @@ pub fn stencil_from_paint(
         }
     }
 
-    let px = p.width_mm / gw as f64;
-    let mpx = (p.margin_mm / px).ceil() as usize;
-    let (w, h) = (gw + 2 * mpx, gh + 2 * mpx);
+    let (mpx, w, h, s) = plate_grid(gw, gh, p.width_mm, p.margin_mm);
     let mut grid = Grid {
         w,
         h,
@@ -179,7 +196,6 @@ pub fn stencil_from_paint(
             grid.m[(y + mpx) * w + x + mpx] = art[y * gw + x];
         }
     }
-    let s = p.width_mm / w as f64;
     stats.grid_w = w;
     stats.grid_h = h;
     stats.width_mm = w as f64 * s;
@@ -213,6 +229,7 @@ pub fn stencil_from_paint(
         radius,
         &mut rise,
         p.bridges_per_island.clamp(1, 5) as usize,
+        p.frame_largest,
     );
 
     progress::step("bridge islands", 0.4);

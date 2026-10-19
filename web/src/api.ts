@@ -1,4 +1,4 @@
-export type Kind = 'image' | 'mask' | 'shapes' | 'solid' | 'parts' | 'any'
+export type Kind = 'image' | 'mask' | 'shapes' | 'tiles' | 'solid' | 'parts' | 'any'
 export type Stage = 'trace' | 'stencil' | 'post'
 
 export interface ParamDef {

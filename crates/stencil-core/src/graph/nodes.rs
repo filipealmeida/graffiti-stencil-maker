@@ -263,10 +263,19 @@ pub(super) fn run_vector_stencil(
     i: &HashMap<String, Value>,
     p: &P,
 ) -> Result<Outputs, String> {
-    let Some(Value::Shapes(s)) = i.get("shapes") else {
-        return Err("input 'shapes' missing".into());
-    };
     let q = stencil_params_from(p);
+    if let Some(Value::Tiles(l)) = i.get("tiles") {
+        let q = crate::Params {
+            width_mm: l.width,
+            margin_mm: l.margin,
+            frame_largest: true,
+            ..q
+        };
+        return tiled_parts(l, crate::tile_first::Method::Vector(&q, p.f("detail")), p);
+    }
+    let Some(Value::Shapes(s)) = i.get("shapes") else {
+        return Err("input 'shapes' missing: connect shapes, or a tile layout".into());
+    };
     finish_solid(crate::vector_stencil::build(s, p.f("detail"), &q)?, p)
 }
 
@@ -334,8 +343,15 @@ pub(super) fn run_stencil(
     i: &HashMap<String, Value>,
     p: &P,
 ) -> Result<Outputs, String> {
+    if let Some(Value::Tiles(l)) = i.get("tiles") {
+        return tiled_parts(
+            l,
+            crate::tile_first::Method::Raster(&stencil_params_from(p)),
+            p,
+        );
+    }
     let Some(Value::Mask(m)) = i.get("mask") else {
-        return Err("input 'mask' missing".into());
+        return Err("input 'mask' missing: connect a mask, or a tile layout".into());
     };
     finish_solid(
         stencil_from_paint(&m.paint, m.w, m.h, 0, &stencil_params_from(p))?,
@@ -954,6 +970,88 @@ pub(super) fn run_pads(_: &Engine, i: &HashMap<String, Value>, p: &P) -> Result<
         "pads": layout.pads.len(), "pad_diameter_mm": dia, "pad_thread": p.s("pad_thread"),
         "thread_major_mm": thread_d, "joins": joins.len(), "holes": layout.holes.len(), "hole_diameter_mm": hole_d,
         "warnings": warnings,
+    });
+    Ok(vec![(
+        "parts",
+        Value::Parts(Rc::new(Parts { files, meta })),
+    )])
+}
+
+pub(super) fn run_tile_layout(
+    _: &Engine,
+    i: &HashMap<String, Value>,
+    p: &P,
+) -> Result<Outputs, String> {
+    use crate::tile_first as tf;
+    use crate::tiles::Shape;
+    let diameter: f64 = p.s("connector_d").parse().unwrap_or(3.0);
+    let lp = tf::LayoutParams {
+        width: p.f("width_mm"),
+        margin: p.f("margin_mm"),
+        max_x: p.f("max_x"),
+        max_y: p.f("max_y"),
+        spec: tf::Connectors {
+            shape: if p.s("connector") == "round" {
+                Shape::Round
+            } else {
+                Shape::Hex
+            },
+            diameter,
+            clearance: p.f("clearance"),
+            depth: p.f("depth"),
+            segments: p.f("segments") as usize,
+            spacing: p.f("spacing"),
+        },
+    };
+    let layout = match (i.get("mask"), i.get("shapes")) {
+        (Some(Value::Mask(m)), None) => tf::from_mask(&m.paint, m.w, m.h, &lp)?,
+        (None, Some(Value::Shapes(s))) => tf::from_shapes(s, &lp)?,
+        (None, None) => {
+            return Err("connect a mask (for a Stencil) or shapes (for a Vector stencil)".into())
+        }
+        _ => return Err("connect either a mask or shapes, not both".into()),
+    };
+    Ok(vec![("tiles", Value::Tiles(Rc::new(layout)))])
+}
+
+/// Builds every tile of the layout with the stencil `method` and describes the plate the way a Tiles node does, so
+/// Pads and Screws can follow.
+fn tiled_parts(
+    l: &crate::tile_first::Layout,
+    method: crate::tile_first::Method,
+    p: &P,
+) -> Result<Outputs, String> {
+    let b = crate::tile_first::build(l, &method)?;
+    crate::progress::step("build tiles", 0.9);
+    let mut files = Vec::new();
+    let mut parts = Vec::new();
+    for t in &b.tiles {
+        let file = format!("{}.stl", t.name);
+        parts.push(json!({"file": file, "role": "tile", "origin": t.origin, "size": t.size}));
+        files.push((file, t.mesh.to_stl()));
+    }
+    if !l.pockets.is_empty() {
+        let c = &l.spec;
+        files.push((
+            format!(
+                "connector_{}_d{}mm.stl",
+                if c.shape == crate::tiles::Shape::Round {
+                    "round"
+                } else {
+                    "hex"
+                },
+                c.diameter
+            ),
+            crate::tiles::connector_rod(c.shape, c.diameter, c.depth, c.segments).to_stl(),
+        ));
+    }
+    let meta = json!({
+        "tiling": b.info,
+        "plate": {
+            "w": l.width, "h": l.height, "thickness": p.f("thickness_mm"), "layer": b.layer,
+            "top": b.top, "flip": p.b("flip"), "margin": l.margin,
+            "seams": b.seams, "connectors": b.connectors, "parts": parts,
+        },
     });
     Ok(vec![(
         "parts",
