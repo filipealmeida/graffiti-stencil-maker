@@ -32,7 +32,8 @@ body {
 }
 header {
   display: flex;
-  gap: 10px;
+  flex-wrap: wrap;
+  gap: 6px 10px;
   align-items: center;
   padding: 6px 12px;
   background: var(--panel);
@@ -1022,4 +1023,47 @@ header > .pal .menu:not(.wide) {
   display: flex;
   justify-content: space-between;
   gap: 8px;
+}
+
+.presets {
+  display: flex;
+  gap: 6px;
+  margin: 8px 0;
+}
+.presets select {
+  flex: 1;
+  min-width: 0;
+}
+.node.stale-node {
+  outline: 1px dashed #ffa24a88;
+}
+.node.problem-error {
+  box-shadow: 0 0 0 2px #ff6b6b;
+}
+.node.problem-warn {
+  box-shadow: 0 0 0 2px #ffa24a;
+}
+.hist {
+  position: absolute;
+  z-index: 30;
+  max-height: 320px;
+  overflow: auto;
+  min-width: 260px;
+  padding: 4px;
+  background: #11151b;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  font-size: 12px;
+}
+.hist button {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: 0;
+  padding: 3px 8px;
+}
+.hist button.now {
+  font-weight: 700;
+  color: #5fd38d;
 }

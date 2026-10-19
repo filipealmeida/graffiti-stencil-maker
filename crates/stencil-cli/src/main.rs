@@ -131,6 +131,20 @@ struct Args {
     /// Exit with an error when the report has warnings, not only errors
     #[arg(long)]
     strict: bool,
+    /// List the parameters --set accepts (all nodes, or only this node type) with their ranges, then exit
+    #[arg(long, value_name = "NODE", num_args = 0..=1, default_missing_value = "")]
+    list_params: Option<String>,
+    /// With --project: use this picture in the project's Image node instead of the saved one
+    #[arg(long, value_name = "FILE")]
+    source: Option<PathBuf>,
+    /// With --project: run the project once for every picture in this folder (png, jpg, bmp, svg). -o is then the
+    /// folder that gets one subfolder per picture, plus summary.csv
+    #[arg(long, value_name = "DIR", requires = "project")]
+    batch: Option<PathBuf>,
+    /// Run once for every value: NODE.PARAM=a,b,c (repeatable; several are combined). -o is then the folder that
+    /// gets one subfolder per run, plus summary.csv
+    #[arg(long, value_name = "NODE.PARAM=a,b,c")]
+    sweep: Vec<String>,
 }
 
 fn main() {
@@ -140,6 +154,14 @@ fn main() {
         return;
     }
     let a = Args::parse();
+    if let Some(node) = &a.list_params {
+        list_params(node);
+        return;
+    }
+    if a.batch.is_some() || !a.sweep.is_empty() {
+        run_many(&a, &argv);
+        return;
+    }
     stencil_core::init_threads(a.threads);
     let t = Instant::now();
     let mut engine = Engine::new();
@@ -166,6 +188,9 @@ fn main() {
     };
 
     let mut graph = graph;
+    if let Some(pic) = &a.source {
+        use_picture(&mut engine, &mut graph, pic);
+    }
     apply_sets(&mut graph, &a.set);
     let result = engine.run(&graph, None, &|| t.elapsed().as_secs_f64() * 1000.0);
     for l in result["log"].as_array().into_iter().flatten() {
@@ -320,7 +345,11 @@ fn main() {
     }
 
     if files.len() == 1 {
-        let path = a.output.clone().unwrap_or_else(|| dir.join(&files[0].0));
+        let path = match &a.output {
+            Some(o) if o.is_dir() => o.join(&files[0].0),
+            Some(o) => o.clone(),
+            None => dir.join(&files[0].0),
+        };
         write(&path, &files[0].1);
         eprintln!("wrote {} in {} ms", path.display(), t.elapsed().as_millis());
     } else {
@@ -328,12 +357,17 @@ fn main() {
             .output
             .clone()
             .unwrap_or_else(|| dir.join(format!("{stem}_parts")));
+        let into_folder = out.is_dir();
         fs::create_dir_all(&out)
             .unwrap_or_else(|e| fail(&format!("cannot create {}: {e}", out.display())));
         for (name, bytes) in &files {
             write(&out.join(name), bytes);
         }
-        let zip = out.with_extension("zip");
+        let zip = if into_folder {
+            out.join(format!("{stem}.zip"))
+        } else {
+            out.with_extension("zip")
+        };
         write(&zip, &stencil_core::zip::zip(&files));
         eprintln!(
             "wrote {} parts to {} and {} in {} ms",
@@ -457,6 +491,227 @@ fn print_report(r: &Json) {
             format!("{} ms", t["ms"].as_f64().unwrap_or(0.0).round())
         };
         eprintln!("  {}: {when}", t["label"].as_str().unwrap_or(""));
+    }
+}
+
+/// Prints every parameter --set accepts, for all node types or the one named.
+fn list_params(only: &str) {
+    let types = stencil_core::graph::node_types();
+    let mut any = false;
+    for t in types.as_array().into_iter().flatten() {
+        let id = t["id"].as_str().unwrap_or("");
+        if !only.is_empty() && id != only {
+            continue;
+        }
+        any = true;
+        println!("{id}  ({})", t["label"].as_str().unwrap_or(""));
+        for p in t["params"].as_array().into_iter().flatten() {
+            let range = match p["kind"].as_str().unwrap_or("") {
+                "int" | "float" => format!("{} to {}", p["min"], p["max"]),
+                "choice" => p["choices"]
+                    .as_array()
+                    .map(|c| {
+                        c.iter()
+                            .filter_map(Json::as_str)
+                            .collect::<Vec<_>>()
+                            .join(" | ")
+                    })
+                    .unwrap_or_default(),
+                "bool" => "true | false".into(),
+                _ => "text".into(),
+            };
+            println!(
+                "  {}={}  default {}  [{}]",
+                p["name"].as_str().unwrap_or(""),
+                p["kind"].as_str().unwrap_or(""),
+                p["default"],
+                range
+            );
+        }
+    }
+    if !any {
+        fail(&format!("--list-params: no node type '{only}'"));
+    }
+}
+
+/// Points the project's only Image node at a picture from disk.
+fn use_picture(engine: &mut Engine, graph: &mut Json, pic: &Path) {
+    let bytes =
+        fs::read(pic).unwrap_or_else(|e| fail(&format!("cannot read {}: {e}", pic.display())));
+    let id = engine.add_image(bytes).unwrap_or_else(|e| fail(&e))["id"]
+        .as_str()
+        .unwrap_or("")
+        .to_string();
+    let sources: Vec<usize> = graph["nodes"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .enumerate()
+        .filter(|(_, n)| n["type"] == "source")
+        .map(|(i, _)| i)
+        .collect();
+    match sources.as_slice() {
+        [i] => {
+            if !graph["nodes"][*i]["params"].is_object() {
+                graph["nodes"][*i]["params"] = json!({});
+            }
+            graph["nodes"][*i]["params"]["image_id"] = json!(id);
+        }
+        [] => fail("--source: the project has no Image node"),
+        _ => fail("--source: the project has several Image nodes"),
+    }
+}
+
+/// The arguments of this run without the ones a single child run must not get.
+fn child_args(argv: &[String]) -> Vec<String> {
+    let with_value = [
+        "--batch",
+        "--sweep",
+        "-o",
+        "--output",
+        "--report-file",
+        "--layout",
+        "--source",
+    ];
+    let mut out = Vec::new();
+    let mut skip = false;
+    for x in &argv[1..] {
+        if skip {
+            skip = false;
+        } else if with_value.contains(&x.as_str()) {
+            skip = true;
+        } else if !with_value.iter().any(|f| x.starts_with(&format!("{f}="))) {
+            out.push(x.clone());
+        }
+    }
+    out
+}
+
+/// --batch and --sweep: one child run per picture and value, each in its own folder, then a summary.
+fn run_many(a: &Args, argv: &[String]) {
+    let mut sweeps: Vec<(String, Vec<String>)> = Vec::new();
+    for s in &a.sweep {
+        let (target, values) = s
+            .split_once('=')
+            .unwrap_or_else(|| fail(&format!("--sweep {s}: write NODE.PARAM=a,b,c")));
+        let values: Vec<String> = values.split(',').map(|v| v.trim().to_string()).collect();
+        if values.iter().any(String::is_empty) {
+            fail(&format!("--sweep {s}: empty value"));
+        }
+        sweeps.push((target.to_string(), values));
+    }
+    let mut pictures: Vec<Option<PathBuf>> = vec![None];
+    if let Some(dir) = &a.batch {
+        let mut found: Vec<PathBuf> = fs::read_dir(dir)
+            .unwrap_or_else(|e| fail(&format!("cannot read {}: {e}", dir.display())))
+            .filter_map(|e| e.ok().map(|e| e.path()))
+            .filter(|p| {
+                p.extension().and_then(|x| x.to_str()).is_some_and(|x| {
+                    matches!(
+                        x.to_lowercase().as_str(),
+                        "png" | "jpg" | "jpeg" | "bmp" | "svg"
+                    )
+                })
+            })
+            .collect();
+        found.sort();
+        if found.is_empty() {
+            fail(&format!("--batch: no pictures in {}", dir.display()));
+        }
+        pictures = found.into_iter().map(Some).collect();
+    }
+    let mut combos: Vec<Vec<(String, String)>> = vec![Vec::new()];
+    for (target, values) in &sweeps {
+        combos = combos
+            .into_iter()
+            .flat_map(|c| {
+                values.iter().map(move |v| {
+                    let mut c = c.clone();
+                    c.push((target.clone(), v.clone()));
+                    c
+                })
+            })
+            .collect();
+    }
+    let root = a.output.clone().unwrap_or_else(|| {
+        PathBuf::from(format!(
+            "{}_runs",
+            a.project
+                .as_ref()
+                .or(a.input.as_ref())
+                .and_then(|p| p.file_stem())
+                .map(|s| s.to_string_lossy().to_string())
+                .unwrap_or_else(|| "stencil".into())
+        ))
+    });
+    let exe = std::env::current_exe().unwrap_or_else(|e| fail(&format!("cannot find myself: {e}")));
+    let base = child_args(argv);
+    let mut rows = vec!["run,status,verdict,findings,seconds".to_string()];
+    let mut failed = 0;
+    for pic in &pictures {
+        for combo in &combos {
+            let mut name: Vec<String> = Vec::new();
+            if let Some(p) = pic {
+                name.push(
+                    p.file_stem()
+                        .map(|s| s.to_string_lossy().to_string())
+                        .unwrap_or_default(),
+                );
+            }
+            for (t, v) in combo {
+                name.push(format!("{}={v}", t.rsplit('.').next().unwrap_or(t)));
+            }
+            let name = name.join("_").replace(['/', '\\'], "-");
+            let name = if name.is_empty() {
+                "run".to_string()
+            } else {
+                name
+            };
+            let dir = root.join(&name);
+            fs::create_dir_all(&dir)
+                .unwrap_or_else(|e| fail(&format!("cannot create {}: {e}", dir.display())));
+            let mut cmd = std::process::Command::new(&exe);
+            cmd.args(&base)
+                .arg("-o")
+                .arg(&dir)
+                .arg("--report-file")
+                .arg(dir.join("report.json"));
+            if let Some(p) = pic {
+                cmd.arg("--source").arg(p);
+            }
+            for (t, v) in combo {
+                cmd.arg("--set").arg(format!("{t}={v}"));
+            }
+            eprintln!("== {name}");
+            let t = Instant::now();
+            let ok = cmd
+                .stdout(std::process::Stdio::null())
+                .status()
+                .is_ok_and(|s| s.success());
+            let report: Json = fs::read_to_string(dir.join("report.json"))
+                .ok()
+                .and_then(|t| serde_json::from_str(&t).ok())
+                .unwrap_or(Json::Null);
+            if !ok {
+                failed += 1;
+            }
+            rows.push(format!(
+                "{name},{},{},{},{:.1}",
+                if ok { "ok" } else { "failed" },
+                report["verdict"].as_str().unwrap_or("-"),
+                report["findings"].as_array().map_or(0, Vec::len),
+                t.elapsed().as_secs_f64()
+            ));
+        }
+    }
+    let csv = root.join("summary.csv");
+    write(&csv, rows.join("\n").as_bytes());
+    for r in &rows {
+        eprintln!("{}", r.replace(',', "  "));
+    }
+    eprintln!("wrote {}", csv.display());
+    if failed > 0 {
+        fail(&format!("{failed} of {} runs failed", rows.len() - 1));
     }
 }
 

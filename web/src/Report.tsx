@@ -8,11 +8,10 @@ interface Finding { id: string; label: string; level: BadgeLevel; text: string }
 const ICON: Record<BadgeLevel, string> = { error: '✖', warn: '▲', info: 'ℹ' }
 
 /** Print readiness over the whole graph and where the time went. It mirrors `report.rs`, which the CLI's `--report` uses. */
-export default function Report() {
+export function useReport() {
   const nodes = useStudio((s) => s.nodes)
   const runs = useStudio((s) => s.runs)
   const types = useStudio((s) => s.types)
-  const select = useStudio((s) => s.select)
   const { findings, timing } = useMemo(() => {
     const findings: Finding[] = []
     const timing: { id: string; label: string; ms: number; cached: boolean }[] = []
@@ -41,6 +40,13 @@ export default function Report() {
   const has = (l: BadgeLevel) => findings.some((f) => f.level === l)
   const verdict = has('error') ? 'blocked' : has('warn') ? 'check' : 'ready'
   const computed = Object.values(runs).some((r) => r.key)
+  const count = (l: BadgeLevel) => findings.filter((f) => f.level === l).length
+  return { findings, timing, verdict, computed, errors: count('error'), warnings: count('warn') }
+}
+
+export default function Report() {
+  const select = useStudio((s) => s.select)
+  const { findings, timing, verdict, computed } = useReport()
   return (
     <div className="report" role="region" aria-label="Run report">
       <b>Print readiness: </b>

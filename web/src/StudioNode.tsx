@@ -28,8 +28,10 @@ export default function StudioNodeView({ id, data, selected }: NodeProps<StudioN
   const first = t.outputs.find((o) => run?.outputs?.[o.name]?.available)
   const badges = done && !run.stale && run.key && first ? badgesFor(data.type, data.params, api.peekInfo(run.key, first.name)) : []
   const shown = t.outputs.filter((o) => !done || run?.outputs?.[o.name]?.available || edges.some((e) => e.source === id && e.sourceHandle === o.name))
+  const problem = badges.some((b) => b.level === 'error') || run?.state === 'error' ? ' problem-error' : badges.some((b) => b.level === 'warn') ? ' problem-warn' : ''
+  const stale = run?.stale && run.state !== 'running' ? ' stale-node' : ''
   return (
-    <div className={`node stage-${t.stage}${selected ? ' sel' : ''}`} aria-label={`${data.title || t.label} node, ${run?.state ?? 'not run'}`}>
+    <div className={`node stage-${t.stage}${selected ? ' sel' : ''}${problem}${stale}`} aria-label={`${data.title || t.label} node, ${run?.state ?? 'not run'}`}>
       <div className="node-head">
         <span className={`dot ${run?.state ?? 'idle'}`} role="img" aria-label={run?.error ?? run?.state ?? 'not run'} title={run?.error ?? run?.state ?? 'not run'} />
         <b>{data.title || t.label}</b>

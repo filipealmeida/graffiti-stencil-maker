@@ -3,6 +3,7 @@ import { api, artifactUrl } from './api'
 import { useStudio } from './store'
 import ParamForm from './ParamForm'
 import SourceActions from './SourceActions'
+import Presets from './Presets'
 
 export default function Inspector() {
   const id = useStudio((s) => s.selected)
@@ -41,6 +42,7 @@ export default function Inspector() {
       <button className="btn" onClick={() => openBench(node.id)}>⤢ Open preview (double-click a node)</button>
       {fileInput && <><p className="mut">Image: {String(node.data.title ?? node.data.params.image_id)}</p><SourceActions id={node.id} imageId={String(node.data.params.image_id)} title={node.data.title} /></>}
       <ParamForm node={node} type={t} layers={layers} />
+      <Presets key={node.id} node={node} />
       {run?.state === 'error' && <div className="err">{run.error}</div>}
       {key && cur && (
         <div className="result">

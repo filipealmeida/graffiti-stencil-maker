@@ -278,6 +278,78 @@ fn bad_overrides_are_rejected() {
 }
 
 #[test]
+fn list_params_shows_ranges() {
+    let r = bin()
+        .args(["--list-params", "tile_layout"])
+        .output()
+        .unwrap();
+    assert!(r.status.success());
+    let out = String::from_utf8_lossy(&r.stdout);
+    assert!(out.contains("seam_shift") && out.contains("max_x"));
+    assert!(!out.contains("vector_stencil"));
+    assert!(!bin()
+        .args(["--list-params", "nope"])
+        .output()
+        .unwrap()
+        .status
+        .success());
+}
+
+#[test]
+fn sweep_and_batch_make_one_folder_per_run_and_a_summary() {
+    let d = scratch("many");
+    let path = tiled_project(&d);
+    let out = d.join("runs");
+    let r = bin()
+        .args([
+            "--project",
+            path.to_str().unwrap(),
+            "--sweep",
+            "lay.max_x=50,60",
+            "-o",
+        ])
+        .arg(&out)
+        .output()
+        .unwrap();
+    assert!(r.status.success(), "{}", String::from_utf8_lossy(&r.stderr));
+    for run in ["max_x=50", "max_x=60"] {
+        assert!(out.join(run).join("report.json").exists(), "{run}");
+    }
+    let csv = fs::read_to_string(out.join("summary.csv")).unwrap();
+    assert_eq!(csv.lines().count(), 3);
+
+    let pics = d.join("pics");
+    fs::create_dir_all(&pics).unwrap();
+    fs::write(pics.join("a.svg"), RING).unwrap();
+    fs::write(pics.join("b.svg"), RING).unwrap();
+    let out = d.join("batch");
+    let r = bin()
+        .args(["--project", path.to_str().unwrap(), "--batch"])
+        .arg(&pics)
+        .arg("-o")
+        .arg(&out)
+        .output()
+        .unwrap();
+    assert!(r.status.success(), "{}", String::from_utf8_lossy(&r.stderr));
+    for run in ["a", "b"] {
+        assert!(out.join(run).join("report.json").exists(), "{run}");
+        assert!(fs::read_dir(out.join(run)).unwrap().count() > 2);
+    }
+    let bad = bin()
+        .args([
+            "--project",
+            path.to_str().unwrap(),
+            "--sweep",
+            "lay.max_x=50,abc",
+            "-o",
+        ])
+        .arg(d.join("bad"))
+        .output()
+        .unwrap();
+    assert!(!bad.status.success());
+}
+
+#[test]
 fn a_graph_without_output_is_reported() {
     let d = scratch("empty");
     let path = d.join("empty.stencil.json");

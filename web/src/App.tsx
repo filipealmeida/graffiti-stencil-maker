@@ -12,7 +12,8 @@ import { api, type NodeType, type Stage } from "./api";
 import Inspector from "./Inspector";
 import Console from "./Console";
 import Perf from "./Perf";
-import Report from "./Report";
+import Report, { useReport } from "./Report";
+import History from "./History";
 import Workbench from "./Workbench";
 import StudioEdge from "./StudioEdge";
 import StudioNodeView, { KIND_COLOR } from "./StudioNode";
@@ -24,6 +25,7 @@ import {
   redo,
   resetHistory,
   runGraph,
+  rerun,
   signature,
   STORE_KEY,
   undo,
@@ -37,6 +39,7 @@ const DRAFT_DELAY = 150;
 
 function Canvas() {
   const s = useStudio();
+  const rep = useReport();
   const rf = useReactFlow();
   const [drag, setDrag] = useState(false);
   const [pname, setPname] = useState("project");
@@ -87,6 +90,9 @@ function Canvas() {
       } else if (k === "d") {
         e.preventDefault();
         useStudio.getState().duplicate();
+      } else if (k === "enter") {
+        e.preventDefault();
+        rerun();
       } else if (k === "k") {
         e.preventDefault();
         setCmdOpen((o) => !o);
@@ -431,6 +437,7 @@ function Canvas() {
         >
           ⌘K
         </button>
+        <History />
         <button title="Undo (Ctrl+Z)" disabled={!s.canUndo} onClick={undo}>
           ↶ Undo
         </button>
@@ -477,6 +484,13 @@ function Canvas() {
         >
           New
         </button>
+        <button
+          onClick={rerun}
+          disabled={s.busy}
+          title="Run the whole graph again (Ctrl+Enter). Unchanged nodes come from the cache."
+        >
+          ↻ Rerun
+        </button>
         {s.busy && s.progress.total > 0 && (
           <span
             className="gbar"
@@ -499,7 +513,7 @@ function Canvas() {
           onClick={() => s.setReport(!s.reportOpen)}
           title="Print readiness and per-node timing"
         >
-          Report
+          Report{rep.errors > 0 ? ` ✖${rep.errors}` : ""}{rep.warnings > 0 ? ` ▲${rep.warnings}` : ""}
         </button>
         <button
           className={s.perfOpen ? "on" : ""}
