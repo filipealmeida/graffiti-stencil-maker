@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
+import AxeBuilder from '@axe-core/playwright'
 import { deflateSync } from 'node:zlib'
 
 // A 160x120 PNG with a dark disc on white, enough to give the stencil real work.
@@ -533,10 +534,43 @@ test('presets save the selected node parameters and apply them again', async ({ 
   await expect(level).toHaveValue(before)
 })
 
+test('presets export to a file and import again, keeping the ones already there', async ({ page }) => {
+  await open(page)
+  await page.locator('.react-flow__node').filter({ hasText: 'Threshold' }).first().click()
+  page.once('dialog', (d) => d.accept('shared'))
+  await page.getByRole('button', { name: 'Save as…' }).click()
+  const [download] = await Promise.all([page.waitForEvent('download'), page.getByRole('group', { name: 'Presets' }).getByRole('button', { name: 'Export' }).click()])
+  expect(download.suggestedFilename()).toBe('stencil-presets.json')
+  const text = await (await import('node:fs/promises')).readFile((await download.path())!, 'utf8')
+  expect(JSON.parse(text).presets.threshold.shared).toBeTruthy()
+  await page.evaluate(() => localStorage.removeItem('stencil-presets'))
+  await page.reload()
+  await page.setInputFiles('label.btn input[type=file] >> nth=0', { name: 'disc.png', mimeType: 'image/png', buffer: png() })
+  await settled(page)
+  await page.locator('.react-flow__node').filter({ hasText: 'Threshold' }).first().click()
+  const said: string[] = []
+  page.on('dialog', (d) => { said.push(d.message()); void d.accept() })
+  await page.locator('input[aria-label="Import presets file"]').setInputFiles({ name: 'p.json', mimeType: 'application/json', buffer: Buffer.from(text) })
+  await expect.poll(() => said.join()).toContain('Imported 1 preset')
+  await expect(page.getByLabel('Preset', { exact: true }).locator('option', { hasText: 'shared' })).toHaveCount(1)
+  await page.locator('input[aria-label="Import presets file"]').setInputFiles({ name: 'bad.json', mimeType: 'application/json', buffer: Buffer.from('{"nope":1}') })
+  await expect.poll(() => said.join()).toContain('not a presets file')
+})
+
 test('Rerun and the Report button counts are available', async ({ page }) => {
   await open(page)
   await expect(page.getByRole('button', { name: /Rerun/ })).toBeVisible()
   await page.keyboard.press('Control+Enter')
   await settled(page)
   await expect(page.getByRole('button', { name: /Report/ })).toBeVisible()
+})
+
+test('the studio has no serious accessibility violations', async ({ page }) => {
+  await open(page)
+  const bad = async () => (await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa']).analyze()).violations
+    .filter((x) => x.impact === 'serious' || x.impact === 'critical')
+    .map((x) => `${x.id}: ${x.nodes.slice(0, 3).map((n) => n.target.join(' ')).join(' | ')}`)
+  expect(await bad()).toEqual([])
+  await page.locator('.react-flow__node').nth(1).click()
+  expect(await bad()).toEqual([])
 })

@@ -178,6 +178,29 @@ pub fn findings(ty: &str, params: &Json, infos: &[Json]) -> Vec<Finding> {
     out
 }
 
+/// The numbers behind the findings, for comparing runs: the largest value of each across the infos.
+pub fn metrics(infos: &[Json]) -> serde_json::Map<String, Json> {
+    let mut out = serde_json::Map::new();
+    let mut put = |key: &str, v: &Json| {
+        if let Some(x) = v.as_f64().filter(|x| x.is_finite()) {
+            let slot = out.entry(key.to_string()).or_insert(json!(x));
+            if slot.as_f64().is_some_and(|old| x > old) {
+                *slot = json!(x);
+            }
+        }
+    };
+    for info in infos {
+        put("seam_step_mm", &info["meta"]["tiling"]["seam_step_mm"]);
+        put(
+            "paint_under_blocks_mm2",
+            &info["meta"]["tiling"]["paint_under_blocks_mm2"],
+        );
+        put("paint_under_blocks_mm2", &info["paint_under_blocks_mm2"]);
+        put("triangles", &info["stats"]["triangles"]);
+    }
+    out
+}
+
 /// "ready" when nothing needs a look, "check" when something warns, "blocked" when something is wrong.
 pub fn verdict(all: &[Level]) -> &'static str {
     match all.iter().max() {

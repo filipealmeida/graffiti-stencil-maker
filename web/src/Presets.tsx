@@ -1,12 +1,8 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { useStudio, type StudioNode } from './store'
+import { BUILT_IN, mergeBook, parseBook, type Book } from './presetBook'
 
-type Book = Record<string, Record<string, Record<string, unknown>>>
 const KEY = 'stencil-presets'
-/** Ready-made settings, kept apart from the user's own so they cannot be overwritten or deleted. */
-const BUILT_IN: Book = {
-  tile_layout: { 'Mounting challenge 100 mm, 50 mm tiles': { width_mm: 100, margin_mm: 10, max_x: 50, max_y: 50 } },
-}
 
 const load = (): Book => {
   try { return JSON.parse(localStorage.getItem(KEY) ?? '{}') } catch { return {} }
@@ -17,6 +13,7 @@ export default function Presets({ node }: { node: StudioNode }) {
   const type = node.data.type
   const [book, setBook] = useState<Book>(load)
   const [pick, setPick] = useState('')
+  const file = useRef<HTMLInputElement>(null)
   const mine = book[type] ?? {}
   const builtIn = BUILT_IN[type] ?? {}
   if (type === 'source') return null
@@ -41,6 +38,23 @@ export default function Presets({ node }: { node: StudioNode }) {
     save({ ...book, [type]: rest })
     setPick('')
   }
+  const exportAll = () => {
+    const url = URL.createObjectURL(new Blob([JSON.stringify({ stencilPresets: 1, presets: book }, null, 2)], { type: 'application/json' }))
+    const a = document.createElement('a')
+    a.href = url
+    a.download = 'stencil-presets.json'
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+  const importFile = async (f: File) => {
+    try {
+      const merged = mergeBook(book, parseBook(JSON.parse(await f.text())))
+      save(merged.book)
+      window.alert(`Imported ${merged.added} preset${merged.added === 1 ? '' : 's'}.`)
+    } catch (e) {
+      window.alert(`That file is not a presets file: ${e instanceof Error ? e.message : e}`)
+    }
+  }
   return (
     <div className="presets" role="group" aria-label="Presets">
       <select aria-label="Preset" value={pick} onChange={(e) => { setPick(e.target.value); if (e.target.value) apply(e.target.value) }}>
@@ -50,6 +64,10 @@ export default function Presets({ node }: { node: StudioNode }) {
       </select>
       <button onClick={add} title="Save this node's parameters under a name">Save as…</button>
       <button onClick={remove} disabled={!mine[pick]} title="Delete the selected preset">Delete</button>
+      <button onClick={exportAll} disabled={!Object.keys(book).length} title="Save all your presets to a file to share or back up">Export</button>
+      <button onClick={() => file.current?.click()} title="Add the presets from a file; a name that already exists is kept">Import</button>
+      <input ref={file} type="file" accept="application/json,.json" hidden aria-label="Import presets file"
+        onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) void importFile(f) }} />
     </div>
   )
 }

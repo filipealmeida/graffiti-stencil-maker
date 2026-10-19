@@ -21,7 +21,7 @@ export default function Console({ nodeId, height }: { nodeId?: string; height?: 
   return (
     <div className="console" style={height ? { height } : undefined}>
       <div className="console-bar"><b>Console</b><span className="mut">{shown.length} lines</span><button onClick={exportLog} disabled={!shown.length}>Export</button><button onClick={clear}>Clear</button></div>
-      <div className="console-lines" ref={box}>
+      <div className="console-lines" ref={box} tabIndex={0} role="log" aria-label="Engine log">
         {shown.map((l) => (
           <div key={l.id} className={l.level}><span className="mut">{l.ts}</span> <b>{name(l.node, l.type)}</b> {l.msg}{l.ms != null && <span className="mut"> {l.ms} ms</span>}</div>
         ))}

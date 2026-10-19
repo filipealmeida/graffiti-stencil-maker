@@ -278,6 +278,7 @@ impl Engine {
         let mut items: Vec<Json> = Vec::new();
         let mut levels = Vec::new();
         let mut timing: Vec<Json> = Vec::new();
+        let mut metrics = Map::new();
         for node in graph["nodes"].as_array().into_iter().flatten() {
             let id = node["id"].as_str().unwrap_or("");
             let ty = node["type"].as_str().unwrap_or("");
@@ -299,6 +300,15 @@ impl Engine {
                 .filter_map(|(o, _)| self.value(key, o).map(Value::info))
                 .collect();
             let params = Json::Object(clean_params(def, node.get("params")).0);
+            for (k, x) in crate::report::metrics(&infos) {
+                let (new, old) = (
+                    x.as_f64().unwrap_or(0.0),
+                    metrics.get(&k).and_then(Json::as_f64),
+                );
+                if old.is_none_or(|o| new > o) {
+                    metrics.insert(k, x);
+                }
+            }
             for f in crate::report::findings(ty, &params, &infos) {
                 // parts carry the tiling description on through Pads and Screws: say it once, at the node that made it
                 if items.iter().any(|i| i["text"] == f.text.as_str()) {
@@ -314,7 +324,7 @@ impl Engine {
                 .unwrap_or(0.0)
                 .total_cmp(&a["ms"].as_f64().unwrap_or(0.0))
         });
-        json!({"verdict": crate::report::verdict(&levels), "findings": items, "timing": timing})
+        json!({"verdict": crate::report::verdict(&levels), "findings": items, "metrics": metrics, "timing": timing})
     }
 
     /// Evaluates the graph, or only the ancestors of `targets`. `now` returns epoch milliseconds.

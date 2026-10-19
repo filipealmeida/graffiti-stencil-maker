@@ -1,0 +1,83 @@
+[
+  {
+    "name": "islands left, thin bridge, heavy mesh",
+    "type": "stencil",
+    "params": {"bridge_mm": 0.6},
+    "info": {"kind": "solid", "stats": {"islands_remaining": 2, "watertight": false, "triangles": 3000000, "overhang_area_mm2": 12.4, "islands_deleted": 1, "fallback": "used flat bridges"}},
+    "expected": [
+      {"level": "error", "text": "2 islands remain"},
+      {"level": "error", "text": "mesh is not watertight"},
+      {"level": "warn", "text": "overhang 12 mm²"},
+      {"level": "warn", "text": "1 island deleted"},
+      {"level": "warn", "text": "3.0 M triangles: heavy to slice"},
+      {"level": "warn", "text": "used flat bridges"},
+      {"level": "warn", "text": "bridge 0.6 mm is thinner than a nozzle"}
+    ]
+  },
+  {
+    "name": "a clean plate",
+    "type": "vector_stencil",
+    "params": {"bridge_mm": 2},
+    "info": {"kind": "solid", "stats": {"islands_remaining": 0, "islands_found": 5, "watertight": true, "triangles": 1000}},
+    "expected": [{"level": "info", "text": "5 islands bridged"}]
+  },
+  {
+    "name": "tiled parts with every finding",
+    "type": "pads",
+    "params": {},
+    "info": {"kind": "parts", "meta": {
+      "pads": {"warnings": ["margin of 6.0 mm is too small for M4 holes (needs 7.4 mm)"]},
+      "tiling": {"reinforced_seams": 3, "fallback_tiles": [{"tile": "stencil_r2c2", "note": "bridges moved sideways"}],
+        "dropped_specks": 4, "seam_step_mm": 77.9, "paint_under_blocks_mm2": 623.1}}},
+    "expected": [
+      {"level": "warn", "text": "margin of 6.0 mm is too small for M4 holes (needs 7.4 mm)"},
+      {"level": "info", "text": "3 seams reinforced"},
+      {"level": "info", "text": "stencil_r2c2: bridges moved sideways"},
+      {"level": "warn", "text": "4 tiny pieces dropped"},
+      {"level": "info", "text": "78 mm of seam where neighbouring tiles differ by more than a layer in height"},
+      {"level": "info", "text": "623 mm² of paint under connector blocks"}
+    ]
+  },
+  {
+    "name": "pre-tiled parts do not report paint under blocks",
+    "type": "tiles",
+    "params": {},
+    "info": {"kind": "parts", "meta": {"tiling": {"pre_tiled": true, "paint_under_blocks_mm2": 50}}},
+    "expected": []
+  },
+  {
+    "name": "layout that costs a lot of paint",
+    "type": "tile_layout",
+    "params": {},
+    "info": {"kind": "tiles", "paint_under_blocks_mm2": 300, "paint_mm2": 1000},
+    "expected": [{"level": "warn", "text": "300 mm² of paint under connector blocks (30.0% of the artwork)"}]
+  },
+  {
+    "name": "layout that costs little",
+    "type": "tile_layout",
+    "params": {},
+    "info": {"kind": "tiles", "paint_under_blocks_mm2": 20, "paint_mm2": 1000},
+    "expected": [{"level": "info", "text": "20 mm² of paint under connector blocks (2.0% of the artwork)"}]
+  },
+  {
+    "name": "empty mask",
+    "type": "threshold",
+    "params": {},
+    "info": {"kind": "mask", "coverage": 0.001},
+    "expected": [{"level": "warn", "text": "mask is almost empty"}]
+  },
+  {
+    "name": "full mask",
+    "type": "threshold",
+    "params": {},
+    "info": {"kind": "mask", "coverage": 0.999},
+    "expected": [{"level": "warn", "text": "mask is almost all paint"}]
+  },
+  {
+    "name": "no outlines",
+    "type": "trace",
+    "params": {},
+    "info": {"kind": "shapes", "loops": 0},
+    "expected": [{"level": "warn", "text": "no outlines found"}]
+  }
+]

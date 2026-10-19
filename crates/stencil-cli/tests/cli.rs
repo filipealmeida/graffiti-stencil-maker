@@ -296,6 +296,43 @@ fn list_params_shows_ranges() {
 }
 
 #[test]
+fn list_params_can_print_markdown() {
+    let r = bin()
+        .args([
+            "--list-params",
+            "tile_layout",
+            "--params-format",
+            "markdown",
+        ])
+        .output()
+        .unwrap();
+    assert!(r.status.success());
+    let out = String::from_utf8_lossy(&r.stdout);
+    assert!(out.contains("| Parameter |") && out.contains("| `seam_shift` |"));
+    assert!(!bin()
+        .args(["--list-params", "--params-format", "html"])
+        .output()
+        .unwrap()
+        .status
+        .success());
+}
+
+#[test]
+fn the_parameter_reference_is_up_to_date() {
+    let r = bin()
+        .args(["--list-params", "--params-format", "markdown"])
+        .output()
+        .unwrap();
+    let now = String::from_utf8_lossy(&r.stdout);
+    let file =
+        fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../PARAMETERS.md")).unwrap();
+    assert!(
+        file.ends_with(now.as_ref()),
+        "PARAMETERS.md is out of date: regenerate it with `stencil --list-params --params-format markdown`"
+    );
+}
+
+#[test]
 fn sweep_and_batch_make_one_folder_per_run_and_a_summary() {
     let d = scratch("many");
     let path = tiled_project(&d);
@@ -317,6 +354,17 @@ fn sweep_and_batch_make_one_folder_per_run_and_a_summary() {
     }
     let csv = fs::read_to_string(out.join("summary.csv")).unwrap();
     assert_eq!(csv.lines().count(), 3);
+    assert!(csv
+        .lines()
+        .next()
+        .unwrap()
+        .contains("seam_step_mm,paint_under_blocks_mm2"));
+    let one: serde_json::Value = serde_json::from_str(
+        &fs::read_to_string(out.join("max_x=50").join("report.json")).unwrap(),
+    )
+    .unwrap();
+    assert!(one["metrics"]["seam_step_mm"].is_number(), "{one}");
+    assert!(String::from_utf8_lossy(&r.stderr).contains("fewest seam steps"));
 
     let pics = d.join("pics");
     fs::create_dir_all(&pics).unwrap();

@@ -134,6 +134,14 @@ struct Args {
     /// List the parameters --set accepts (all nodes, or only this node type) with their ranges, then exit
     #[arg(long, value_name = "NODE", num_args = 0..=1, default_missing_value = "")]
     list_params: Option<String>,
+    /// With --list-params: `text` (default) or `markdown`, a reference table per node that can be pasted into docs
+    #[arg(
+        long,
+        value_name = "FORMAT",
+        default_value = "text",
+        requires = "list_params"
+    )]
+    params_format: String,
     /// With --project: use this picture in the project's Image node instead of the saved one
     #[arg(long, value_name = "FILE")]
     source: Option<PathBuf>,
@@ -155,7 +163,7 @@ fn main() {
     }
     let a = Args::parse();
     if let Some(node) = &a.list_params {
-        list_params(node);
+        list_params(node, &a.params_format);
         return;
     }
     if a.batch.is_some() || !a.sweep.is_empty() {
@@ -494,8 +502,21 @@ fn print_report(r: &Json) {
     }
 }
 
+/// A number from the report's metrics for the summary table, or a dash when the run has none.
+fn metric(report: &Json, key: &str) -> String {
+    report["metrics"][key]
+        .as_f64()
+        .map_or("-".into(), |x| format!("{x:.1}"))
+}
+
 /// Prints every parameter --set accepts, for all node types or the one named.
-fn list_params(only: &str) {
+fn list_params(only: &str, format: &str) {
+    if !matches!(format, "text" | "markdown") {
+        fail(&format!(
+            "--params-format: '{format}' is not text or markdown"
+        ));
+    }
+    let markdown = format == "markdown";
     let types = stencil_core::graph::node_types();
     let mut any = false;
     for t in types.as_array().into_iter().flatten() {
@@ -504,7 +525,14 @@ fn list_params(only: &str) {
             continue;
         }
         any = true;
-        println!("{id}  ({})", t["label"].as_str().unwrap_or(""));
+        if markdown {
+            println!("### {} (`{id}`)\n", t["label"].as_str().unwrap_or(""));
+            println!(
+                "| Parameter | Label | Type | Default | Range or choices |\n|---|---|---|---|---|"
+            );
+        } else {
+            println!("{id}  ({})", t["label"].as_str().unwrap_or(""));
+        }
         for p in t["params"].as_array().into_iter().flatten() {
             let range = match p["kind"].as_str().unwrap_or("") {
                 "int" | "float" => format!("{} to {}", p["min"], p["max"]),
@@ -520,13 +548,28 @@ fn list_params(only: &str) {
                 "bool" => "true | false".into(),
                 _ => "text".into(),
             };
-            println!(
-                "  {}={}  default {}  [{}]",
-                p["name"].as_str().unwrap_or(""),
-                p["kind"].as_str().unwrap_or(""),
-                p["default"],
-                range
-            );
+            if markdown {
+                let cell = |s: &str| s.replace('|', "\\|");
+                println!(
+                    "| `{}` | {} | {} | `{}` | {} |",
+                    p["name"].as_str().unwrap_or(""),
+                    cell(p["label"].as_str().unwrap_or("")),
+                    p["kind"].as_str().unwrap_or(""),
+                    p["default"],
+                    cell(&range)
+                );
+            } else {
+                println!(
+                    "  {}={}  default {}  [{}]",
+                    p["name"].as_str().unwrap_or(""),
+                    p["kind"].as_str().unwrap_or(""),
+                    p["default"],
+                    range
+                );
+            }
+        }
+        if markdown {
+            println!();
         }
     }
     if !any {
@@ -646,8 +689,10 @@ fn run_many(a: &Args, argv: &[String]) {
     });
     let exe = std::env::current_exe().unwrap_or_else(|e| fail(&format!("cannot find myself: {e}")));
     let base = child_args(argv);
-    let mut rows = vec!["run,status,verdict,findings,seconds".to_string()];
+    let mut rows =
+        vec!["run,status,verdict,findings,seam_step_mm,paint_under_blocks_mm2,seconds".to_string()];
     let mut failed = 0;
+    let mut fewest_steps: Option<(f64, String)> = None;
     for pic in &pictures {
         for combo in &combos {
             let mut name: Vec<String> = Vec::new();
@@ -695,11 +740,18 @@ fn run_many(a: &Args, argv: &[String]) {
             if !ok {
                 failed += 1;
             }
+            if let Some(s) = report["metrics"]["seam_step_mm"].as_f64().filter(|_| ok) {
+                if fewest_steps.as_ref().is_none_or(|b| s < b.0) {
+                    fewest_steps = Some((s, name.clone()));
+                }
+            }
             rows.push(format!(
-                "{name},{},{},{},{:.1}",
+                "{name},{},{},{},{},{},{:.1}",
                 if ok { "ok" } else { "failed" },
                 report["verdict"].as_str().unwrap_or("-"),
                 report["findings"].as_array().map_or(0, Vec::len),
+                metric(&report, "seam_step_mm"),
+                metric(&report, "paint_under_blocks_mm2"),
                 t.elapsed().as_secs_f64()
             ));
         }
@@ -710,6 +762,9 @@ fn run_many(a: &Args, argv: &[String]) {
         eprintln!("{}", r.replace(',', "  "));
     }
     eprintln!("wrote {}", csv.display());
+    if let Some((s, name)) = fewest_steps.filter(|_| rows.len() > 2) {
+        eprintln!("fewest seam steps: {name} ({s:.1} mm)");
+    }
     if failed > 0 {
         fail(&format!("{failed} of {} runs failed", rows.len() - 1));
     }
