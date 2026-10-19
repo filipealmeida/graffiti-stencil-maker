@@ -914,45 +914,47 @@ pub(super) fn run_pads(_: &Engine, i: &HashMap<String, Value>, p: &P) -> Result<
             }
         }
     }
+    let done = crate::par::map(
+        &src.files,
+        |(name, data)| -> Result<((String, Vec<u8>), bool), String> {
+            let Some(t) = tiles.iter().find(|t| &t.0 == name) else {
+                return Ok(((name.clone(), data.clone()), false));
+            };
+            let local = |list: &[(f64, f64)], r: f64| -> Vec<(f64, f64)> {
+                list.iter()
+                    .filter(|&&c| inside(t, c, r))
+                    .map(|&c| (c.0 - t.1[0], c.1 - t.1[1]))
+                    .collect()
+            };
+            let (ps, hs) = (
+                local(&layout.pads, pad_r),
+                local(&layout.holes, hole_d / 2.0),
+            );
+            if ps.is_empty() && hs.is_empty() {
+                return Ok(((name.clone(), data.clone()), false));
+            }
+            let mut m = crate::mesh::Mesh::from_stl(data)?;
+            if !ps.is_empty() {
+                m = hw::add_pads_at(&m, &ps, &pp, pad_r, layer)?;
+            }
+            if !hs.is_empty() {
+                m = hw::drill_at(&m, &hs, &mp)?;
+            }
+            m.quantize_f32();
+            if !m.is_watertight() {
+                return Err(format!("verification failed: {name} is not watertight"));
+            }
+            if crate::tile_bridge::components(&m).0 != 1 {
+                return Err(format!("verification failed: {name} fell apart"));
+            }
+            Ok(((name.clone(), m.to_stl()), true))
+        },
+    );
     let mut files = Vec::new();
-    let mut changed = 0usize;
-    for (name, data) in &src.files {
-        let Some(t) = tiles.iter().find(|t| &t.0 == name) else {
-            files.push((name.clone(), data.clone()));
-            continue;
-        };
-        let local = |list: &[(f64, f64)], r: f64| -> Vec<(f64, f64)> {
-            list.iter()
-                .filter(|&&c| inside(t, c, r))
-                .map(|&c| (c.0 - t.1[0], c.1 - t.1[1]))
-                .collect()
-        };
-        let (ps, hs) = (
-            local(&layout.pads, pad_r),
-            local(&layout.holes, hole_d / 2.0),
-        );
-        if ps.is_empty() && hs.is_empty() {
-            files.push((name.clone(), data.clone()));
-            continue;
-        }
-        let mut m = crate::mesh::Mesh::from_stl(data)?;
-        if !ps.is_empty() {
-            m = hw::add_pads_at(&m, &ps, &pp, pad_r, layer)?;
-        }
-        if !hs.is_empty() {
-            m = hw::drill_at(&m, &hs, &mp)?;
-        }
-        m.quantize_f32();
-        if !m.is_watertight() {
-            return Err(format!("verification failed: {name} is not watertight"));
-        }
-        if crate::tile_bridge::components(&m).0 != 1 {
-            return Err(format!("verification failed: {name} fell apart"));
-        }
-        changed += 1;
-        files.push((name.clone(), m.to_stl()));
-        crate::progress::step("fit pads", 0.05 + 0.9 * changed as f64 / tiles.len() as f64);
+    for r in done {
+        files.push(r?.0);
     }
+    crate::progress::step("fit pads", 0.95);
     let pts = |l: &[(f64, f64)], r: f64| -> Vec<Json> {
         l.iter()
             .map(|c| json!({"x": c.0, "y": c.1, "r": r}))
