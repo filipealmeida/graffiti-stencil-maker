@@ -745,7 +745,7 @@ pub fn build(l: &Layout, m: &Method) -> Result<Built, String> {
         "fallback_tiles": fallbacks,
         "seam_step_mm": (seam_steps(l, &outs, p.flip, p.layer_height_mm) * 10.0).round() / 10.0,
         "hole_depth_mm": c.depth, "rod_length_mm": tiles::rod_length(c.depth),
-        "paint_under_blocks_mm2": (l.pockets.iter().map(|pk| l.cover.paint_mm2(pk.block(c))).sum::<f64>() * 10.0).round() / 10.0,
+        "paint_under_blocks_mm2": (l.paint_under_blocks_mm2() * 10.0).round() / 10.0,
     });
     let top = outs.first().map_or(0.0, |o| o.top);
     // plate coordinates of the printed tiles: a flipped plate is mirrored about its width
@@ -782,7 +782,20 @@ pub fn build(l: &Layout, m: &Method) -> Result<Built, String> {
 }
 
 impl Layout {
-    /// A picture of the plan: paint dark, the blocks blue, the seams red.
+    /// The artwork (mm²) the reserved blocks interrupt.
+    pub fn paint_under_blocks_mm2(&self) -> f64 {
+        self.pockets
+            .iter()
+            .map(|pk| self.cover.paint_mm2(pk.block(&self.spec)))
+            .sum()
+    }
+
+    /// All the artwork (mm²) of the plate.
+    pub fn paint_mm2(&self) -> f64 {
+        self.cover.paint.iter().filter(|&&p| p).count() as f64 * self.cover.cw * self.cover.ch
+    }
+
+    /// A picture of the plan: paint dark, the blocks blue (orange where they cover paint), the seams red.
     pub fn preview(&self) -> (usize, usize, Vec<u8>) {
         let k = 1000.0 / self.width.max(self.height);
         let (w, h) = (
@@ -801,7 +814,11 @@ impl Layout {
                     .iter()
                     .any(|b| x >= b[0] && x < b[2] && y >= b[1] && y < b[3])
                 {
-                    [70, 120, 230]
+                    if self.cover.at(x, y) {
+                        [240, 150, 40]
+                    } else {
+                        [70, 120, 230]
+                    }
                 } else if self.cover.at(x, y) {
                     [40, 40, 40]
                 } else {

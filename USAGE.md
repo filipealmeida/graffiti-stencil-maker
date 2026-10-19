@@ -22,6 +22,7 @@ stencil portrait.jpg --threshold 110 --invert
 stencil logo.png --vector --detail 4
 stencil tiled.png --tile-width 60 --tile-height 60 --connector hex --pads 4 --pad-thread M6
 stencil --project saved-studio-graph.json -o output/
+stencil --project tiled.json --set tile_layout.max_x=60 --set vector_stencil.bridge_mm=2.2 --layout layout.png --report --strict
 ```
 
 Images can be PNG, JPG, BMP, or SVG (at most 100 MB and 100 megapixels). The CLI prints a `verified:` line with the
@@ -29,6 +30,18 @@ island and watertight check results and exits unsuccessfully if stencil validati
 written as an STL; multi-part exports also produce a ZIP archive. Projects saved from the studio can be run with
 `--project`; native builds cut tiles on all CPU cores (set `RAYON_NUM_THREADS` to limit it; output is identical);
 picture ids are remapped automatically, including for projects saved by older versions.
+
+Options that only apply to `--project`:
+
+- `--set NODE.PARAM=VALUE` (repeatable) changes a node parameter before the run. NODE is a node id or a node type that
+  appears once in the graph (`tile_layout.max_x=60`). Unknown nodes or parameters, out-of-range numbers and bad
+  booleans or choices are rejected with a message that lists the valid names.
+- `--layout FILE.png` writes the tile layout preview of each *Tile layout* node (paint dark, blocks blue, or orange
+  where a block covers paint, seams red). With several layouts the node id is added to the file name. A graph that
+  has only a layout and no stencil is accepted when this flag is given.
+- `--report` prints the print-readiness verdict (`ready`, `check` or `blocked`), the findings and the slowest nodes.
+  `--report-file FILE.json` writes the same report as JSON (`verdict`, `findings`, `timing`). `--strict` exits with an
+  error unless the verdict is `ready`, which is useful in scripts. The findings match the badges in the studio.
 
 ## Studio
 
@@ -128,8 +141,10 @@ Chain **Tile layout → Stencil (or Vector stencil) → Pads → Screws**. The m
 - **Tile layout:** fixes the plate width and margin and cuts it on an even grid no larger than *max width / height*. Along each seam it picks connector spots with the least paint under them and reserves a solid block there (end wall included), so connector holes never need extra material afterwards. The preview shows paint (dark), blocks (blue) and seams (red). Tiles narrower than the connector depth allows are refused.
 - **Stencil / Vector stencil with *tiles* connected:** runs once per tile, so every tile is bridged on its own and is island-free by construction, and bridges may reach the seam edge. The plate width and margin come from the layout (the stencil's own width and margin are ignored). A layout made from a mask works with Stencil, one made from shapes with Vector stencil. The *parts* output feeds Pads and Screws unchanged. Connector holes are drilled per tile and each tile is checked watertight and in one piece.
 - **Seam may move:** each inner seam may shift up to this many mm off the even grid, to wherever the pockets that then fit cover the least paint. Tiles never grow past the largest size, so a plate that divides exactly has no room to move. Pockets at the plate edge sit in the margin band, where they cost no artwork.
+- **Cost preview:** blocks that cover paint are drawn orange in the layout preview, and the Tile layout node's badge and the workbench footer show the mm² of paint under blocks and its share of the artwork (a warning above 5%), so you can compare layouts before running the stencil.
 - **Trade-offs:** blocks cost some artwork (the badge shows the mm² of paint under blocks), and neighbouring tiles bridge independently, so a bridge may differ across a seam. The Tiles badge also reports how many mm of seam have material on both sides at heights more than a layer apart (a bridge ramp meeting a tile at full height), so you can compare layouts. A tile that needs it falls back to sideways bridges (shown in the badge). It is also faster than tiling afterwards (about 5–7 s versus 17–19 s on the sandbox projects). The older Tiles node remains for comparison.
 
+- **Report panel** (toolbar → *Report*): the print-readiness verdict for the whole graph (`ready`, `check` or `blocked`), every finding with the node it came from (click one to select the node), and the time each node took (or *cached*). The same checks run in the CLI with `--report`; they live in `web/src/badges.ts` and `crates/stencil-core/src/report.rs` and must be changed together.
 - **Live preview**: while a slider is dragged a coarse draft (lower resolution, easy bridging, low vector detail) runs; releasing the slider runs the full quality pass. The status line says "draft preview" until then.
 - **Progress and ETA**: each running node shows its message, elapsed time and an estimated time left; the top status line is announced to screen readers.
 - **Badges** on nodes flag problems (islands remaining, not watertight, bridges under 1 mm, empty/full masks, heavy meshes).

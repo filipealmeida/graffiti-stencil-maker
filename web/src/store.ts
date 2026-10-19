@@ -73,6 +73,8 @@ interface State {
   usage: Record<string, number>
   perfOpen: boolean
   setPerf: (o: boolean) => void
+  reportOpen: boolean
+  setReport: (o: boolean) => void
   addNode: (type: string, params?: Record<string, unknown>, pos?: { x: number; y: number }, title?: string) => string
   setParam: (id: string, name: string, value: unknown) => void
   removeNode: (id: string) => void
@@ -96,10 +98,11 @@ interface State {
 export const useStudio = create<State>((set, get) => ({
   canUndo: false, canRedo: false,
   types: {}, nodes: [], edges: [], runs: {}, selected: null, busy: false, error: null,
-  logs: [], usage: loadUsage(), perfOpen: localStorage.getItem('stencil-perf') === '1', consoleOpen: true, bench: null, progress: { done: 0, total: 0 }, draft: false,
+  logs: [], usage: loadUsage(), perfOpen: localStorage.getItem('stencil-perf') === '1', consoleOpen: true, reportOpen: false, bench: null, progress: { done: 0, total: 0 }, draft: false,
   addLogs: (l) => set((s) => ({ logs: [...s.logs, ...l.map((x, i) => ({ ...x, id: s.logs.length + i + Math.random() }))].slice(-500) })),
   clearLogs: () => set({ logs: [] }),
   setConsole: (consoleOpen) => set({ consoleOpen }),
+  setReport: (reportOpen) => set({ reportOpen }),
   setPerf: (perfOpen) => { localStorage.setItem('stencil-perf', perfOpen ? '1' : '0'); set({ perfOpen }) },
   openBench: (bench) => set({ bench, selected: bench ?? get().selected }),
   setTypes: (t) => set({ types: Object.fromEntries(t.map((x) => [x.id, x])) }),

@@ -972,3 +972,54 @@ header > .pal .menu:not(.wide) {
   flex-direction: column;
   align-items: flex-start;
 }
+
+.report {
+  position: absolute;
+  left: 12px;
+  top: 12px;
+  z-index: 2;
+  width: 300px;
+  max-height: 60%;
+  overflow: auto;
+  padding: 8px 10px;
+  background: #000d;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  font-size: 12px;
+  line-height: 1.5;
+}
+.report h4 {
+  margin: 8px 0 2px;
+  font-size: 12px;
+}
+.report ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.report li button {
+  all: unset;
+  cursor: pointer;
+  display: block;
+  width: 100%;
+}
+.report li button:hover {
+  background: #ffffff14;
+}
+.report .verdict {
+  font-weight: 700;
+}
+.report .verdict.ready {
+  color: #5fd38d;
+}
+.report .verdict.check {
+  color: #ffa24a;
+}
+.report .verdict.blocked {
+  color: #ff6b6b;
+}
+.report .t {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}

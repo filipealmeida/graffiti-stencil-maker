@@ -12,6 +12,7 @@ import { api, type NodeType, type Stage } from "./api";
 import Inspector from "./Inspector";
 import Console from "./Console";
 import Perf from "./Perf";
+import Report from "./Report";
 import Workbench from "./Workbench";
 import StudioEdge from "./StudioEdge";
 import StudioNodeView, { KIND_COLOR } from "./StudioNode";
@@ -494,6 +495,13 @@ function Canvas() {
           </span>
         )}
         <button
+          className={s.reportOpen ? "on" : ""}
+          onClick={() => s.setReport(!s.reportOpen)}
+          title="Print readiness and per-node timing"
+        >
+          Report
+        </button>
+        <button
           className={s.perfOpen ? "on" : ""}
           onClick={() => s.setPerf(!s.perfOpen)}
           title="Show engine workers and load"
@@ -514,6 +522,7 @@ function Canvas() {
       <main>
         <div className="canvas">
           {s.perfOpen && <Perf />}
+          {s.reportOpen && <Report />}
           <ReactFlow
             nodes={s.nodes}
             edges={s.edges}

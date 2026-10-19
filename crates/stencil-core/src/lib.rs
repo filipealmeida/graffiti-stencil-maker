@@ -23,6 +23,7 @@ mod par;
 pub use par::init_threads;
 pub mod progress;
 pub mod remesh;
+pub mod report;
 mod segindex;
 mod shape_edit;
 pub mod smooth;

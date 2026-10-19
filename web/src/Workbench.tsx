@@ -107,6 +107,7 @@ export default function Workbench() {
       <div className="bench-foot">
         <div className="stats">
           {info?.stats && STATS.filter((k) => k in info.stats).map((k) => <span key={k}>{k.replace(/_/g, ' ')}: <b>{JSON.stringify(info.stats[k])}</b></span>)}
+          {info?.kind === 'tiles' && typeof info.paint_under_blocks_mm2 === 'number' && <span>paint under blocks: <b>{info.paint_under_blocks_mm2.toFixed(0)} mm²</b>{info.paint_mm2 > 0 && <> ({((100 * info.paint_under_blocks_mm2) / info.paint_mm2).toFixed(1)}%)</>}</span>}
           {info?.coverage !== undefined && <span>{info.width}×{info.height}px · <b>{(info.coverage * 100).toFixed(1)}%</b> paint</span>}
           {info?.width !== undefined && info.coverage === undefined && <span>{info.width}×{info.height}px</span>}
           {cur?.kind === 'solid' && cur.key && <a className="btn" href={artifactUrl(cur.key, cur.out)} download="stencil.stl">Download STL</a>}

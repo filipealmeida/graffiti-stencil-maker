@@ -113,6 +113,24 @@ struct Args {
     /// Also write a bolt, nut and connector fit test of this screw size
     #[arg(long)]
     hardware: Option<String>,
+
+    /// Set any node parameter: NODE.PARAM=VALUE, where NODE is a node id or a node type used once in the graph
+    /// (for example --set tile_layout.max_x=200 --set vector_stencil.bridge_mm=2). Repeat it for more.
+    #[arg(long = "set", value_name = "NODE.PARAM=VALUE")]
+    set: Vec<String>,
+    /// Write the picture of every tile layout in the graph (paint dark, connector blocks blue, orange where they
+    /// cover paint, seams red) to this PNG; with several layouts the node id is added to the name
+    #[arg(long, value_name = "FILE.png")]
+    layout: Option<PathBuf>,
+    /// Print the print-readiness report (findings and the slowest nodes)
+    #[arg(long)]
+    report: bool,
+    /// Write the print-readiness report as JSON
+    #[arg(long, value_name = "FILE.json")]
+    report_file: Option<PathBuf>,
+    /// Exit with an error when the report has warnings, not only errors
+    #[arg(long)]
+    strict: bool,
 }
 
 fn main() {
@@ -147,6 +165,8 @@ fn main() {
         (None, None) => fail("give a picture or --project (see --help)"),
     };
 
+    let mut graph = graph;
+    apply_sets(&mut graph, &a.set);
     let result = engine.run(&graph, None, &|| t.elapsed().as_secs_f64() * 1000.0);
     for l in result["log"].as_array().into_iter().flatten() {
         if l["level"] == "error" {
@@ -184,6 +204,57 @@ fn main() {
                 st["islands_found"], st["islands_remaining"], st["watertight"], st["triangles"]
             );
         }
+    }
+
+    let report = engine.report(&graph, &result);
+    if a.report {
+        print_report(&report);
+    }
+    if let Some(p) = &a.report_file {
+        write(p, report.to_string().as_bytes());
+    }
+    let mut layouts = 0;
+    if let Some(base) = &a.layout {
+        let mut found: Vec<(String, Vec<u8>)> = Vec::new();
+        for n in graph["nodes"].as_array().into_iter().flatten() {
+            let id = n["id"].as_str().unwrap_or("");
+            let Some(v) = result["nodes"][id]["key"]
+                .as_str()
+                .and_then(|k| engine.value(k, "tiles"))
+            else {
+                continue;
+            };
+            found.push((id.to_string(), v.encode().map(|e| e.1).unwrap_or_default()));
+        }
+        if found.is_empty() {
+            fail("--layout: the graph has no Tile layout node");
+        }
+        let many = found.len() > 1;
+        for (id, bytes) in found {
+            let path = if many {
+                let stem = base.file_stem().map(|s| s.to_string_lossy().to_string());
+                base.with_file_name(format!(
+                    "{}-{id}.png",
+                    stem.unwrap_or_else(|| "layout".into())
+                ))
+            } else {
+                base.clone()
+            };
+            write(&path, &bytes);
+            eprintln!("wrote the tile layout to {}", path.display());
+            layouts += 1;
+        }
+    }
+    let worst = report["findings"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|f| f["level"] == "warn" || f["level"] == "error")
+        .count();
+    if a.strict && report["verdict"] != "ready" {
+        fail(&format!(
+            "--strict: the report has {worst} finding(s) that need a look (use --report to list them)"
+        ));
     }
 
     let consumed: HashSet<&str> = graph["edges"]
@@ -240,6 +311,9 @@ fn main() {
                 println!("{m}");
             }
         }
+    }
+    if files.is_empty() && layouts > 0 {
+        return;
     }
     if files.is_empty() {
         fail("the graph produced no STL (end it with a Stencil or a Tiles & mounting node)");
@@ -363,6 +437,113 @@ fn pipeline(a: &Args, image: &str) -> Json {
         nodes.push(json!({"id": "hw", "type": "hardware", "params": hw}));
     }
     json!({"nodes": nodes, "edges": edges})
+}
+
+fn print_report(r: &Json) {
+    eprintln!("print readiness: {}", r["verdict"].as_str().unwrap_or(""));
+    for f in r["findings"].as_array().into_iter().flatten() {
+        eprintln!(
+            "  [{}] {}: {}",
+            f["level"].as_str().unwrap_or(""),
+            f["label"].as_str().unwrap_or(""),
+            f["text"].as_str().unwrap_or("")
+        );
+    }
+    eprintln!("slowest nodes:");
+    for t in r["timing"].as_array().into_iter().flatten().take(5) {
+        let when = if t["cached"] == true {
+            "cached".to_string()
+        } else {
+            format!("{} ms", t["ms"].as_f64().unwrap_or(0.0).round())
+        };
+        eprintln!("  {}: {when}", t["label"].as_str().unwrap_or(""));
+    }
+}
+
+/// Applies `NODE.PARAM=VALUE` settings to the graph, refusing anything the node does not have or accept.
+fn apply_sets(graph: &mut Json, sets: &[String]) {
+    if sets.is_empty() {
+        return;
+    }
+    let types = stencil_core::graph::node_types();
+    for s in sets {
+        let (target, value) = s
+            .split_once('=')
+            .unwrap_or_else(|| fail(&format!("--set {s}: write NODE.PARAM=VALUE")));
+        let (node, param) = target
+            .rsplit_once('.')
+            .unwrap_or_else(|| fail(&format!("--set {s}: write NODE.PARAM=VALUE")));
+        let nodes = graph["nodes"].as_array_mut().unwrap();
+        let by_id: Vec<usize> = (0..nodes.len())
+            .filter(|&i| nodes[i]["id"] == node)
+            .collect();
+        let by_type: Vec<usize> = (0..nodes.len())
+            .filter(|&i| nodes[i]["type"] == node)
+            .collect();
+        let at = match (by_id.as_slice(), by_type.as_slice()) {
+            ([i], _) => *i,
+            ([], [i]) => *i,
+            ([], []) => fail(&format!("--set {s}: the graph has no node '{node}'")),
+            _ => fail(&format!(
+                "--set {s}: several nodes match '{node}'; use a node id"
+            )),
+        };
+        let ty = nodes[at]["type"].as_str().unwrap_or("").to_string();
+        let def = types
+            .as_array()
+            .and_then(|a| a.iter().find(|t| t["id"] == ty.as_str()))
+            .and_then(|t| t["params"].as_array())
+            .and_then(|ps| ps.iter().find(|p| p["name"] == param))
+            .unwrap_or_else(|| {
+                fail(&format!(
+                    "--set {s}: a {ty} node has no parameter '{param}'"
+                ))
+            });
+        let parsed: Json = match def["kind"].as_str().unwrap_or("") {
+            "int" | "float" => {
+                let x: f64 = value
+                    .parse()
+                    .unwrap_or_else(|_| fail(&format!("--set {s}: '{value}' is not a number")));
+                let (lo, hi) = (
+                    def["min"].as_f64().unwrap_or(f64::MIN),
+                    def["max"].as_f64().unwrap_or(f64::MAX),
+                );
+                if x < lo || x > hi {
+                    fail(&format!("--set {s}: {param} must be between {lo} and {hi}"));
+                }
+                json!(x)
+            }
+            "bool" => match value {
+                "true" | "on" | "yes" | "1" => json!(true),
+                "false" | "off" | "no" | "0" => json!(false),
+                _ => fail(&format!("--set {s}: '{value}' is not true or false")),
+            },
+            "choice" => {
+                let ok = def["choices"]
+                    .as_array()
+                    .is_some_and(|c| c.iter().any(|x| x == value));
+                if !ok {
+                    fail(&format!(
+                        "--set {s}: {param} is one of {}",
+                        def["choices"]
+                            .as_array()
+                            .map(|c| c
+                                .iter()
+                                .filter_map(Json::as_str)
+                                .collect::<Vec<_>>()
+                                .join(", "))
+                            .unwrap_or_default()
+                    ));
+                }
+                json!(value)
+            }
+            _ => json!(value),
+        };
+        if !nodes[at]["params"].is_object() {
+            nodes[at]["params"] = json!({});
+        }
+        nodes[at]["params"][param] = parsed;
+    }
 }
 
 fn set(m: &mut Map<String, Json>, k: &str, v: Option<f64>) {
