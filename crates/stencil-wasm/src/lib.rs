@@ -102,6 +102,13 @@ impl Engine {
             .map_err(|e| JsError::new(&e))
     }
 
+    pub fn image_info(&self, id: &str, resolution: u32) -> Result<String, JsError> {
+        self.inner
+            .image_info(id, resolution)
+            .map(|j| j.to_string())
+            .map_err(|e| JsError::new(&e))
+    }
+
     pub fn has_image(&self, id: &str) -> bool {
         self.inner.has_image(id)
     }

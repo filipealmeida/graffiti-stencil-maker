@@ -4,6 +4,7 @@ import Console from './Console'
 import ImageView from './ImageView'
 import ParamForm from './ParamForm'
 import SourceActions from './SourceActions'
+import ImageInfoPanel from './ImageInfo'
 import { useStudio } from './store'
 const Viewer3D = lazy(() => import('./Viewer3D'))
 
@@ -89,6 +90,7 @@ export default function Workbench() {
         <aside className="bench-params">
           <p className="mut">{t.doc}</p>
           {t.id === 'source' && <SourceActions id={node.id} imageId={String(node.data.params.image_id)} title={node.data.title} />}
+          {t.id === 'source' && <ImageInfoPanel imageId={String(node.data.params.image_id)} resolution={Number(node.data.params.resolution ?? 1000)} />}
           <ParamForm node={node} type={t} />
           {run?.state === 'error' && <div className="err">{run.error}</div>}
         </aside>

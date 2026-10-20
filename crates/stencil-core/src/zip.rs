@@ -1,6 +1,6 @@
 //! Minimal ZIP writer (stored, no compression: STL compresses poorly in a browser and this keeps it dependency-free).
 
-fn crc32(data: &[u8]) -> u32 {
+pub(crate) fn crc32(data: &[u8]) -> u32 {
     let mut table = [0u32; 256];
     for (i, slot) in table.iter_mut().enumerate() {
         let mut c = i as u32;

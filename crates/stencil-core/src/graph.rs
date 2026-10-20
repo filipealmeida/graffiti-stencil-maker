@@ -254,6 +254,15 @@ impl Engine {
         Ok(out)
     }
 
+    /// Properties of a stored picture, and how it reads at the working resolution.
+    pub fn image_info(&self, id: &str, resolution: u32) -> Result<Json, String> {
+        let bytes = self
+            .uploads
+            .get(id)
+            .ok_or("the image is no longer loaded")?;
+        crate::imageinfo::describe(bytes, resolution.clamp(20, 4000))
+    }
+
     pub fn has_image(&self, id: &str) -> bool {
         self.uploads.contains_key(id)
     }

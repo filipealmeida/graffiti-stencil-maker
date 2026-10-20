@@ -4,6 +4,7 @@ type Req =
   | { id: number; op: 'types' }
   | { id: number; op: 'image'; bytes: ArrayBuffer }
   | { id: number; op: 'has'; imageId: string }
+  | { id: number; op: 'imageinfo'; imageId: string; resolution: number }
   | { id: number; op: 'run'; graph: string; targets: string }
   | { id: number; op: 'cancel' }
   | { id: number; op: 'threads' }
@@ -156,6 +157,7 @@ self.onmessage = async (ev: MessageEvent<Req>) => {
     const e = engine!
     if (m.op === 'types') return self.postMessage({ id: m.id, ok: JSON.parse(e.node_types()) })
     if (m.op === 'has') return self.postMessage({ id: m.id, ok: e.has_image(m.imageId) })
+    if (m.op === 'imageinfo') return self.postMessage({ id: m.id, ok: JSON.parse(e.image_info(m.imageId, m.resolution)) })
     if (m.op === 'image') return self.postMessage({ id: m.id, ok: JSON.parse(e.add_image(new Uint8Array(m.bytes))) })
     if (m.op === 'cancel') { runToken++; return }
     if (m.op === 'threads') return self.postMessage({ id: m.id, ok: { n: threads, why } })

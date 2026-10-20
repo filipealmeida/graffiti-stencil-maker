@@ -127,6 +127,13 @@ async function idb<T>(mode: IDBTransactionMode, f: (s: IDBObjectStore) => IDBReq
   })
 }
 
+export interface ImageInfo {
+  format: string; bytes: number; width: number; height: number; megapixels: number; aspect: number
+  colour_model?: string; dpi?: [number, number]; print_size_mm?: [number, number]
+  svg_width?: string; svg_height?: string; svg_viewbox?: string; svg_title?: string
+  working: [number, number]; scale: number; mean_brightness: number; brightness_range: [number, number]
+  otsu_threshold: number; dark_percent: number; colours: number
+}
 export interface StoredImage { name: string; bytes: ArrayBuffer }
 
 const pad = (n: number, w = 2) => String(n).padStart(w, '0')
@@ -146,6 +153,7 @@ const unb64 = (s: string) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0)).bu
 export const api = {
   nodeTypes: () => call<NodeType[]>({ op: 'types' }),
   threads: () => call<{ n: number; why: string }>({ op: 'threads' }),
+  imageInfo: (imageId: string, resolution: number) => call<ImageInfo>({ op: 'imageinfo', imageId, resolution }),
   async upload(f: File) {
     const bytes = await f.arrayBuffer()
     const info = await call<{ id: string; width: number; height: number }>({ op: 'image', bytes: bytes.slice(0) }, [])

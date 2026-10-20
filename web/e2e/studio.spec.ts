@@ -586,3 +586,13 @@ test('the studio has no serious accessibility violations', async ({ page }) => {
   await page.locator('.react-flow__node').nth(1).click()
   expect(await bad()).toEqual([])
 })
+
+test('the Image node shows the picture properties', async ({ page }) => {
+  await open(page, null)
+  await page.locator('.react-flow__node').filter({ hasText: 'disc' }).first().click()
+  const panel = page.locator('aside.inspector').getByRole('region', { name: 'Image properties' })
+  await expect(panel).toContainText('PNG')
+  await expect(panel).toContainText('160 × 120 px')
+  await expect(panel).toContainText('Working size')
+  await expect(panel).toContainText('disc.png')
+})

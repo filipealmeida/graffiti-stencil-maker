@@ -1067,3 +1067,26 @@ header > .pal .menu:not(.wide) {
   font-weight: 700;
   color: #5fd38d;
 }
+
+.imageinfo {
+  margin: 8px 0;
+  font-size: 12px;
+}
+.imageinfo h4 {
+  margin: 0 0 4px;
+  font-size: 12px;
+  font-weight: 600;
+}
+.imageinfo dl {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 2px 10px;
+  margin: 0;
+}
+.imageinfo dt {
+  color: var(--mut);
+}
+.imageinfo dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}

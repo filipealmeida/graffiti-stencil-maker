@@ -14,6 +14,7 @@ mod decode;
 mod fasthash;
 pub mod graph;
 pub mod hardware;
+pub mod imageinfo;
 mod islands;
 mod layered;
 pub mod mesh;
