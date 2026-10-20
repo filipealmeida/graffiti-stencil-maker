@@ -931,6 +931,7 @@ fn margin_expansion_surrounds_the_plate_with_watertight_slabs() {
             assert_eq!(crate::tile_bridge::components(&m).0, 1, "{n}");
         }
         assert!(p.files.iter().any(|f| f.0 == "ring_joiner_M4.stl"));
+        assert!(p.files.iter().any(|f| f.0 == "ring_joiner_square_M4.stl"));
     }
 }
 

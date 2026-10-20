@@ -1148,24 +1148,29 @@ pub(super) fn run_ring(_: &Engine, i: &HashMap<String, Value>, p: &P) -> Result<
         }
         files.push((format!("{}.stl", sl.name), mesh.to_stl()));
     }
-    let (joiner, _) = hw::join_plates(
+    // the pair plate joins one seam; the square one has four holes, two each side, for a stronger seam
+    let (joiner, square) = hw::join_plates(
         &screw,
         threaded,
         clearance / 2.0,
         c,
-        20.0,
+        2.0 * c,
         p.f("joiner_thickness"),
         seg,
     )?;
-    if !joiner.is_watertight() {
-        return Err("verification failed: joiner plate is not watertight".into());
+    for (mesh, name) in [(joiner, "ring_joiner"), (square, "ring_joiner_square")] {
+        if !mesh.is_watertight() {
+            return Err(format!(
+                "verification failed: {name} plate is not watertight"
+            ));
+        }
+        files.push((format!("{name}_{screw}.stl"), mesh.to_stl()));
     }
-    files.push((format!("ring_joiner_{screw}.stl"), joiner.to_stl()));
     let mut meta = src.meta.clone();
     meta["ring"] = json!({
         "rings": rings, "slabs": slabs.len(), "joiner_plates": joiner_plates, "plate_joints": plate_joints,
         "wall_holes": wall_holes, "unused_plate_holes": unused, "width_mm": width,
-        "thickness_mm": thick, "screw": screw, "joiner_file": format!("ring_joiner_{screw}.stl"),
+        "thickness_mm": thick, "screw": screw, "joiner_file": format!("ring_joiner_{screw}.stl"), "square_joiner_file": format!("ring_joiner_square_{screw}.stl"),
     });
     Ok(vec![(
         "parts",

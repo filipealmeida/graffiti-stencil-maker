@@ -613,3 +613,13 @@ test('Margin expansion can be added from the post menu', async ({ page }) => {
   await page.locator('.menu button').filter({ hasText: 'Margin expansion' }).click()
   await expect(page.locator('.react-flow__node').filter({ hasText: 'Margin expansion' })).toBeVisible()
 })
+
+test('the Margin expansion viewer shows the ring round the assembled plate', async ({ page }) => {
+  test.setTimeout(240_000)
+  await page.goto('/')
+  await page.locator('input[type=file][accept*=json]').setInputFiles('../sandbox/aesperae.json')
+  await page.locator('.react-flow__node').filter({ hasText: 'Margin expansion' }).first().dispatchEvent('dblclick')
+  await expect(page.locator('.v3bar')).toBeVisible({ timeout: 200_000 })
+  // plate 1096 × 219.8 mm plus a 100 mm border all round
+  await expect(page.getByText(/Assembled:.*1296\.0 × 419\.8/)).toBeVisible({ timeout: 60_000 })
+})

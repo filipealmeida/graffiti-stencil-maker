@@ -195,7 +195,9 @@ export default function Viewer3D({ parts, plate }: { parts: Part[]; plate?: Plat
     // loose parts (joiner/extender plates, rods) lay out in a row below the tiles
     let ax = 0
     const ay = -15
-    const loose = parts.map((_, i) => i).filter((i) => tiles.length && !info[i]).sort((a, b) => parts[a].name.localeCompare(parts[b].name))
+    const slabRe = /^ring_(\d+)_/
+    const isSlab = (i: number) => !!(tiles.length && plate && slabRe.test(parts[i].name))
+    const loose = parts.map((_, i) => i).filter((i) => tiles.length && !info[i] && !isSlab(i)).sort((a, b) => parts[a].name.localeCompare(parts[b].name))
         s.meshes.forEach((m, i) => {
       const mat = m.material as THREE.MeshStandardMaterial
       const g = s.geos[i]
@@ -209,7 +211,27 @@ export default function Viewer3D({ parts, plate }: { parts: Part[]; plate?: Plat
       m.visible = !hidden.has(parts[i].name)
       const t = info[i]
       if (t) m.position.set(colX.get(+t[2])!, rowY.get(+t[1])!, 0)
-      else if (tiles.length) m.position.set(0, 0, 0)
+      else if (isSlab(i)) {
+        // margin slabs are modelled in the plate frame: sit them round the tiles, moving outward with the spacing
+        const pl = plate!
+        const lox = Math.min(...pl.parts.map((q) => q.origin[0])), loy = Math.min(...pl.parts.map((q) => q.origin[1]))
+        const n = +parts[i].name.match(slabRe)![1]
+        const c = s.centers[i]
+        const near = (axis: 0 | 1) => {
+          let bd = Infinity, shift = 0
+          for (const q of pl.parts) {
+            const mt = q.file.match(tileRe)
+            if (!mt) continue
+            const o = q.origin[axis], len = q.size[axis], v = axis ? c.y : c.x
+            const dist = Math.max(o - v, v - (o + len), 0)
+            if (dist < bd) { bd = dist; shift = (axis ? rowY.get(+mt[1])! : colX.get(+mt[2])!) - (o - (axis ? loy : lox))
+            }
+          }
+          return shift
+        }
+        const outward = (v: number, lo: number, len: number) => (v < lo ? -n * explode : v > lo + len ? n * explode : 0)
+        m.position.set(-lox + near(0) + outward(c.x, lox, pl.w), -loy + near(1) + outward(c.y, loy, pl.h), 0)
+      } else if (tiles.length) m.position.set(0, 0, 0)
       else m.position.set((s.centers[i].x - s.center.x) * explode / 12, (s.centers[i].y - s.center.y) * explode / 12, 0)
     })
     const fmt = (x: number, y: number, z: number) => `${x.toFixed(1)} × ${y.toFixed(1)} × ${z.toFixed(1)} mm`
@@ -219,7 +241,17 @@ export default function Viewer3D({ parts, plate }: { parts: Part[]; plate?: Plat
     if (tiles.length) {
       // assembled plate: tiles side by side without spacing
       const zmax = Math.max(...tiles.map((i) => s.boxes[i].getSize(new THREE.Vector3()).z))
-      total = fmt([...colW.values()].reduce((a, b) => a + b, 0), [...rowH.values()].reduce((a, b) => a + b, 0), zmax)
+      let tw = [...colW.values()].reduce((a, b) => a + b, 0), th = [...rowH.values()].reduce((a, b) => a + b, 0)
+      const slabs = parts.map((_, i) => i).filter(isSlab)
+      if (slabs.length && plate) {
+        // the margin slabs grow the assembled size on every side they reach past the plate
+        const lox = Math.min(...plate.parts.map((q) => q.origin[0])), loy = Math.min(...plate.parts.map((q) => q.origin[1]))
+        const x0 = Math.min(lox, ...slabs.map((i) => s.boxes[i].min.x)), x1 = Math.max(lox + plate.w, ...slabs.map((i) => s.boxes[i].max.x))
+        const y0 = Math.min(loy, ...slabs.map((i) => s.boxes[i].min.y)), y1 = Math.max(loy + plate.h, ...slabs.map((i) => s.boxes[i].max.y))
+        tw += x1 - x0 - plate.w
+        th += y1 - y0 - plate.h
+      }
+      total = fmt(tw, th, zmax)
     } else {
       const d = s.box.getSize(new THREE.Vector3())
       total = fmt(d.x, d.y, d.z)
@@ -230,7 +262,7 @@ export default function Viewer3D({ parts, plate }: { parts: Part[]; plate?: Plat
       s.meshes[i].position.set(ax + sz.x / 2 - s.centers[i].x, ay - sz.y / 2 - s.centers[i].y, -s.boxes[i].min.z)
       ax += sz.x + 8
     })
-  }, [wire, shading, detail, interacting, explode, clip, ready, hidden])
+  }, [wire, shading, detail, interacting, explode, clip, ready, hidden, plate])
 
   // seams, connectors, pads, holes and joiner lines drawn on each tile, so they follow it as the spacing changes
   useEffect(() => {
