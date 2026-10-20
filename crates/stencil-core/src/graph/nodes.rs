@@ -999,6 +999,139 @@ pub(super) fn run_pads(_: &Engine, i: &HashMap<String, Value>, p: &P) -> Result<
     )])
 }
 
+pub(super) fn run_ring(_: &Engine, i: &HashMap<String, Value>, p: &P) -> Result<Outputs, String> {
+    use crate::{hardware as hw, ring};
+    let Some(Value::Parts(src)) = i.get("parts") else {
+        return Err("input 'parts' missing".into());
+    };
+    let plate = &src.meta["plate"];
+    let m = &plate["mounting"];
+    if plate.is_null() || m.is_null() {
+        return Err(
+            "the parts have no mounting description: connect a Pads & mounting holes node".into(),
+        );
+    }
+    let screw = m["screw"].as_str().unwrap_or("none").to_string();
+    if screw == "none" {
+        return Err("the plate has no mounting holes to join the ring to: pick a mounting hole screw in the Pads node".into());
+    }
+    let num = |v: &Json| v.as_f64().unwrap_or(0.0);
+    let margin = num(&plate["margin"]);
+    let threaded = m["threaded"] == true;
+    let clearance = m["clearance"].as_f64().unwrap_or(0.4);
+    let seg = p.f("segments") as usize;
+    let lo = {
+        let t: Vec<&Json> = plate["parts"]
+            .as_array()
+            .map(|a| a.iter().filter(|e| e["role"] == "tile").collect())
+            .unwrap_or_default();
+        if t.is_empty() {
+            return Err("the plate has no tiles".into());
+        }
+        [
+            t.iter()
+                .map(|e| num(&e["origin"][0]))
+                .fold(f64::MAX, f64::min),
+            t.iter()
+                .map(|e| num(&e["origin"][1]))
+                .fold(f64::MAX, f64::min),
+        ]
+    };
+    let at = |v: &Json| (num(&v["x"]), num(&v["y"]));
+    let joined: Vec<(f64, f64)> = plate["joins"]
+        .as_array()
+        .map(|a| {
+            a.iter()
+                .flat_map(|j| [&j["a"], &j["b"]])
+                .map(|v| (num(&v[0]), num(&v[1])))
+                .collect()
+        })
+        .unwrap_or_default();
+    let holes: Vec<(f64, f64)> = plate["holes"]
+        .as_array()
+        .map(|a| {
+            a.iter()
+                .map(at)
+                .filter(|h| joined.iter().all(|j| (j.0 - h.0).hypot(j.1 - h.1) > 0.05))
+                .collect()
+        })
+        .unwrap_or_default();
+    let (d, _) = hw::thread(&screw)?;
+    let c = margin / 2.0;
+    let layout = ring::plan(&ring::RingParams {
+        lo,
+        w: num(&plate["w"]),
+        h: num(&plate["h"]),
+        c,
+        ring: p.f("ring_width"),
+        max_x: p.f("max_x"),
+        max_y: p.f("max_y"),
+        hole_r: (d + clearance) / 2.0,
+        join_r: d / 2.0 + hw::JOIN_WALL_MM,
+        holes,
+        wall_spacing: if p.b("wall_holes") {
+            p.f("hole_spacing").max(10.0)
+        } else {
+            0.0
+        },
+    })?;
+    let thick = if p.f("height_mm") > 0.0 {
+        p.f("height_mm")
+    } else {
+        num(&plate["thickness"])
+    };
+    let mp = hw::MountParams {
+        screw: screw.clone(),
+        clearance,
+        threaded,
+        offset: 0.0,
+        segments: seg,
+    };
+    let mut files = src.files.clone();
+    for sl in &layout.slabs {
+        // drilled around the origin: the boolean is robust there, far from it it can fail
+        let (cx, cy) = ((sl.lo[0] + sl.hi[0]) / 2.0, (sl.lo[1] + sl.hi[1]) / 2.0);
+        let block = crate::mesh::Mesh::cuboid(
+            [sl.lo[0] - cx, sl.lo[1] - cy, 0.0],
+            [sl.hi[0] - cx, sl.hi[1] - cy, thick],
+        );
+        let local: Vec<(f64, f64)> = sl.holes.iter().map(|h| (h.0 - cx, h.1 - cy)).collect();
+        let mut mesh = hw::drill_at(&block, &local, &mp)?;
+        mesh.translate([cx, cy, 0.0]);
+        mesh.quantize_f32();
+        if !mesh.is_watertight() || crate::tile_bridge::components(&mesh).0 != 1 {
+            return Err(format!(
+                "verification failed: slab {} is not one watertight piece",
+                sl.name
+            ));
+        }
+        files.push((format!("{}.stl", sl.name), mesh.to_stl()));
+    }
+    let (joiner, _) = hw::join_plates(
+        &screw,
+        threaded,
+        clearance / 2.0,
+        c,
+        20.0,
+        p.f("joiner_thickness"),
+        seg,
+    )?;
+    if !joiner.is_watertight() {
+        return Err("verification failed: joiner plate is not watertight".into());
+    }
+    files.push((format!("ring_joiner_{screw}.stl"), joiner.to_stl()));
+    let mut meta = src.meta.clone();
+    meta["ring"] = json!({
+        "slabs": layout.slabs.len(), "joiner_plates": layout.joints.len(), "plate_joints": layout.used.len(),
+        "wall_holes": layout.wall_holes, "unused_plate_holes": layout.unused, "ring_width_mm": p.f("ring_width"),
+        "thickness_mm": thick, "screw": screw, "joiner_file": format!("ring_joiner_{screw}.stl"),
+    });
+    Ok(vec![(
+        "parts",
+        Value::Parts(Rc::new(Parts { files, meta })),
+    )])
+}
+
 pub(super) fn run_tile_layout(
     _: &Engine,
     i: &HashMap<String, Value>,

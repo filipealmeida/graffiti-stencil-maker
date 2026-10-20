@@ -875,3 +875,75 @@ fn a_layout_made_from_the_wrong_source_is_refused_by_the_stencil() {
     let g2 = json!({"nodes": [{"id": "tl", "type": "tile_layout", "params": {}}], "edges": []});
     assert_eq!(e.run(&g2, None, &|| 0.0)["nodes"]["tl"]["state"], "error");
 }
+
+fn ring_run(
+    flip: bool,
+    margin: f64,
+    wall: bool,
+    screw: &str,
+) -> (serde_json::Value, Option<std::rc::Rc<Parts>>) {
+    let mut e = Engine::new();
+    let id = e.add_image(test_png()).unwrap()["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let mut g = graph(&id, 6.0);
+    g["nodes"][2]["params"] =
+        json!({"thickness_mm": 6.0, "margin_mm": margin, "flip": flip, "width_mm": 140.0});
+    g["nodes"][3] = json!({"id": "ex", "type": "tiles", "params": {"max_x": 80.0, "max_y": 80.0}});
+    g["nodes"].as_array_mut().unwrap().push(json!({"id": "pd", "type": "pads", "params": {"pad_thread": "none", "mount_screw": screw, "hole_spacing": 40.0}}));
+    g["nodes"].as_array_mut().unwrap().push(json!({"id": "rg", "type": "ring", "params": {"ring_width": 30.0, "max_x": 90.0, "max_y": 90.0, "wall_holes": wall, "hole_spacing": 50.0}}));
+    g["edges"]
+        .as_array_mut()
+        .unwrap()
+        .push(json!({"from": ["ex", "parts"], "to": ["pd", "parts"]}));
+    g["edges"]
+        .as_array_mut()
+        .unwrap()
+        .push(json!({"from": ["pd", "parts"], "to": ["rg", "parts"]}));
+    let r = e.run(&g, None, &|| 0.0);
+    let key = r["nodes"]["rg"]["key"].as_str().unwrap_or("").to_string();
+    let parts = match e.value(&key, "parts") {
+        Some(Value::Parts(p)) => Some(p),
+        _ => None,
+    };
+    (r, parts.cloned())
+}
+
+#[test]
+fn margin_expansion_surrounds_the_plate_with_watertight_slabs() {
+    for (flip, wall) in [(false, false), (true, true)] {
+        let (r, p) = ring_run(flip, 12.0, wall, "M4");
+        let p = p.unwrap_or_else(|| panic!("{r}"));
+        let ring = &p.meta["ring"];
+        assert!(ring["slabs"].as_u64().unwrap() >= 8, "{ring}");
+        assert_eq!(ring["wall_holes"].as_u64().unwrap() > 0, wall);
+        let slabs: Vec<_> = p
+            .files
+            .iter()
+            .filter(|f| f.0.starts_with("ring_") && !f.0.starts_with("ring_joiner"))
+            .collect();
+        assert_eq!(slabs.len() as u64, ring["slabs"].as_u64().unwrap());
+        for (n, b) in slabs {
+            let m = crate::mesh::Mesh::from_stl(b).unwrap();
+            assert!(m.is_watertight(), "{n}");
+            assert_eq!(crate::tile_bridge::components(&m).0, 1, "{n}");
+        }
+        assert!(p.files.iter().any(|f| f.0 == "ring_joiner_M4.stl"));
+    }
+}
+
+#[test]
+fn margin_expansion_refuses_a_plate_without_margin_or_holes() {
+    let (r, p) = ring_run(false, 0.0, false, "M4");
+    assert!(p.is_none() && r["nodes"]["rg"]["state"] != "done", "{r}");
+    let (r, p) = ring_run(false, 12.0, false, "none");
+    assert!(
+        p.is_none()
+            && r["nodes"]["rg"]["error"]
+                .as_str()
+                .unwrap_or("")
+                .contains("mounting hole"),
+        "{r}"
+    );
+}

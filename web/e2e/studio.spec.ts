@@ -606,3 +606,10 @@ test('the Split volume node is named so and Pads accepts "none" as a thread', as
   await expect(page.locator('aside.inspector').getByText('Pad thread (none = no pads)')).toBeVisible()
   await expect(page.locator('aside.inspector select').first()).toContainText('none')
 })
+
+test('Margin expansion can be added from the post menu', async ({ page }) => {
+  await open(page)
+  await page.getByRole('button', { name: '+ post' }).click()
+  await page.locator('.menu button').filter({ hasText: 'Margin expansion' }).click()
+  await expect(page.locator('.react-flow__node').filter({ hasText: 'Margin expansion' })).toBeVisible()
+})
