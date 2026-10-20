@@ -312,18 +312,43 @@ pub fn plan(q: &RingParams) -> Result<Ring, String> {
                 sl.name
             ));
         }
-        if sl.name.starts_with("ring_") && !sl.name.contains("corner") {
-            let plate_side = sl
-                .holes
-                .iter()
-                .any(|h| joints.iter().take(used.len()).any(|j| j.1 == *h));
-            if !plate_side {
-                return Err(format!(
-                    "slab {} is not joined to the plate: no mounting hole of the plate lies along it",
-                    sl.name
-                ));
-            }
+    }
+    // every slab must be held to the plate, directly or through the slabs next to it
+    let at = |h: P| {
+        slabs
+            .iter()
+            .position(|sl| h.0 > sl.lo[0] && h.0 < sl.hi[0] && h.1 > sl.lo[1] && h.1 < sl.hi[1])
+    };
+    let mut root: Vec<usize> = (0..slabs.len()).collect();
+    fn find(r: &mut [usize], mut i: usize) -> usize {
+        while r[i] != i {
+            r[i] = r[r[i]];
+            i = r[i];
         }
+        i
+    }
+    let mut anchored = vec![false; slabs.len()];
+    for (k, j) in joints.iter().enumerate() {
+        if k < used.len() {
+            if let Some(i) = at(j.1) {
+                anchored[i] = true;
+            }
+        } else if let (Some(a), Some(b)) = (at(j.0), at(j.1)) {
+            let (ra, rb) = (find(&mut root, a), find(&mut root, b));
+            root[ra] = rb;
+        }
+    }
+    let held: Vec<bool> = (0..slabs.len())
+        .map(|i| {
+            let r = find(&mut root, i);
+            (0..slabs.len()).any(|k| anchored[k] && find(&mut root, k) == r)
+        })
+        .collect();
+    if let Some(i) = held.iter().position(|h| !h) {
+        return Err(format!(
+            "slab {} cannot be held to the plate: the plate has no mounting hole along this side of the ring or the next ones",
+            slabs[i].name
+        ));
     }
 
     // 5. optional mounting holes along the outer edge of the ring
@@ -457,6 +482,25 @@ mod tests {
         let r2 = plan(&p).unwrap();
         assert_eq!(r2.slabs.len(), 16);
         assert!(r2.slabs.iter().all(|s| s.name.starts_with("ring_2_")));
+    }
+
+    #[test]
+    fn a_slab_without_a_plate_hole_is_held_by_its_neighbours() {
+        // a 220 mm side with one hole in the middle is cut in two slabs, and only one of them can get the hole
+        let mut p = params(
+            vec![
+                (5.0, 110.0),
+                (50.0, 5.0),
+                (150.0, 5.0),
+                (50.0, 215.0),
+                (150.0, 215.0),
+                (195.0, 110.0),
+            ],
+            0.0,
+        );
+        p.h = 220.0;
+        let r = plan(&p).unwrap();
+        assert!(r.slabs.iter().all(|s| !s.holes.is_empty()));
     }
 
     #[test]
