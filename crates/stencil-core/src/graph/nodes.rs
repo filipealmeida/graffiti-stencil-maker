@@ -751,9 +751,18 @@ pub(super) fn run_pads(_: &Engine, i: &HashMap<String, Value>, p: &P) -> Result<
     let (w, h) = (num(&plate["w"]), num(&plate["h"]));
     let margin = num(&plate["margin"]);
     let (layer, flip) = (num(&plate["layer"]).max(0.05), plate["flip"] == true);
-    let (thread_d, pitch) = hw::thread(p.s("pad_thread"))?;
-    let dia = hw::pad_diameter(p.s("pad_thread"))?;
-    if margin < dia - 1e-6 {
+    let no_pads = p.s("pad_thread") == "none";
+    let (thread_d, pitch) = if no_pads {
+        (0.0, 0.0)
+    } else {
+        hw::thread(p.s("pad_thread"))?
+    };
+    let dia = if no_pads {
+        0.0
+    } else {
+        hw::pad_diameter(p.s("pad_thread"))?
+    };
+    if !no_pads && margin < dia - 1e-6 {
         return Err(format!(
             "the margin is {margin:.1} mm but a {} pad is {dia:.0} mm wide: raise the margin on the stencil node",
             p.s("pad_thread")
@@ -761,7 +770,7 @@ pub(super) fn run_pads(_: &Engine, i: &HashMap<String, Value>, p: &P) -> Result<
     }
     let height = p.f("pad_height");
     let thick = num(&plate["thickness"]);
-    if !flip && (height < layer || thick + height < 4.0 * pitch) {
+    if !no_pads && !flip && (height < layer || thick + height < 4.0 * pitch) {
         return Err(format!(
             "pad height too small for an {} thread: plate + pad must be at least {} mm",
             p.s("pad_thread"),
@@ -813,8 +822,10 @@ pub(super) fn run_pads(_: &Engine, i: &HashMap<String, Value>, p: &P) -> Result<
             &keep,
         )
     };
-    let layout = layout_args(0.0, &[])?;
-    let mut layout = layout;
+    let mut layout = layout_args(0.0, &[])?;
+    if no_pads {
+        layout.pads.clear();
+    }
     let mut joins: Vec<Json> = vec![];
     let mut off = p.f("joiner_offset");
     if mount && off > 0.0 && hole_spacing > 0.0 {
@@ -891,6 +902,9 @@ pub(super) fn run_pads(_: &Engine, i: &HashMap<String, Value>, p: &P) -> Result<
     }
     if hole_spacing > 0.0 {
         layout = layout_args(hole_spacing, &layout.holes)?;
+        if no_pads {
+            layout.pads.clear();
+        }
     }
     crate::progress::step("lay out pads", 0.05);
     let pp = hw::PadParams {

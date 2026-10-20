@@ -275,7 +275,7 @@ function Canvas() {
     ],
     [
       "Tiles, pads & screws",
-      "image → threshold → stencil → tiles (old) → pads & holes → screws. A big stencil in printable tiles, with mounting pads and joiner plates.",
+      "image → threshold → stencil → split volume → pads & holes → screws. A big stencil in printable tiles, with mounting pads and joiner plates.",
       s.tiledStarter,
     ],
     [

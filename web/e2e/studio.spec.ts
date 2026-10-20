@@ -402,7 +402,7 @@ test('the Tiles, pads & screws template chains tiles, pads and screws', async ({
   await open(page)
   await page.getByRole('button', { name: /Templates/ }).click()
   await page.locator('.menu button').filter({ hasText: 'Tiles, pads & screws' }).click()
-  for (const t of ['Tiles (old)', 'Pads & mounting holes', 'Screws, nuts & fit test'])
+  for (const t of ['Split volume', 'Pads & mounting holes', 'Screws, nuts & fit test'])
     await expect(page.locator('.react-flow__node').filter({ hasText: t }).first()).toBeVisible()
   await expect(page.locator('.react-flow__edge')).toHaveCount(5)
 })
@@ -595,4 +595,14 @@ test('the Image node shows the picture properties', async ({ page }) => {
   await expect(panel).toContainText('160 × 120 px')
   await expect(panel).toContainText('Working size')
   await expect(panel).toContainText('disc.png')
+})
+
+test('the Split volume node is named so and Pads accepts "none" as a thread', async ({ page }) => {
+  await open(page)
+  await page.getByRole('button', { name: /Templates/ }).click()
+  await page.locator('.menu button').filter({ hasText: 'Tiles, pads & screws' }).click()
+  await expect(page.locator('.react-flow__node').filter({ hasText: 'Split volume' })).toBeVisible()
+  await page.locator('.react-flow__node').filter({ hasText: 'Pads & mounting holes' }).first().dispatchEvent('click')
+  await expect(page.locator('aside.inspector').getByText('Pad thread (none = no pads)')).toBeVisible()
+  await expect(page.locator('aside.inspector select').first()).toContainText('none')
 })

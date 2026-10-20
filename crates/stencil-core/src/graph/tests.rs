@@ -678,6 +678,32 @@ fn tiles_node_cuts_a_stencil_and_describes_the_plate() {
 }
 
 #[test]
+fn pad_thread_none_adds_no_pads_but_keeps_the_mounting_holes() {
+    let mut e = Engine::new();
+    let id = e.add_image(test_png()).unwrap()["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let mut g = graph(&id, 6.0);
+    g["nodes"][2]["params"] = json!({"thickness_mm": 6.0, "margin_mm": 12.0, "width_mm": 140.0});
+    g["nodes"][3] = json!({"id": "ex", "type": "tiles", "params": {"max_x": 80.0, "max_y": 80.0}});
+    g["nodes"].as_array_mut().unwrap().push(json!({"id": "pd", "type": "pads", "params": {"pad_thread": "none", "long_edge": 100.0, "hole_spacing": 60.0}}));
+    g["edges"]
+        .as_array_mut()
+        .unwrap()
+        .push(json!({"from": ["ex", "parts"], "to": ["pd", "parts"]}));
+    let r = e.run(&g, None, &|| 0.0);
+    assert_eq!(r["nodes"]["pd"]["state"], "done", "{r}");
+    let key = r["nodes"]["pd"]["key"].as_str().unwrap().to_string();
+    let Some(Value::Parts(p)) = e.value(&key, "parts") else {
+        panic!()
+    };
+    assert_eq!(p.meta["pads"]["pads"], 0);
+    assert!(p.meta["plate"]["pads"].as_array().unwrap().is_empty());
+    assert!(p.meta["pads"]["holes"].as_u64().unwrap() > 0);
+}
+
+#[test]
 fn pads_node_fits_pads_and_holes_clear_of_seams() {
     for flip in [false, true] {
         let mut e = Engine::new();

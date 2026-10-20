@@ -2,7 +2,6 @@ import { useEffect, useRef, useState } from 'react'
 import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import { STLLoader } from 'three/examples/jsm/loaders/STLLoader.js'
-import { SimplifyModifier } from 'three/examples/jsm/modifiers/SimplifyModifier.js'
 
 export interface Part { name: string; url: string }
 /** The plate description a Tiles node (and Pads node) attaches to its parts. */
@@ -16,7 +15,7 @@ export interface PlateMeta {
 }
 interface Scene3D {
   meshes: THREE.Mesh[]
-  geos: { hi: THREE.BufferGeometry; lo?: THREE.BufferGeometry }[]
+  geos: { hi: THREE.BufferGeometry; lo?: THREE.BufferGeometry; lod: boolean }[]
   centers: THREE.Vector3[]
   boxes: THREE.Box3[]
   center: THREE.Vector3
@@ -24,6 +23,39 @@ interface Scene3D {
   camera: THREE.PerspectiveCamera
   controls: OrbitControls
   r: number
+}
+
+/**
+ * A coarser copy for use while the camera moves: vertices are merged per cell of a regular grid, and triangles that
+ * collapse are dropped. One pass over the triangles, so it stays quick on meshes of millions of triangles.
+ */
+function coarse(src: THREE.BufferGeometry): THREE.BufferGeometry {
+  const pos = (src.index ? src.toNonIndexed() : src).attributes.position.array as Float32Array
+  src.computeBoundingBox()
+  const b = src.boundingBox!
+  const cell = Math.max(b.max.x - b.min.x, b.max.y - b.min.y, b.max.z - b.min.z) / 150 || 1
+  const ids = new Map<number, number>()
+  const sum: number[] = []
+  const cnt: number[] = []
+  const tri = new Uint32Array(pos.length / 3)
+  for (let v = 0; v < tri.length; v++) {
+    const ix = Math.floor((pos[3 * v] - b.min.x) / cell), iy = Math.floor((pos[3 * v + 1] - b.min.y) / cell), iz = Math.floor((pos[3 * v + 2] - b.min.z) / cell)
+    const key = (ix * 65536 + iy) * 65536 + iz
+    let id = ids.get(key)
+    if (id === undefined) { id = ids.size; ids.set(key, id); sum.push(0, 0, 0); cnt.push(0) }
+    sum[3 * id] += pos[3 * v]; sum[3 * id + 1] += pos[3 * v + 1]; sum[3 * id + 2] += pos[3 * v + 2]; cnt[id]++
+    tri[v] = id
+  }
+  const out: number[] = []
+  for (let t = 0; t < tri.length; t += 3) {
+    const [a, c, d] = [tri[t], tri[t + 1], tri[t + 2]]
+    if (a === c || c === d || a === d) continue
+    for (const id of [a, c, d]) out.push(sum[3 * id] / cnt[id], sum[3 * id + 1] / cnt[id], sum[3 * id + 2] / cnt[id])
+  }
+  const g = new THREE.BufferGeometry()
+  g.setAttribute('position', new THREE.Float32BufferAttribute(out, 3))
+  g.computeVertexNormals()
+  return g
 }
 
 /** Orbitable STL viewer: wireframe, Z-clip (scrub through layers) and an exploded view for tiled parts. */
@@ -93,12 +125,11 @@ export default function Viewer3D({ parts, plate }: { parts: Part[]; plate?: Plat
       const box = new THREE.Box3()
       const group = new THREE.Group()
       const meshes: THREE.Mesh[] = []
-      const geoms: { hi: THREE.BufferGeometry; lo?: THREE.BufferGeometry }[] = []
+      const geoms: Scene3D['geos'] = []
       const centers: THREE.Vector3[] = []
       const boxes: THREE.Box3[] = []
       const tris = geos.reduce((a, g) => a + (g.index ? g.index.count : g.attributes.position.count) / 3, 0)
       const wantLod = tris > 200_000
-      const mod = wantLod ? new SimplifyModifier() : null
       geos.forEach((raw, i) => {
         const hi = raw.clone()
         hi.computeVertexNormals()
@@ -106,18 +137,7 @@ export default function Viewer3D({ parts, plate }: { parts: Part[]; plate?: Plat
         box.union(hi.boundingBox!)
         centers.push(hi.boundingBox!.getCenter(new THREE.Vector3()))
         boxes.push(hi.boundingBox!.clone())
-        let lo: THREE.BufferGeometry | undefined
-        if (mod) {
-          const src = hi.index ? hi.toNonIndexed() : hi.clone()
-          const n = src.attributes.position.count
-          const keep = Math.max(300, Math.floor(n * 0.35))
-          const remove = Math.max(0, n - keep)
-          if (remove > 0) {
-            lo = mod.modify(src, remove)
-            lo.computeVertexNormals()
-          }
-        }
-        geoms.push({ hi, lo })
+        geoms.push({ hi, lod: wantLod })
         const color = colorOf(i)
         const m = new THREE.Mesh(hi, new THREE.MeshStandardMaterial({ color, roughness: 0.6, metalness: 0.1 }))
         meshes.push(m)
@@ -179,6 +199,7 @@ export default function Viewer3D({ parts, plate }: { parts: Part[]; plate?: Plat
         s.meshes.forEach((m, i) => {
       const mat = m.material as THREE.MeshStandardMaterial
       const g = s.geos[i]
+      if (low && g.lod && !g.lo) g.lo = coarse(g.hi)
       m.geometry = low && g.lo ? g.lo : g.hi
       mat.wireframe = wire
       mat.flatShading = shading === 'flat'

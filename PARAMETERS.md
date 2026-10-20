@@ -228,7 +228,7 @@ Every parameter `--set NODE.PARAM=VALUE` accepts. Generated with `stencil --list
 | `mount_offset` | Distance from a seam to the hole (mm) | float | `10.0` | 4.0 to 60.0 |
 | `mount_extend` | Extender plate: outer row distance (mm) | float | `20.0` | 8.0 to 100.0 |
 
-### Tiles (old) (`tiles`)
+### Split volume (`tiles`)
 
 | Parameter | Label | Type | Default | Range or choices |
 |---|---|---|---|---|
@@ -251,7 +251,7 @@ Every parameter `--set NODE.PARAM=VALUE` accepts. Generated with `stencil --list
 
 | Parameter | Label | Type | Default | Range or choices |
 |---|---|---|---|---|
-| `pad_thread` | Pad thread | choice | `"M4"` | M3 \| M4 \| M5 \| M6 \| M8 \| M10 |
+| `pad_thread` | Pad thread (none = no pads) | choice | `"M4"` | none \| M3 \| M4 \| M5 \| M6 \| M8 \| M10 |
 | `pad_height` | Pad height above the plate (mm) | float | `4.0` | 1.0 to 20.0 |
 | `thread_clearance` | Thread clearance (mm, radial) | float | `0.2` | 0.0 to 0.6 |
 | `long_edge` | Add pads along edges longer than (mm, 0 = corners only) | float | `300.0` | 0.0 to 2000.0 |

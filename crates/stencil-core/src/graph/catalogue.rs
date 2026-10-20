@@ -326,7 +326,7 @@ pub(super) fn catalogue() -> Vec<NodeDef> {
         },
         NodeDef {
             id: "tiles",
-            label: "Tiles (old)",
+            label: "Split volume",
             stage: "post",
             inputs: vec![("solid", "solid", true)],
             outputs: vec![("parts", "parts")],
@@ -356,7 +356,7 @@ pub(super) fn catalogue() -> Vec<NodeDef> {
             inputs: vec![("parts", "parts", true)],
             outputs: vec![("parts", "parts")],
             params: vec![
-                choice("pad_thread", "Pad thread", "M4", &THREAD_NAMES, Some("Pads")),
+                choice("pad_thread", "Pad thread (none = no pads)", "M4", &["none", "M3", "M4", "M5", "M6", "M8", "M10"], Some("Pads")),
                 num("pad_height", "Pad height above the plate (mm)", 4.0, 1.0, 20.0, 0.5, Some("Pads"), false),
                 num("thread_clearance", "Thread clearance (mm, radial)", 0.2, 0.0, 0.6, 0.05, Some("Pads"), false),
                 num("long_edge", "Add pads along edges longer than (mm, 0 = corners only)", 300.0, 0.0, 2000.0, 10.0, Some("Pads"), false),
@@ -367,7 +367,7 @@ pub(super) fn catalogue() -> Vec<NodeDef> {
                 num("joiner_offset", "Joiner holes this far each side of a seam (mm, 0 = none)", 12.0, 0.0, 60.0, 0.5, Some("Mounting holes"), false),
                 num("segments", "Round segments", 48.0, 24.0, 128.0, 4.0, None, true),
             ],
-            doc: "Adds threaded pads for fixing the stencil to a frame, wall or board, and optional through-holes, to the tiles from a Tiles node. Pads sit on the middle of the margin band at the corners and, on edges longer than the limit, evenly between them. Holes are spaced along the band. A spot that would fall on a seam or a connector slides along its edge until it is clear, so every pad and hole sits in one tile. Printed flipped, pads are plain threaded holes. Needs a margin of at least the pad diameter (thread + 4 mm).",
+            doc: "Adds threaded pads for fixing the stencil to a frame, wall or board, and optional through-holes, to the tiles from a Tiles node. Set the pad thread to none for a plate without pads. Pads sit on the middle of the margin band at the corners and, on edges longer than the limit, evenly between them. Holes are spaced along the band. A spot that would fall on a seam or a connector slides along its edge until it is clear, so every pad and hole sits in one tile. Printed flipped, pads are plain threaded holes. Needs a margin of at least the pad diameter (thread + 4 mm).",
             run: run_pads,
         },
         NodeDef {
