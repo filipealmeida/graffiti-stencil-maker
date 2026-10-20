@@ -270,6 +270,8 @@ Every parameter `--set NODE.PARAM=VALUE` accepts. Generated with `stencil --list
 | `rings` | Number of rings | int | `1.0` | 1.0 to 5.0 |
 | `slab_length` | Longest slab (mm) | float | `200.0` | 40.0 to 1000.0 |
 | `joiner_thickness` | Joiner plate thickness (mm) | float | `4.0` | 2.0 to 12.0 |
+| `number_parts` | Number the slabs (pocket in the top face, one layer deep) | bool | `true` | true \| false |
+| `number_size` | Number height (mm) | float | `10.0` | 4.0 to 30.0 |
 | `wall_holes` | Mounting holes along the outer edge | bool | `false` | true \| false |
 | `hole_spacing` | Hole every (mm) | float | `120.0` | 20.0 to 1000.0 |
 | `segments` | Round segments | int | `48.0` | 24.0 to 128.0 |

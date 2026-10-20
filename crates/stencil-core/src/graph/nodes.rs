@@ -1129,6 +1129,13 @@ pub(super) fn run_ring(_: &Engine, i: &HashMap<String, Value>, p: &P) -> Result<
         slabs.extend(layout.slabs);
     }
     let mut files = src.files.clone();
+    let depth = if num(&plate["layer"]) > 0.0 {
+        num(&plate["layer"])
+    } else {
+        0.2
+    }
+    .min(thick / 2.0);
+    let mut unnumbered: Vec<String> = vec![];
     for sl in &slabs {
         // drilled around the origin: the boolean is robust there, far from it it can fail
         let (cx, cy) = ((sl.lo[0] + sl.hi[0]) / 2.0, (sl.lo[1] + sl.hi[1]) / 2.0);
@@ -1138,6 +1145,23 @@ pub(super) fn run_ring(_: &Engine, i: &HashMap<String, Value>, p: &P) -> Result<
         );
         let local: Vec<(f64, f64)> = sl.holes.iter().map(|h| (h.0 - cx, h.1 - cy)).collect();
         let mut mesh = hw::drill_at(&block, &local, &mp)?;
+        if p.b("number_parts") {
+            let no = slabs.iter().position(|s| s.name == sl.name).unwrap() + 1;
+            match ring::place_number(sl, no, p.f("number_size"), (d + clearance) / 2.0) {
+                Some(((nx, ny), rects)) => {
+                    // a pocket one layer deep in the top face
+                    // one stroke at a time: overlapping strokes in one cutter break the boolean
+                    for r in &rects {
+                        let stroke = crate::mesh::Mesh::cuboid(
+                            [r[0] + nx - cx, r[1] + ny - cy, thick - depth],
+                            [r[2] + nx - cx, r[3] + ny - cy, thick + 1.0],
+                        );
+                        mesh = mesh.subtract(&stroke)?;
+                    }
+                }
+                None => unnumbered.push(sl.name.clone()),
+            }
+        }
         mesh.translate([cx, cy, 0.0]);
         mesh.quantize_f32();
         if !mesh.is_watertight() || crate::tile_bridge::components(&mesh).0 != 1 {
@@ -1170,6 +1194,7 @@ pub(super) fn run_ring(_: &Engine, i: &HashMap<String, Value>, p: &P) -> Result<
     meta["ring"] = json!({
         "rings": rings, "slabs": slabs.len(), "joiner_plates": joiner_plates, "plate_joints": plate_joints,
         "wall_holes": wall_holes, "unused_plate_holes": unused, "width_mm": width,
+        "numbered": p.b("number_parts"), "unnumbered": unnumbered,
         "thickness_mm": thick, "screw": screw, "joiner_file": format!("ring_joiner_{screw}.stl"), "square_joiner_file": format!("ring_joiner_square_{screw}.stl"),
     });
     Ok(vec![(

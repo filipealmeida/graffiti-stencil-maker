@@ -58,6 +58,71 @@ pub struct Slab {
     pub holes: Vec<P>,
 }
 
+/// Seven-segment strokes (a top, b top right, c bottom right, d bottom, e bottom left, f top left, g middle).
+const SEGMENTS: [&str; 10] = [
+    "abcdef", "bc", "abdeg", "abcdg", "bcfg", "acdfg", "acdefg", "abc", "abcdefg", "abcdfg",
+];
+
+/// The number `n` as rectangles `[x0, y0, x1, y1]` for a pocket, `size` mm tall, centred on the origin, with its overall width.
+pub fn number_rects(n: usize, size: f64) -> (Vec<[f64; 4]>, f64) {
+    let (dw, t) = (size * 0.55, size * 0.17);
+    let gap = size * 0.25;
+    let digits: Vec<usize> = n.to_string().bytes().map(|b| (b - b'0') as usize).collect();
+    let total = digits.len() as f64 * dw + (digits.len() - 1) as f64 * gap;
+    let mut out = vec![];
+    for (k, d) in digits.iter().enumerate() {
+        let x0 = -total / 2.0 + k as f64 * (dw + gap);
+        let (x1, y0, y1, ym) = (x0 + dw, -size / 2.0, size / 2.0, 0.0);
+        for c in SEGMENTS[*d].chars() {
+            out.push(match c {
+                'a' => [x0, y1 - t, x1, y1],
+                'b' => [x1 - t, ym, x1, y1],
+                'c' => [x1 - t, y0, x1, ym],
+                'd' => [x0, y0, x1, y0 + t],
+                'e' => [x0, y0, x0 + t, ym],
+                'f' => [x0, ym, x0 + t, y1],
+                _ => [x0, ym - t / 2.0, x1, ym + t / 2.0],
+            });
+        }
+    }
+    (out, total)
+}
+
+/// Where the number `n` fits on a slab clear of its holes: its centre and the strokes, or None if even a small one does not fit.
+pub fn place_number(sl: &Slab, n: usize, want: f64, hole_r: f64) -> Option<(P, Vec<[f64; 4]>)> {
+    let (w, h) = (sl.hi[0] - sl.lo[0], sl.hi[1] - sl.lo[1]);
+    let mut size = want.min(h * 0.6).min(w * 0.6);
+    while size >= 4.0 {
+        let (rects, tw) = number_rects(n, size);
+        if tw + 4.0 <= w {
+            let tries = 9;
+            for k in 0..tries {
+                // from the middle outwards, along the long side
+                let f =
+                    0.5 + ((k + 1) / 2) as f64 / tries as f64 * if k % 2 == 1 { 1.0 } else { -1.0 };
+                let (cx, cy) = if w >= h {
+                    (
+                        sl.lo[0] + tw / 2.0 + 2.0 + f * (w - tw - 4.0),
+                        (sl.lo[1] + sl.hi[1]) / 2.0,
+                    )
+                } else {
+                    ((sl.lo[0] + sl.hi[0]) / 2.0, (sl.lo[1] + sl.hi[1]) / 2.0)
+                };
+                let clear = sl.holes.iter().all(|&hp| {
+                    let dx = (hp.0 - cx).abs() - tw / 2.0;
+                    let dy = (hp.1 - cy).abs() - size / 2.0;
+                    dx.max(0.0).hypot(dy.max(0.0)) > hole_r + 2.0
+                });
+                if clear && cx - tw / 2.0 > sl.lo[0] + 1.0 && cx + tw / 2.0 < sl.hi[0] - 1.0 {
+                    return Some(((cx, cy), rects));
+                }
+            }
+        }
+        size -= 1.0;
+    }
+    None
+}
+
 #[derive(Debug)]
 pub struct Ring {
     pub slabs: Vec<Slab>,
@@ -501,6 +566,19 @@ mod tests {
         p.h = 220.0;
         let r = plan(&p).unwrap();
         assert!(r.slabs.iter().all(|s| !s.holes.is_empty()));
+    }
+
+    #[test]
+    fn numbers_fit_clear_of_the_holes() {
+        let r = plan(&params(edge_holes(), 0.0)).unwrap();
+        for (i, sl) in r.slabs.iter().enumerate() {
+            let (c, rects) =
+                place_number(sl, i + 1, 10.0, 2.3).unwrap_or_else(|| panic!("{}", sl.name));
+            assert!(!rects.is_empty());
+            assert!(c.0 > sl.lo[0] && c.0 < sl.hi[0] && c.1 > sl.lo[1] && c.1 < sl.hi[1]);
+        }
+        assert_eq!(number_rects(8, 10.0).0.len(), 7);
+        assert_eq!(number_rects(11, 10.0).0.len(), 4);
     }
 
     #[test]
