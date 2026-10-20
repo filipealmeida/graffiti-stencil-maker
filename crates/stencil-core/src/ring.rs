@@ -20,6 +20,33 @@ pub struct RingParams {
     pub holes: Vec<P>,
     /// Holes along the outer edge of the ring (0 = none).
     pub wall_spacing: f64,
+    /// Position of this ring (1 = next to the plate), used in the slab names.
+    pub ring_no: usize,
+    /// Slabs of the ring inside this one (empty for the first): the old holes must fall in one of them.
+    pub prev: Vec<([f64; 2], [f64; 2])>,
+    /// Holes already there that new ones must keep clear of.
+    pub avoid: Vec<P>,
+    /// Wanted distance between joint holes within one slab of the inner ring (0 = only what the joiners need).
+    pub min_gap: f64,
+}
+
+/// Candidate screw holes for the next ring: evenly along each side of the rectangle, `c` inside its edge.
+pub fn side_holes(lo: [f64; 2], w: f64, h: f64, c: f64, spacing: f64) -> Vec<P> {
+    let mut v = vec![];
+    for (len, horizontal) in [(w, true), (h, false)] {
+        let n = (len / spacing.max(2.0)).ceil().max(1.0) as usize;
+        for k in 0..n {
+            let t = len * (k as f64 + 0.5) / n as f64;
+            if horizontal {
+                v.push((lo[0] + t, lo[1] + c));
+                v.push((lo[0] + t, lo[1] + h - c));
+            } else {
+                v.push((lo[0] + c, lo[1] + t));
+                v.push((lo[0] + w - c, lo[1] + t));
+            }
+        }
+    }
+    v
 }
 
 #[derive(Debug)]
@@ -140,8 +167,24 @@ pub fn plan(q: &RingParams) -> Result<Ring, String> {
             .collect();
         cand.sort_by(|x, y| x.0.partial_cmp(&y.0).unwrap());
         let mut chosen: Vec<(f64, P, P)> = vec![];
+        let group = |h: P| {
+            q.prev
+                .iter()
+                .position(|p| h.0 > p.0[0] && h.0 < p.1[0] && h.1 > p.0[1] && h.1 < p.1[1])
+        };
         for (along, i) in cand {
-            if chosen.iter().all(|k| d(k.1, q.holes[i]) >= clear) {
+            let h = q.holes[i];
+            let fits = q.prev.is_empty()
+                || q.prev.iter().any(|p| {
+                    let m = q.hole_r + 1.5;
+                    h.0 > p.0[0] + m && h.0 < p.1[0] - m && h.1 > p.0[1] + m && h.1 < p.1[1] - m
+                });
+            if fits
+                && q.avoid.iter().all(|&o| d(o, h) >= clear)
+                && chosen.iter().all(|k| {
+                    d(k.1, h) >= clear && (group(k.1) != group(h) || d(k.1, h) >= q.min_gap)
+                })
+            {
                 taken[i] = true;
                 chosen.push((along, q.holes[i], pt(s, along, c)));
             }
@@ -156,7 +199,11 @@ pub fn plan(q: &RingParams) -> Result<Ring, String> {
     }
 
     // 2. slab seams along each side, nudged clear of the joints
-    let mut all: Vec<P> = joints.iter().flat_map(|j| [j.0, j.1]).collect();
+    let mut all: Vec<P> = joints
+        .iter()
+        .flat_map(|j| [j.0, j.1])
+        .chain(q.avoid.iter().copied())
+        .collect();
     for (si, s) in sides.iter().enumerate() {
         let (a, b) = span(s);
         let len = b - a;
@@ -203,7 +250,7 @@ pub fn plan(q: &RingParams) -> Result<Ring, String> {
         ("tr", x1, y1),
     ] {
         slabs.push(Slab {
-            name: format!("ring_corner_{name}"),
+            name: format!("ring_{}_corner_{name}", q.ring_no),
             lo: [xa, ya],
             hi: [xa + r, ya + r],
             holes: vec![],
@@ -231,7 +278,7 @@ pub fn plan(q: &RingParams) -> Result<Ring, String> {
                 ([x0, w[0]], [x1, w[1]])
             };
             slabs.push(Slab {
-                name: format!("ring_{}_{}", s.name, k + 1),
+                name: format!("ring_{}_{}_{}", q.ring_no, s.name, k + 1),
                 lo,
                 hi,
                 holes: vec![],
@@ -284,7 +331,11 @@ pub fn plan(q: &RingParams) -> Result<Ring, String> {
     if q.wall_spacing > 0.0 {
         let m = q.hole_r + 1.5;
         let near = r - c;
-        let mut placed: Vec<P> = joints.iter().flat_map(|j| [j.0, j.1]).collect();
+        let mut placed: Vec<P> = joints
+            .iter()
+            .flat_map(|j| [j.0, j.1])
+            .chain(q.avoid.iter().copied())
+            .collect();
         for s in &sides {
             let (a, b) = span(s);
             let (t0, t1) = (a - near, b + near);
@@ -351,6 +402,10 @@ mod tests {
             join_r: 5.0,
             holes,
             wall_spacing: wall,
+            ring_no: 1,
+            prev: vec![],
+            avoid: vec![],
+            min_gap: 0.0,
         }
     }
 
@@ -384,6 +439,24 @@ mod tests {
     fn wall_holes_run_round_the_outer_edge() {
         let r = plan(&params(edge_holes(), 80.0)).unwrap();
         assert!(r.wall_holes >= 12, "{}", r.wall_holes);
+    }
+
+    #[test]
+    fn a_second_ring_uses_holes_added_inside_the_first() {
+        let r1 = plan(&params(edge_holes(), 0.0)).unwrap();
+        let prev: Vec<_> = r1.slabs.iter().map(|s| (s.lo, s.hi)).collect();
+        let avoid: Vec<P> = r1.slabs.iter().flat_map(|s| s.holes.clone()).collect();
+        let mut p = params(side_holes([-40.0, -40.0], 280.0, 280.0, 5.0, 5.0), 0.0);
+        p.lo = [-40.0, -40.0];
+        p.w = 280.0;
+        p.h = 280.0;
+        p.ring_no = 2;
+        p.prev = prev;
+        p.avoid = avoid;
+        p.min_gap = 100.0;
+        let r2 = plan(&p).unwrap();
+        assert_eq!(r2.slabs.len(), 16);
+        assert!(r2.slabs.iter().all(|s| s.name.starts_with("ring_2_")));
     }
 
     #[test]

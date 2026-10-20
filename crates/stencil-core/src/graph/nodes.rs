@@ -1058,28 +1058,10 @@ pub(super) fn run_ring(_: &Engine, i: &HashMap<String, Value>, p: &P) -> Result<
         .unwrap_or_default();
     let (d, _) = hw::thread(&screw)?;
     let c = margin / 2.0;
-    let layout = ring::plan(&ring::RingParams {
-        lo,
-        w: num(&plate["w"]),
-        h: num(&plate["h"]),
-        c,
-        ring: p.f("ring_width"),
-        max_x: p.f("max_x"),
-        max_y: p.f("max_y"),
-        hole_r: (d + clearance) / 2.0,
-        join_r: d / 2.0 + hw::JOIN_WALL_MM,
-        holes,
-        wall_spacing: if p.b("wall_holes") {
-            p.f("hole_spacing").max(10.0)
-        } else {
-            0.0
-        },
-    })?;
-    let thick = if p.f("height_mm") > 0.0 {
-        p.f("height_mm")
-    } else {
-        num(&plate["thickness"])
-    };
+    let (pw, ph) = (num(&plate["w"]), num(&plate["h"]));
+    let width = p.f("width");
+    let rings = p.f("rings").max(1.0) as usize;
+    let thick = num(&plate["thickness"]);
     let mp = hw::MountParams {
         screw: screw.clone(),
         clearance,
@@ -1087,8 +1069,67 @@ pub(super) fn run_ring(_: &Engine, i: &HashMap<String, Value>, p: &P) -> Result<
         offset: 0.0,
         segments: seg,
     };
+    let mut slabs: Vec<ring::Slab> = vec![];
+    let (mut plate_joints, mut joiner_plates, mut wall_holes, mut unused) = (0, 0, 0, 0);
+    let mut cands = holes;
+    for k in 1..=rings {
+        let grow = (k - 1) as f64 * width;
+        let (rlo, rw, rh) = (
+            [lo[0] - grow, lo[1] - grow],
+            pw + 2.0 * grow,
+            ph + 2.0 * grow,
+        );
+        let first = slabs.len();
+        let prev: Vec<_> = slabs.iter().map(|s| (s.lo, s.hi)).collect();
+        let avoid: Vec<(f64, f64)> = slabs.iter().flat_map(|s| s.holes.clone()).collect();
+        if k > 1 {
+            cands = ring::side_holes(rlo, rw, rh, c, 5.0);
+        }
+        let layout = ring::plan(&ring::RingParams {
+            lo: rlo,
+            w: rw,
+            h: rh,
+            c,
+            ring: width,
+            max_x: p.f("slab_length"),
+            max_y: p.f("slab_length"),
+            hole_r: (d + clearance) / 2.0,
+            join_r: d / 2.0 + hw::JOIN_WALL_MM,
+            holes: cands.clone(),
+            wall_spacing: if p.b("wall_holes") && k == rings {
+                p.f("hole_spacing").max(10.0)
+            } else {
+                0.0
+            },
+            ring_no: k,
+            prev,
+            avoid,
+            min_gap: if k > 1 { p.f("hole_spacing") } else { 0.0 },
+        })
+        .map_err(|e| {
+            if rings > 1 {
+                format!("ring {k}: {e}")
+            } else {
+                e
+            }
+        })?;
+        // the inner side of each joint is a hole in the ring inside this one
+        for &old in &layout.used {
+            if let Some(sl) = slabs[..first]
+                .iter_mut()
+                .find(|s| old.0 > s.lo[0] && old.0 < s.hi[0] && old.1 > s.lo[1] && old.1 < s.hi[1])
+            {
+                sl.holes.push(old);
+            }
+        }
+        plate_joints += layout.used.len();
+        joiner_plates += layout.joints.len();
+        wall_holes += layout.wall_holes;
+        unused += layout.unused;
+        slabs.extend(layout.slabs);
+    }
     let mut files = src.files.clone();
-    for sl in &layout.slabs {
+    for sl in &slabs {
         // drilled around the origin: the boolean is robust there, far from it it can fail
         let (cx, cy) = ((sl.lo[0] + sl.hi[0]) / 2.0, (sl.lo[1] + sl.hi[1]) / 2.0);
         let block = crate::mesh::Mesh::cuboid(
@@ -1122,8 +1163,8 @@ pub(super) fn run_ring(_: &Engine, i: &HashMap<String, Value>, p: &P) -> Result<
     files.push((format!("ring_joiner_{screw}.stl"), joiner.to_stl()));
     let mut meta = src.meta.clone();
     meta["ring"] = json!({
-        "slabs": layout.slabs.len(), "joiner_plates": layout.joints.len(), "plate_joints": layout.used.len(),
-        "wall_holes": layout.wall_holes, "unused_plate_holes": layout.unused, "ring_width_mm": p.f("ring_width"),
+        "rings": rings, "slabs": slabs.len(), "joiner_plates": joiner_plates, "plate_joints": plate_joints,
+        "wall_holes": wall_holes, "unused_plate_holes": unused, "width_mm": width,
         "thickness_mm": thick, "screw": screw, "joiner_file": format!("ring_joiner_{screw}.stl"),
     });
     Ok(vec![(

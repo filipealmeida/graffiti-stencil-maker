@@ -881,6 +881,7 @@ fn ring_run(
     margin: f64,
     wall: bool,
     screw: &str,
+    rings: u32,
 ) -> (serde_json::Value, Option<std::rc::Rc<Parts>>) {
     let mut e = Engine::new();
     let id = e.add_image(test_png()).unwrap()["id"]
@@ -892,7 +893,7 @@ fn ring_run(
         json!({"thickness_mm": 6.0, "margin_mm": margin, "flip": flip, "width_mm": 140.0});
     g["nodes"][3] = json!({"id": "ex", "type": "tiles", "params": {"max_x": 80.0, "max_y": 80.0}});
     g["nodes"].as_array_mut().unwrap().push(json!({"id": "pd", "type": "pads", "params": {"pad_thread": "none", "mount_screw": screw, "hole_spacing": 40.0}}));
-    g["nodes"].as_array_mut().unwrap().push(json!({"id": "rg", "type": "ring", "params": {"ring_width": 30.0, "max_x": 90.0, "max_y": 90.0, "wall_holes": wall, "hole_spacing": 50.0}}));
+    g["nodes"].as_array_mut().unwrap().push(json!({"id": "rg", "type": "ring", "params": {"width": 30.0, "slab_length": 90.0, "rings": rings, "wall_holes": wall, "hole_spacing": 50.0}}));
     g["edges"]
         .as_array_mut()
         .unwrap()
@@ -913,7 +914,7 @@ fn ring_run(
 #[test]
 fn margin_expansion_surrounds_the_plate_with_watertight_slabs() {
     for (flip, wall) in [(false, false), (true, true)] {
-        let (r, p) = ring_run(flip, 12.0, wall, "M4");
+        let (r, p) = ring_run(flip, 12.0, wall, "M4", 1);
         let p = p.unwrap_or_else(|| panic!("{r}"));
         let ring = &p.meta["ring"];
         assert!(ring["slabs"].as_u64().unwrap() >= 8, "{ring}");
@@ -921,7 +922,7 @@ fn margin_expansion_surrounds_the_plate_with_watertight_slabs() {
         let slabs: Vec<_> = p
             .files
             .iter()
-            .filter(|f| f.0.starts_with("ring_") && !f.0.starts_with("ring_joiner"))
+            .filter(|f| f.0.starts_with("ring_1_"))
             .collect();
         assert_eq!(slabs.len() as u64, ring["slabs"].as_u64().unwrap());
         for (n, b) in slabs {
@@ -935,9 +936,9 @@ fn margin_expansion_surrounds_the_plate_with_watertight_slabs() {
 
 #[test]
 fn margin_expansion_refuses_a_plate_without_margin_or_holes() {
-    let (r, p) = ring_run(false, 0.0, false, "M4");
+    let (r, p) = ring_run(false, 0.0, false, "M4", 1);
     assert!(p.is_none() && r["nodes"]["rg"]["state"] != "done", "{r}");
-    let (r, p) = ring_run(false, 12.0, false, "none");
+    let (r, p) = ring_run(false, 12.0, false, "none", 1);
     assert!(
         p.is_none()
             && r["nodes"]["rg"]["error"]
@@ -946,4 +947,24 @@ fn margin_expansion_refuses_a_plate_without_margin_or_holes() {
                 .contains("mounting hole"),
         "{r}"
     );
+}
+
+#[test]
+fn margin_expansion_can_wrap_the_plate_in_several_rings() {
+    let (r, p) = ring_run(false, 12.0, true, "M4", 2);
+    let p = p.unwrap_or_else(|| panic!("{r}"));
+    let ring = &p.meta["ring"];
+    assert_eq!(ring["rings"], 2);
+    let n = |pre: &str| p.files.iter().filter(|f| f.0.starts_with(pre)).count();
+    assert!(n("ring_1_") >= 8 && n("ring_2_") >= 8, "{ring}");
+    assert!(ring["wall_holes"].as_u64().unwrap() > 0);
+    for (n, b) in p
+        .files
+        .iter()
+        .filter(|f| f.0.starts_with("ring_1_") || f.0.starts_with("ring_2_"))
+    {
+        let m = crate::mesh::Mesh::from_stl(b).unwrap();
+        assert!(m.is_watertight(), "{n}");
+        assert_eq!(crate::tile_bridge::components(&m).0, 1, "{n}");
+    }
 }

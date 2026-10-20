@@ -266,13 +266,12 @@ Every parameter `--set NODE.PARAM=VALUE` accepts. Generated with `stencil --list
 
 | Parameter | Label | Type | Default | Range or choices |
 |---|---|---|---|---|
-| `ring_width` | Ring width (mm) | float | `40.0` | 20.0 to 400.0 |
-| `max_x` | Largest slab width (mm) | float | `200.0` | 40.0 to 1000.0 |
-| `max_y` | Largest slab height (mm) | float | `200.0` | 40.0 to 1000.0 |
-| `height_mm` | Slab thickness (mm, 0 = same as the plate) | float | `0.0` | 0.0 to 30.0 |
+| `width` | Border width (mm) | float | `40.0` | 20.0 to 400.0 |
+| `rings` | Number of rings | int | `1.0` | 1.0 to 5.0 |
+| `slab_length` | Longest slab (mm) | float | `200.0` | 40.0 to 1000.0 |
 | `joiner_thickness` | Joiner plate thickness (mm) | float | `4.0` | 2.0 to 12.0 |
 | `wall_holes` | Mounting holes along the outer edge | bool | `false` | true \| false |
-| `hole_spacing` | Wall hole every (mm) | float | `120.0` | 20.0 to 1000.0 |
+| `hole_spacing` | Hole every (mm) | float | `120.0` | 20.0 to 1000.0 |
 | `segments` | Round segments | int | `48.0` | 24.0 to 128.0 |
 
 ### Colour set (`colour_set`)
