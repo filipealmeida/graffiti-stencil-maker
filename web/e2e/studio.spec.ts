@@ -623,3 +623,17 @@ test('the Margin expansion viewer shows the ring round the assembled plate', asy
   // plate 1096 × 219.8 mm plus a 100 mm border all round
   await expect(page.getByText(/Assembled:.*1296\.0 × 419\.8/)).toBeVisible({ timeout: 60_000 })
 })
+
+test('files in a downloaded ZIP carry the time they were made, not 1980', async ({ page }) => {
+  test.setTimeout(240_000)
+  await page.goto('/')
+  await page.locator('input[type=file][accept*=json]').setInputFiles('../sandbox/aesperae.json')
+  await page.locator('.react-flow__node').filter({ hasText: 'Margin expansion' }).first().dispatchEvent('dblclick')
+  await expect(page.locator('.v3bar')).toBeVisible({ timeout: 200_000 })
+  const href = await page.getByRole('link', { name: 'Download', exact: true }).getAttribute('href')
+  const bytes = await page.evaluate(async (u) => Array.from(new Uint8Array(await (await fetch(u!)).arrayBuffer()).slice(0, 32)), href)
+  const buf = Buffer.from(bytes)
+  expect(buf.readUInt32LE(0)).toBe(0x04034b50)
+  const year = (buf.readUInt16LE(12) >> 9) + 1980
+  expect(Math.abs(year - new Date().getFullYear())).toBeLessThanOrEqual(1)
+})

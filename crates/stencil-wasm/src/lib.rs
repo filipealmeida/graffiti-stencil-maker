@@ -144,10 +144,22 @@ impl Engine {
         Ok(out)
     }
 
+    /// The browser's clock and time zone, for the timestamps inside downloaded ZIPs.
+    fn stamp() {
+        let d = js_sys::Date::new_0();
+        stencil_core::zip::set_clock(
+            d.get_time() as u64,
+            (-d.get_timezone_offset() * 60.0) as i64,
+        );
+    }
+
     pub fn mime(&self, key: &str, out: &str) -> String {
         self.inner
             .value(key, out)
-            .and_then(|v| v.encode().ok())
+            .and_then(|v| {
+                Self::stamp();
+                v.encode().ok()
+            })
             .map(|(m, _)| m.to_string())
             .unwrap_or_default()
     }
@@ -157,6 +169,7 @@ impl Engine {
             .inner
             .value(key, out)
             .ok_or_else(|| JsError::new("artifact not found"))?;
+        Self::stamp();
         v.encode().map(|(_, b)| b).map_err(|e| JsError::new(&e))
     }
 
