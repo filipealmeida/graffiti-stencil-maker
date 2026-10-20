@@ -617,7 +617,7 @@ test('Margin expansion can be added from the post menu', async ({ page }) => {
 test('the Margin expansion viewer shows the ring round the assembled plate', async ({ page }) => {
   test.setTimeout(240_000)
   await page.goto('/')
-  await page.locator('input[type=file][accept*=json]').setInputFiles('../sandbox/aesperae.json')
+  await page.locator('input[type=file][accept*=json]').setInputFiles('e2e/fixtures/margin-ring.json')
   await page.locator('.react-flow__node').filter({ hasText: 'Margin expansion' }).first().dispatchEvent('dblclick')
   await expect(page.locator('.v3bar')).toBeVisible({ timeout: 200_000 })
   // plate 1096 × 219.8 mm plus a 100 mm border all round
@@ -627,7 +627,7 @@ test('the Margin expansion viewer shows the ring round the assembled plate', asy
 test('files in a downloaded ZIP carry the time they were made, not 1980', async ({ page }) => {
   test.setTimeout(240_000)
   await page.goto('/')
-  await page.locator('input[type=file][accept*=json]').setInputFiles('../sandbox/aesperae.json')
+  await page.locator('input[type=file][accept*=json]').setInputFiles('e2e/fixtures/margin-ring.json')
   await page.locator('.react-flow__node').filter({ hasText: 'Margin expansion' }).first().dispatchEvent('dblclick')
   await expect(page.locator('.v3bar')).toBeVisible({ timeout: 200_000 })
   const href = await page.getByRole('link', { name: 'Download', exact: true }).getAttribute('href')
@@ -641,7 +641,7 @@ test('files in a downloaded ZIP carry the time they were made, not 1980', async 
 test('the shading menu changes how the mesh is drawn', async ({ page }) => {
   test.setTimeout(240_000)
   await page.goto('/')
-  await page.locator('input[type=file][accept*=json]').setInputFiles('../sandbox/aesperae.json')
+  await page.locator('input[type=file][accept*=json]').setInputFiles('e2e/fixtures/margin-ring.json')
   await page.locator('.react-flow__node').filter({ hasText: 'Margin expansion' }).first().dispatchEvent('dblclick')
   await expect(page.locator('.v3bar')).toBeVisible({ timeout: 200_000 })
   await page.getByRole('button', { name: 'Iso' }).click()
