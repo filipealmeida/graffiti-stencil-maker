@@ -637,3 +637,21 @@ test('files in a downloaded ZIP carry the time they were made, not 1980', async 
   const year = (buf.readUInt16LE(12) >> 9) + 1980
   expect(Math.abs(year - new Date().getFullYear())).toBeLessThanOrEqual(1)
 })
+
+test('the shading menu changes how the mesh is drawn', async ({ page }) => {
+  test.setTimeout(240_000)
+  await page.goto('/')
+  await page.locator('input[type=file][accept*=json]').setInputFiles('../sandbox/aesperae.json')
+  await page.locator('.react-flow__node').filter({ hasText: 'Margin expansion' }).first().dispatchEvent('dblclick')
+  await expect(page.locator('.v3bar')).toBeVisible({ timeout: 200_000 })
+  await page.getByRole('button', { name: 'Iso' }).click()
+  const canvas = page.locator('.v3bar').locator('xpath=ancestor::*[.//canvas][1]').locator('canvas').first()
+  const shot = async (mode: string) => {
+    await page.locator('.v3bar select').first().selectOption(mode)
+    await page.waitForTimeout(1500)
+    return (await canvas.screenshot()).toString('base64')
+  }
+  const smooth = await shot('smooth')
+  const flat = await shot('flat')
+  expect(smooth).not.toEqual(flat)
+})

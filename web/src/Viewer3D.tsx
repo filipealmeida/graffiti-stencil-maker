@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import { STLLoader } from 'three/examples/jsm/loaders/STLLoader.js'
+import { toCreasedNormals } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
 
 export interface Part { name: string; url: string }
 /** The plate description a Tiles node (and Pads node) attaches to its parts. */
@@ -15,7 +16,7 @@ export interface PlateMeta {
 }
 interface Scene3D {
   meshes: THREE.Mesh[]
-  geos: { hi: THREE.BufferGeometry; lo?: THREE.BufferGeometry; lod: boolean }[]
+  geos: { hi: THREE.BufferGeometry; lo?: THREE.BufferGeometry; sm?: THREE.BufferGeometry; lod: boolean }[]
   centers: THREE.Vector3[]
   boxes: THREE.Box3[]
   center: THREE.Vector3
@@ -29,6 +30,22 @@ interface Scene3D {
  * A coarser copy for use while the camera moves: vertices are merged per cell of a regular grid, and triangles that
  * collapse are dropped. One pass over the triangles, so it stays quick on meshes of millions of triangles.
  */
+/** Per-vertex colours that darken the up-facing floors below the part's top face, so shallow pockets stand out. */
+function shadePockets(g: THREE.BufferGeometry) {
+  const pos = g.attributes.position
+  const n = pos.count
+  let top = -Infinity
+  for (let i = 0; i < n; i++) top = Math.max(top, pos.getZ(i))
+  const col = new Float32Array(n * 3).fill(1)
+  const a = new THREE.Vector3(), b = new THREE.Vector3(), c = new THREE.Vector3()
+  for (let t = 0; t + 2 < n; t += 3) {
+    a.fromBufferAttribute(pos, t); b.fromBufferAttribute(pos, t + 1); c.fromBufferAttribute(pos, t + 2)
+    const nz = b.clone().sub(a).cross(c.clone().sub(a)).normalize().z
+    if (nz > 0.99 && (a.z + b.z + c.z) / 3 < top - 0.05) col.fill(0.35, t * 3, t * 3 + 9)
+  }
+  g.setAttribute('color', new THREE.BufferAttribute(col, 3))
+}
+
 function coarse(src: THREE.BufferGeometry): THREE.BufferGeometry {
   const pos = (src.index ? src.toNonIndexed() : src).attributes.position.array as Float32Array
   src.computeBoundingBox()
@@ -133,6 +150,7 @@ export default function Viewer3D({ parts, plate }: { parts: Part[]; plate?: Plat
       geos.forEach((raw, i) => {
         const hi = raw.clone()
         hi.computeVertexNormals()
+        if (/^ring_\d+_/.test(parts[i].name)) shadePockets(hi)
         hi.computeBoundingBox()
         box.union(hi.boundingBox!)
         centers.push(hi.boundingBox!.getCenter(new THREE.Vector3()))
@@ -161,7 +179,7 @@ export default function Viewer3D({ parts, plate }: { parts: Part[]; plate?: Plat
     tick()
     return () => {
       alive = false
-      sc.current?.geos.forEach((g) => { g.hi.dispose(); g.lo?.dispose() })
+      sc.current?.geos.forEach((g) => { g.hi.dispose(); g.lo?.dispose(); g.sm?.dispose() })
       sc.current = null
       cancelAnimationFrame(raf)
       ro.disconnect()
@@ -202,7 +220,10 @@ export default function Viewer3D({ parts, plate }: { parts: Part[]; plate?: Plat
       const mat = m.material as THREE.MeshStandardMaterial
       const g = s.geos[i]
       if (low && g.lod && !g.lo) g.lo = coarse(g.hi)
-      m.geometry = low && g.lo ? g.lo : g.hi
+      // STL triangles are not shared, so plain vertex normals are flat: smooth shading needs normals averaged over gentle edges
+      if (shading === 'smooth' && !g.sm && g.hi.attributes.position.count <= 900_000) g.sm = toCreasedNormals(g.hi, Math.PI / 6)
+      m.geometry = low && g.lo ? g.lo : shading === 'smooth' && g.sm ? g.sm : g.hi
+      mat.vertexColors = !!m.geometry.getAttribute('color')
       mat.wireframe = wire
       mat.flatShading = shading === 'flat'
       mat.clippingPlanes = planes

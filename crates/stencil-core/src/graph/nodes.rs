@@ -1129,12 +1129,17 @@ pub(super) fn run_ring(_: &Engine, i: &HashMap<String, Value>, p: &P) -> Result<
         slabs.extend(layout.slabs);
     }
     let mut files = src.files.clone();
-    let depth = if num(&plate["layer"]) > 0.0 {
-        num(&plate["layer"])
-    } else {
-        0.2
+    // 0 = one layer of the plate, which is what a printed number needs to show
+    let depth = match (p.f("pocket_depth"), num(&plate["layer"])) {
+        (d, _) if d > 0.0 => d,
+        (_, l) if l > 0.0 => l,
+        _ => 0.2,
+    };
+    if p.b("number_parts") && depth > thick - 1.0 {
+        return Err(format!(
+            "the number pockets are {depth} mm deep but the slabs are only {thick} mm thick: lower the pocket depth"
+        ));
     }
-    .min(thick / 2.0);
     let mut unnumbered: Vec<String> = vec![];
     for sl in &slabs {
         // drilled around the origin: the boolean is robust there, far from it it can fail

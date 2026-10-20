@@ -969,3 +969,53 @@ fn margin_expansion_can_wrap_the_plate_in_several_rings() {
         assert_eq!(crate::tile_bridge::components(&m).0, 1, "{n}");
     }
 }
+
+#[test]
+fn number_pockets_are_as_deep_as_asked() {
+    // the deepest point of the cut is the pocket floor: compare the slab's face heights with and without numbers
+    let floor = |depth: f64| -> Vec<f32> {
+        let mut e = Engine::new();
+        let id = e.add_image(test_png()).unwrap()["id"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        let mut g = graph(&id, 6.0);
+        g["nodes"][2]["params"] =
+            json!({"thickness_mm": 6.0, "margin_mm": 12.0, "width_mm": 140.0});
+        g["nodes"][3] =
+            json!({"id": "ex", "type": "tiles", "params": {"max_x": 80.0, "max_y": 80.0}});
+        g["nodes"].as_array_mut().unwrap().push(json!({"id": "pd", "type": "pads", "params": {"pad_thread": "none", "mount_screw": "M4", "hole_spacing": 40.0}}));
+        g["nodes"].as_array_mut().unwrap().push(json!({"id": "rg", "type": "ring", "params": {"width": 30.0, "slab_length": 90.0, "pocket_depth": depth}}));
+        g["edges"]
+            .as_array_mut()
+            .unwrap()
+            .push(json!({"from": ["ex", "parts"], "to": ["pd", "parts"]}));
+        g["edges"]
+            .as_array_mut()
+            .unwrap()
+            .push(json!({"from": ["pd", "parts"], "to": ["rg", "parts"]}));
+        let r = e.run(&g, None, &|| 0.0);
+        let key = r["nodes"]["rg"]["key"].as_str().unwrap_or("").to_string();
+        let Some(Value::Parts(p)) = e.value(&key, "parts") else {
+            panic!("{r}")
+        };
+        let f = p
+            .files
+            .iter()
+            .find(|f| f.0 == "ring_1_corner_bl.stl")
+            .unwrap();
+        let m = crate::mesh::Mesh::from_stl(&f.1).unwrap();
+        let mut zs: Vec<f32> = m.v.iter().map(|v| v[2] as f32).collect();
+        zs.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        zs.dedup_by(|a, b| (*a - *b).abs() < 1e-4);
+        zs
+    };
+    let thick = *floor(0.4).last().unwrap();
+    for d in [0.4, 1.0] {
+        let zs = floor(d);
+        assert!(
+            zs.iter().any(|z| (thick - z - d as f32).abs() < 0.02),
+            "{d}: {zs:?}"
+        );
+    }
+}
