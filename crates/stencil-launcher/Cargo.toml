@@ -1,0 +1,12 @@
+[package]
+name = "stencil-launcher"
+version = "2.2.0"
+edition = "2021"
+description = "Starts the stencil studio next to this executable and opens it in the browser"
+
+[[bin]]
+name = "stencil-studio"
+path = "src/main.rs"
+
+[dependencies]
+open = "5"

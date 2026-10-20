@@ -889,6 +889,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "stencil-launcher"
+version = "2.2.0"
+dependencies = [
+ "open",
+]
+
+[[package]]
 name = "stencil-wasm"
 version = "2.2.0"
 dependencies = [

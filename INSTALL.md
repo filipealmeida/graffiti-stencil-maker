@@ -39,6 +39,14 @@ npm run dev
 Vite prints the local studio URL. The built static site is in `web/dist/` and can be deployed to a static host,
 including GitHub Pages. The CI workflow builds the WASM package before building the web app.
 
+## Release downloads and the launcher
+
+Each release zip (`stencil-linux-x64`, `stencil-macos-arm64`, `stencil-windows-x64`) holds `stencil` (the CLI with the
+studio built in) and `stencil-studio`, a launcher. Double-click `stencil-studio` (or run it, optionally with a port such
+as `stencil-studio 8080`): it starts the studio next to it on a free port and opens your browser. Close its window to
+stop it. Build it yourself with `cargo build --release -p stencil-cli --features studio -p stencil-launcher`.
+The binaries are unsigned, so macOS Gatekeeper or Windows SmartScreen may ask you to confirm the first run.
+
 ## Build the single-binary studio
 
 `stencil studio` serves the web studio from inside the CLI executable, so one file is all you need to run it.

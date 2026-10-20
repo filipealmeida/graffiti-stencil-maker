@@ -381,7 +381,7 @@ pub(super) fn catalogue() -> Vec<NodeDef> {
                 num("rings", "Number of rings", 1.0, 1.0, 5.0, 1.0, Some("Border"), true),
                 num("slab_length", "Longest slab (mm)", 200.0, 40.0, 1000.0, 5.0, Some("Border"), false),
                 num("joiner_thickness", "Joiner plate thickness (mm)", 4.0, 2.0, 12.0, 0.5, Some("Joints"), false),
-                flag("number_parts", "Number the slabs (pocket in the top face, one layer deep)", true, Some("Numbers")),
+                flag("number_parts", "Number the slabs", true, Some("Numbers")),
                 num("number_size", "Number size (mm)", 10.0, 4.0, 30.0, 1.0, Some("Numbers"), false),
                 num("pocket_depth", "Pocket depth (mm, 0 = the plate's layer height)", 0.0, 0.0, 3.0, 0.05, Some("Numbers"), false),
                 flag("wall_holes", "Mounting holes along the outer edge", false, Some("Wall holes")),

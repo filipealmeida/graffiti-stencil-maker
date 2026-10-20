@@ -25,6 +25,9 @@ Build the studio into the CLI (see [INSTALL.md](INSTALL.md)), then run:
 ./target/release/stencil studio
 ```
 
+Release downloads also include `stencil-studio`, a launcher you can double-click to start the studio and open the
+browser (see [INSTALL.md](INSTALL.md)).
+
 It serves the studio on `http://127.0.0.1:5173/` and opens your browser. Options: `--port N`, `--no-open`.
 
 ### Web studio
