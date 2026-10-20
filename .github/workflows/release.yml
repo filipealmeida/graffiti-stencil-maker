@@ -9,7 +9,11 @@ permissions:
 
 jobs:
   build:
+    defaults:
+      run:
+        shell: bash
     strategy:
+      fail-fast: false
       matrix:
         include:
           - { os: ubuntu-latest, name: linux-x64, exe: stencil, launcher: stencil-studio }
