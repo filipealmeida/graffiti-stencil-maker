@@ -41,8 +41,9 @@ export default function Inspector() {
       <h2>{t.label} <small className={`tag stage-${t.stage}`}>{t.stage}</small></h2>
       <p className="mut">{t.doc}</p>
       <button className="btn" onClick={() => openBench(node.id)}>⤢ Open preview (double-click a node)</button>
-      {fileInput && <><p className="mut">Image: {String(node.data.title ?? node.data.params.image_id)}</p><SourceActions id={node.id} imageId={String(node.data.params.image_id)} title={node.data.title} /><ImageInfoPanel imageId={String(node.data.params.image_id)} resolution={Number(node.data.params.resolution ?? 1000)} /></>}
+      {fileInput && <><p className="mut">Image: {String(node.data.title ?? node.data.params.image_id)}</p><SourceActions id={node.id} imageId={String(node.data.params.image_id)} title={node.data.title} /></>}
       <ParamForm node={node} type={t} layers={layers} />
+      {fileInput && <ImageInfoPanel imageId={String(node.data.params.image_id)} resolution={Number(node.data.params.resolution ?? 1000)} />}
       <Presets key={node.id} node={node} />
       {run?.state === 'error' && <div className="err">{run.error}</div>}
       {key && cur && (

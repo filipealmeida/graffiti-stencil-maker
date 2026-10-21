@@ -90,8 +90,8 @@ export default function Workbench() {
         <aside className="bench-params">
           <p className="mut">{t.doc}</p>
           {t.id === 'source' && <SourceActions id={node.id} imageId={String(node.data.params.image_id)} title={node.data.title} />}
-          {t.id === 'source' && <ImageInfoPanel imageId={String(node.data.params.image_id)} resolution={Number(node.data.params.resolution ?? 1000)} />}
           <ParamForm node={node} type={t} />
+          {t.id === 'source' && <ImageInfoPanel imageId={String(node.data.params.image_id)} resolution={Number(node.data.params.resolution ?? 1000)} />}
           {run?.state === 'error' && <div className="err">{run.error}</div>}
         </aside>
         <section className="bench-view">
