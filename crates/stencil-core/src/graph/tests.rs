@@ -936,6 +936,34 @@ fn margin_expansion_surrounds_the_plate_with_watertight_slabs() {
 }
 
 #[test]
+fn margin_expansion_gives_a_bolt_and_nut_that_fit_the_joint() {
+    let (r, p) = ring_run(false, 12.0, false, "M4", 1);
+    let p = p.unwrap_or_else(|| panic!("{r}"));
+    let h = &p.meta["ring"]["hardware"];
+    // 4 mm joiner + 6 mm plate + 3.2 mm nut, rounded up
+    assert_eq!(h["length_mm"].as_f64(), Some(14.0), "{h}");
+    assert_eq!(
+        h["bolts_needed"],
+        2 * p.meta["ring"]["joiner_plates"].as_u64().unwrap()
+    );
+    let get = |n: &str| {
+        let f = p
+            .files
+            .iter()
+            .find(|f| f.0 == n)
+            .unwrap_or_else(|| panic!("{n}"));
+        crate::mesh::Mesh::from_stl(&f.1).unwrap()
+    };
+    let (bolt, nut) = (get("ring_bolt_M4x14.stl"), get("ring_nut_M4.stl"));
+    assert!(bolt.is_watertight() && nut.is_watertight());
+    // the bolt is head + 14 mm tall and the nut is 0.8 d tall
+    let (_, hi) = bolt.bounds();
+    assert!((hi[2] - (2.8 + 14.0)).abs() < 0.05, "{hi:?}");
+    let (_, hn) = nut.bounds();
+    assert!((hn[2] - 3.2).abs() < 0.05, "{hn:?}");
+}
+
+#[test]
 fn margin_expansion_refuses_a_plate_without_margin_or_holes() {
     let (r, p) = ring_run(false, 0.0, false, "M4", 1);
     assert!(p.is_none() && r["nodes"]["rg"]["state"] != "done", "{r}");

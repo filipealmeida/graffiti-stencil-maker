@@ -1195,8 +1195,36 @@ pub(super) fn run_ring(_: &Engine, i: &HashMap<String, Value>, p: &P) -> Result<
         }
         files.push((format!("{name}_{screw}.stl"), mesh.to_stl()));
     }
+    // bolt and nut for the joiner plates: the head sits on the plate, the nut ends flush with the far face
+    let mut hardware = json!(null);
+    if p.b("hardware") {
+        let nut_h = (0.8 * hw::thread(&screw)?.0 * 10.0).round() / 10.0;
+        let auto = (p.f("joiner_thickness") + thick + nut_h).ceil();
+        let length = if p.f("screw_length") > 0.0 {
+            p.f("screw_length")
+        } else {
+            auto
+        };
+        let (bolt, nut) = hw::screw_parts(&screw, length, p.f("nut_clearance"), seg)?;
+        let (bn, nn) = (
+            format!("ring_bolt_{screw}x{length}.stl"),
+            format!("ring_nut_{screw}.stl"),
+        );
+        for (mesh, name) in [(bolt, &bn), (nut, &nn)] {
+            if !mesh.is_watertight() {
+                return Err(format!("verification failed: {name} is not watertight"));
+            }
+            files.push((name.clone(), mesh.to_stl()));
+        }
+        hardware = json!({
+            "bolt_file": bn, "nut_file": nn, "length_mm": length, "auto_length_mm": auto,
+            "bolts_needed": 2 * joiner_plates, "nuts_needed": 2 * joiner_plates,
+            "nut_clearance_mm": p.f("nut_clearance"),
+        });
+    }
     let mut meta = src.meta.clone();
     meta["ring"] = json!({
+        "hardware": hardware,
         "rings": rings, "slabs": slabs.len(), "joiner_plates": joiner_plates, "plate_joints": plate_joints,
         "wall_holes": wall_holes, "unused_plate_holes": unused, "width_mm": width,
         "numbered": p.b("number_parts"), "unnumbered": unnumbered,

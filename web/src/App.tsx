@@ -52,6 +52,19 @@ function Canvas() {
       200,
     );
   }, [rf]);
+  // The pan limit follows the graph. A fixed box smaller than the fitted view made React Flow snap the view
+  // (nodes slid out of sight) on the first pan after "fit view".
+  const extent = useMemo<[[number, number], [number, number]]>(() => {
+    let x0 = 0, y0 = 0, x1 = WORLD_END, y1 = 1200;
+    for (const n of s.nodes) {
+      x0 = Math.min(x0, n.position.x);
+      y0 = Math.min(y0, n.position.y);
+      x1 = Math.max(x1, n.position.x + (n.measured?.width ?? 300));
+      y1 = Math.max(y1, n.position.y + (n.measured?.height ?? 300));
+    }
+    const m = 6000;
+    return [[x0 - m, y0 - m], [x1 + m, y1 + m]];
+  }, [s.nodes]);
   const bar = useRef<HTMLDivElement>(null);
   const tpl = useRef<HTMLDivElement>(null);
   const sliding = useRef(false);
@@ -554,10 +567,7 @@ function Canvas() {
             fitView={false}
             minZoom={0.1}
             autoPanOnNodeDrag={false}
-            translateExtent={[
-              [-800, -600],
-              [WORLD_END + 800, 3600],
-            ]}
+            translateExtent={extent}
             proOptions={{ hideAttribution: true }}
             defaultViewport={{ x: 20, y: 60, zoom: 0.7 }}
             defaultEdgeOptions={{

@@ -655,3 +655,26 @@ test('the shading menu changes how the mesh is drawn', async ({ page }) => {
   const flat = await shot('flat')
   expect(smooth).not.toEqual(flat)
 })
+
+test('panning after "fit view" moves the graph by the drag, nothing more', async ({ page }) => {
+  await page.goto('/')
+  await page.locator('input[type=file][accept*=json]').setInputFiles('e2e/fixtures/margin-ring.json')
+  await expect(page.locator('.react-flow__node').first()).toBeVisible()
+  await page.locator('.react-flow__controls-fitview').click()
+  await page.waitForTimeout(800)
+  const pos = async () => {
+    const t = await page.locator('.react-flow__viewport').evaluate((e) => (e as HTMLElement).style.transform)
+    const m = /translate\(([-\d.]+)px,\s*([-\d.]+)px\)/.exec(t)!
+    return [Number(m[1]), Number(m[2])]
+  }
+  const before = await pos()
+  const box = (await page.locator('.react-flow__pane').boundingBox())!
+  const x = box.x + box.width / 2, y = box.y + box.height - 20
+  await page.mouse.move(x, y)
+  await page.mouse.down()
+  await page.mouse.move(x + 30, y + 20, { steps: 5 })
+  await page.mouse.up()
+  const after = await pos()
+  expect(Math.abs(after[0] - before[0] - 30)).toBeLessThan(2)
+  expect(Math.abs(after[1] - before[1] - 20)).toBeLessThan(2)
+})
