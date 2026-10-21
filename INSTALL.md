@@ -39,6 +39,46 @@ npm run dev
 Vite prints the local studio URL. The built static site is in `web/dist/` and can be deployed to a static host,
 including GitHub Pages. The CI workflow builds the WASM package before building the web app.
 
+## Host the studio on your own web server (any sub-folder)
+
+The studio is a static site; everything runs in the visitor's browser, nothing is uploaded. The build uses relative
+paths, so it works from the site root or from a sub-folder such as `https://example.com/apps/stencil/`.
+
+1. Build it (needs Rust, `wasm-pack`, Node 22; see Requirements). From the repository root:
+   ```bash
+   cd crates/stencil-wasm
+   wasm-pack build --release --target web --out-dir ../../web/pkg
+   # optional, faster multi-threaded engine (needs the nightly toolchain and rust-src)
+   RUSTFLAGS='-C target-feature=+atomics,+bulk-memory,+mutable-globals -C link-args=--shared-memory -C link-args=--import-memory -C link-args=--max-memory=4294967296 -C link-args=--export=__wasm_init_tls -C link-args=--export=__tls_size -C link-args=--export=__tls_align -C link-args=--export=__tls_base' \
+     rustup run nightly wasm-pack build --release --target web --out-dir ../../web/public/pkg-mt --out-name stencil_wasm -- --features threads -Z build-std=panic_abort,std
+   cd ../../web && npm ci && node scripts/patch-mt-worker.mjs && npm run build
+   ```
+   The site is now in `web/dist/` (`index.html`, `assets/`, `pkg-mt/`). Skip the threaded step to get a smaller site that
+   runs on one thread.
+2. Copy the **contents** of `web/dist/` into the folder you serve, for example:
+   ```bash
+   rsync -av --delete web/dist/ user@server:/var/www/html/apps/stencil/
+   ```
+3. Make sure the server sends `.wasm` files as `application/wasm` and `.js` as `text/javascript` (most do).
+4. Optional, for the multi-threaded engine: send these two headers on **every** response of the studio folder
+   (the page, scripts and `.wasm`), and serve over HTTPS (or `localhost`):
+   ```
+   Cross-Origin-Opener-Policy: same-origin
+   Cross-Origin-Embedder-Policy: require-corp
+   ```
+   - nginx: inside `location /apps/stencil/ { ... }` add `add_header Cross-Origin-Opener-Policy same-origin always;`
+     and `add_header Cross-Origin-Embedder-Policy require-corp always;`
+   - Apache (`mod_headers`), in the folder's `.htaccess`: `Header set Cross-Origin-Opener-Policy "same-origin"` and
+     `Header set Cross-Origin-Embedder-Policy "require-corp"`
+   - Static hosts that cannot set headers (GitHub Pages) run the single-threaded engine; everything still works, only
+     slower on big images.
+   The studio's Perf panel shows whether the threaded engine started.
+5. Open `https://your-server/apps/stencil/` (keep the trailing slash). Drop an image to check it works. In the browser
+   dev tools, no request should return 404, and `crossOriginIsolated` should be `true` if you set the headers.
+
+Notes: a page embedded in an `<iframe>` from another origin, or loading third-party scripts, needs the headers'
+counterparts (CORP/CORS) and may fall back to one thread. Rebuild and re-copy after every update.
+
 ## Release downloads and the launcher
 
 Each release zip (`stencil-linux-x64`, `stencil-macos-arm64`, `stencil-windows-x64`) holds `stencil` (the CLI with the

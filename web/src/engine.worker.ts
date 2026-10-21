@@ -24,7 +24,8 @@ const ready = (async () => {
   else if (!self.crossOriginIsolated || typeof SharedArrayBuffer === 'undefined') why = 'page is not cross-origin isolated (needs COOP/COEP headers)'
   else {
     try {
-      const mtUrl = `${self.location.origin}/pkg-mt/stencil_wasm.js`
+      // relative to this worker (dist/assets/), so the site works from any sub-path
+      const mtUrl = new URL('../pkg-mt/stencil_wasm.js', self.location.href).href
       const mt = await import(/* @vite-ignore */ mtUrl)
       await mt.default()
       await mt.initThreadPool(n)
