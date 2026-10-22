@@ -975,6 +975,24 @@ pub(super) fn run_pads(_: &Engine, i: &HashMap<String, Value>, p: &P) -> Result<
         files.push(r?.0);
     }
     crate::progress::step("fit pads", 0.95);
+    // the plates that screw two tiles together across a seam, on the mounting holes either side of it
+    if !joins.is_empty() {
+        let (j, e) = hw::join_plates(
+            p.s("mount_screw"),
+            p.b("mount_threaded"),
+            p.f("mount_clearance") / 2.0,
+            off,
+            p.f("extend"),
+            height,
+            p.f("segments") as usize,
+        )?;
+        for (mesh, n) in [(j, "joiner"), (e, "extender")] {
+            if !mesh.is_watertight() {
+                return Err(format!("verification failed: {n} plate is not watertight"));
+            }
+            files.push((format!("{n}_{}.stl", p.s("mount_screw")), mesh.to_stl()));
+        }
+    }
     let pts = |l: &[(f64, f64)], r: f64| -> Vec<Json> {
         l.iter()
             .map(|c| json!({"x": c.0, "y": c.1, "r": r}))

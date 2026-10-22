@@ -365,9 +365,10 @@ pub(super) fn catalogue() -> Vec<NodeDef> {
                 num("mount_clearance", "Mounting hole clearance (mm, diametral)", 0.4, 0.0, 1.5, 0.05, Some("Mounting holes"), false),
                 num("hole_spacing", "Hole every (mm, 0 = none)", 120.0, 0.0, 1000.0, 5.0, Some("Mounting holes"), false),
                 num("joiner_offset", "Joiner holes this far each side of a seam (mm, 0 = none)", 12.0, 0.0, 60.0, 0.5, Some("Mounting holes"), false),
+                num("extend", "Extender plate reach (mm)", 25.0, 10.0, 120.0, 1.0, Some("Mounting holes"), false),
                 num("segments", "Round segments", 48.0, 24.0, 128.0, 4.0, None, true),
             ],
-            doc: "Adds threaded pads for fixing the stencil to a frame, wall or board, and optional through-holes, to the tiles from a Tiles node. Set the pad thread to none for a plate without pads. Pads sit on the middle of the margin band at the corners and, on edges longer than the limit, evenly between them. Holes are spaced along the band. A spot that would fall on a seam or a connector slides along its edge until it is clear, so every pad and hole sits in one tile. Printed flipped, pads are plain threaded holes. Needs a margin of at least the pad diameter (thread + 4 mm).",
+            doc: "Adds threaded pads for fixing the stencil to a frame, wall or board, and optional through-holes, to the tiles from a Tiles node. Set the pad thread to none for a plate without pads. Pads sit on the middle of the margin band at the corners and, on edges longer than the limit, evenly between them. Holes are spaced along the band. A spot that would fall on a seam or a connector slides along its edge until it is clear, so every pad and hole sits in one tile. Printed flipped, pads are plain threaded holes. Needs a margin of at least the pad diameter (thread + 4 mm). When there are mounting holes either side of a seam it also outputs the plates that screw the tiles together: joiner_<screw>.stl (two holes, on the two mounting holes either side of a seam) and extender_<screw>.stl (four holes, a second row the set reach further out), as thick as the pads are high, with the mounting holes' clearance and thread. Print one joiner per seam crossing.",
             run: run_pads,
         },
         NodeDef {

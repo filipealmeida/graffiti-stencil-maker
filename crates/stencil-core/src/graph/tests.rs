@@ -1009,6 +1009,61 @@ fn margin_expansion_gap_shrinks_the_slabs_and_keeps_the_holes() {
 }
 
 #[test]
+fn pads_node_makes_a_joiner_centred_on_the_seam_holes() {
+    let mut e = Engine::new();
+    let id = e.add_image(test_png()).unwrap()["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let mut g = graph(&id, 6.0);
+    g["nodes"][2]["params"] = json!({"thickness_mm": 6.0, "margin_mm": 12.0, "width_mm": 140.0});
+    g["nodes"][3] = json!({"id": "ex", "type": "tiles", "params": {"max_x": 80.0, "max_y": 80.0}});
+    g["nodes"].as_array_mut().unwrap().push(json!({"id": "pd", "type": "pads", "params": {"pad_thread": "none", "mount_screw": "M5", "pad_height": 5.0, "extend": 30.0, "hole_spacing": 60.0}}));
+    g["edges"]
+        .as_array_mut()
+        .unwrap()
+        .push(json!({"from": ["ex", "parts"], "to": ["pd", "parts"]}));
+    let r = e.run(&g, None, &|| 0.0);
+    let key = r["nodes"]["pd"]["key"].as_str().unwrap().to_string();
+    let Some(Value::Parts(p)) = e.value(&key, "parts") else {
+        panic!("{r}")
+    };
+    let joins = p.meta["plate"]["joins"].as_array().unwrap();
+    assert!(!joins.is_empty());
+    // the two holes of a join are 2 x offset apart; the joiner's holes are the same distance apart, on its centre
+    let j = &joins[0];
+    let dist = |a: &serde_json::Value, b: &serde_json::Value| {
+        (a[0].as_f64().unwrap() - b[0].as_f64().unwrap())
+            .hypot(a[1].as_f64().unwrap() - b[1].as_f64().unwrap())
+    };
+    let span = dist(&j["a"], &j["b"]);
+    assert!((span - 2.0 * p.meta["plate"]["mounting"]["offset"].as_f64().unwrap()).abs() < 1e-6);
+    let get = |n: &str| {
+        let f = p
+            .files
+            .iter()
+            .find(|f| f.0 == n)
+            .unwrap_or_else(|| panic!("{n}"));
+        crate::mesh::Mesh::from_stl(&f.1).unwrap()
+    };
+    let (joiner, ext) = (get("joiner_M5.stl"), get("extender_M5.stl"));
+    for m in [&joiner, &ext] {
+        assert!(m.is_watertight());
+        let (lo, hi) = m.bounds();
+        assert!(
+            (hi[2] - lo[2] - 5.0).abs() < 1e-3,
+            "as thick as the pads are high"
+        );
+        // the plate is symmetric about the seam: a hole every `offset` from the centre line
+        assert!((lo[0] + hi[0]).abs() < 1e-3, "{lo:?} {hi:?}");
+        assert!(
+            (hi[0] - lo[0] - (span + 2.0 * (2.5 + crate::hardware::JOIN_WALL_MM))).abs() < 1e-3
+        );
+    }
+    assert!((ext.bounds().1[1] - joiner.bounds().1[1] - 30.0).abs() < 1e-3);
+}
+
+#[test]
 fn margin_expansion_refuses_a_plate_without_margin_or_holes() {
     let (r, p) = ring_run(false, 0.0, false, "M4", 1);
     assert!(p.is_none() && r["nodes"]["rg"]["state"] != "done", "{r}");

@@ -260,6 +260,7 @@ Every parameter `--set NODE.PARAM=VALUE` accepts. Generated with `stencil --list
 | `mount_clearance` | Mounting hole clearance (mm, diametral) | float | `0.4` | 0.0 to 1.5 |
 | `hole_spacing` | Hole every (mm, 0 = none) | float | `120.0` | 0.0 to 1000.0 |
 | `joiner_offset` | Joiner holes this far each side of a seam (mm, 0 = none) | float | `12.0` | 0.0 to 60.0 |
+| `extend` | Extender plate reach (mm) | float | `25.0` | 10.0 to 120.0 |
 | `segments` | Round segments | int | `48.0` | 24.0 to 128.0 |
 
 ### Margin expansion (`ring`)
