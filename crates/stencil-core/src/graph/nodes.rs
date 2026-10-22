@@ -439,7 +439,7 @@ pub(super) fn run_hardware(
         let dist = p.f("plate_distance");
         let (two, four) = hw::join_plates_padded(
             p.s("screw"),
-            false,
+            p.b("plate_threaded"),
             p.f("plate_clearance"),
             dist / 2.0,
             p.f("extend"),

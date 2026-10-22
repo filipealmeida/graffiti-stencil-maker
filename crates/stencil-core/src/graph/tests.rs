@@ -181,6 +181,22 @@ fn hardware_node_makes_joiner_plates_to_the_size_asked() {
     for m in [&two, &four] {
         assert!(m.is_watertight());
     }
+    let g = json!({"nodes": [{"id": "hw", "type": "hardware", "params": {
+        "screw": "M5", "plate_threaded": true, "fit_test": false}}], "edges": []});
+    let r = e.run(&g, None, &|| 0.0);
+    assert_eq!(r["nodes"]["hw"]["state"], "done", "{r}");
+    let key = r["nodes"]["hw"]["key"].as_str().unwrap().to_string();
+    let Some(Value::Parts(p)) = e.value(&key, "parts") else {
+        panic!("{r}")
+    };
+    let f = p
+        .files
+        .iter()
+        .find(|f| f.0.starts_with("joiner_plate_M5_"))
+        .unwrap();
+    let threaded = crate::mesh::Mesh::from_stl(&f.1).unwrap();
+    assert!(threaded.is_watertight());
+    assert!(f.1.len() > two.to_stl().len() * 2, "threads add facets");
 }
 
 #[test]

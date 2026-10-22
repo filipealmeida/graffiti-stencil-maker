@@ -305,6 +305,7 @@ Every parameter `--set NODE.PARAM=VALUE` accepts. Generated with `stencil --list
 | `plate_distance` | Distance between hole centres (mm) | float | `30.0` | 8.0 to 300.0 |
 | `plate_height` | Height (mm) | float | `4.0` | 1.0 to 20.0 |
 | `plate_padding` | Padding round the holes (mm) | float | `3.0` | 1.0 to 20.0 |
+| `plate_threaded` | Threaded holes (the bolt screws in) | bool | `false` | true \| false |
 | `plate_clearance` | Hole clearance (mm, diametral) | float | `0.4` | 0.0 to 1.5 |
 | `screw` | Screw size | choice | `"M4"` | M3 \| M4 \| M5 \| M6 \| M8 \| M10 |
 | `length` | Screw length (mm) | float | `20.0` | 4.0 to 120.0 |
