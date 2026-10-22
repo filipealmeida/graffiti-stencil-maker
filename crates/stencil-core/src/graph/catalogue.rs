@@ -344,7 +344,7 @@ pub(super) fn catalogue() -> Vec<NodeDef> {
                 num("bridge_mm", "Bridge width (mm)", 1.6, 0.4, 6.0, 0.1, Some("Bridges"), false),
                 num("bridges_per_island", "Bridges per island", 1.0, 1.0, 4.0, 1.0, Some("Bridges"), true),
                 flag("raised_bridges", "Raised bridges (paint passes underneath)", true, Some("Bridges")),
-                choice("z_bridging", "Z bridging", "steps", &["easy", "steps"], Some("Bridges")),
+                choice("z_bridging", "Z bridging", "easy", &["easy", "steps"], Some("Bridges")),
             ],
             doc: "Cuts the plate into tiles no larger than the given size, as evenly as it can, and joins them with glued connector rods in blind holes at the seams. A seam may move a few millimetres to cross more material, so the connectors have room. When a cut leaves a piece of a tile hanging free, bridges tie it to its tile, so no tile has islands.",
             run: run_tiles,

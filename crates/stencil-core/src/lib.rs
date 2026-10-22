@@ -107,7 +107,7 @@ impl Default for Params {
             invert: false,
             layer_height_mm: 0.2,
             raised_bridges: false,
-            z_bridging: ZBridging::Steps,
+            z_bridging: ZBridging::Easy,
             extra_top_layers: 1,
             flip: false,
             min_island_mm2: 0.0,

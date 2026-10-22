@@ -245,7 +245,7 @@ Every parameter `--set NODE.PARAM=VALUE` accepts. Generated with `stencil --list
 | `bridge_mm` | Bridge width (mm) | float | `1.6` | 0.4 to 6.0 |
 | `bridges_per_island` | Bridges per island | int | `1.0` | 1.0 to 4.0 |
 | `raised_bridges` | Raised bridges (paint passes underneath) | bool | `true` | true \| false |
-| `z_bridging` | Z bridging | choice | `"steps"` | easy \| steps |
+| `z_bridging` | Z bridging | choice | `"easy"` | easy \| steps |
 
 ### Pads & mounting holes (`pads`)
 
