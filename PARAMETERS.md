@@ -299,7 +299,7 @@ Every parameter `--set NODE.PARAM=VALUE` accepts. Generated with `stencil --list
 
 | Parameter | Label | Type | Default | Range or choices |
 |---|---|---|---|---|
-| `extend` | Extender plate reach (mm) | float | `25.0` | 10.0 to 120.0 |
+| `extend` | Extender plate: distance between the two rows of holes (mm) | float | `25.0` | 10.0 to 120.0 |
 | `joiner_thickness` | Joiner plate thickness (mm) | float | `4.0` | 2.0 to 10.0 |
 | `plate` | Joiner plates (set by hand) | bool | `true` | true \| false |
 | `plate_distance` | Distance between hole centres (mm) | float | `30.0` | 8.0 to 300.0 |

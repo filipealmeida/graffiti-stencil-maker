@@ -422,7 +422,7 @@ pub(super) fn catalogue() -> Vec<NodeDef> {
             inputs: vec![("parts", "parts", false)],
             outputs: vec![("parts", "parts")],
             params: vec![
-                num("extend", "Extender plate reach (mm)", 25.0, 10.0, 120.0, 1.0, Some("Joiner plates"), false),
+                num("extend", "Extender plate: distance between the two rows of holes (mm)", 25.0, 10.0, 120.0, 1.0, Some("Joiner plates"), false),
                 num("joiner_thickness", "Joiner plate thickness (mm)", 4.0, 2.0, 10.0, 0.5, Some("Joiner plates"), false),
                 flag("plate", "Joiner plates (set by hand)", true, Some("Joiner plate")),
                 num("plate_distance", "Distance between hole centres (mm)", 30.0, 8.0, 300.0, 1.0, Some("Joiner plate"), false),
