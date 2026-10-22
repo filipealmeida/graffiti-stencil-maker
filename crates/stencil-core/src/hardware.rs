@@ -545,8 +545,32 @@ pub fn join_plates(
     thickness: f64,
     segments: usize,
 ) -> Result<(Mesh, Mesh), String> {
+    join_plates_padded(
+        screw,
+        threaded,
+        clearance,
+        off,
+        ext,
+        thickness,
+        segments,
+        JOIN_WALL_MM,
+    )
+}
+
+/// `join_plates` with `wall` mm of material between the edge of each hole and the edge of the plate.
+#[allow(clippy::too_many_arguments)]
+pub fn join_plates_padded(
+    screw: &str,
+    threaded: bool,
+    clearance: f64,
+    off: f64,
+    ext: f64,
+    thickness: f64,
+    segments: usize,
+    wall: f64,
+) -> Result<(Mesh, Mesh), String> {
     let (d, _) = thread(screw)?;
-    let r = d / 2.0 + JOIN_WALL_MM;
+    let r = d / 2.0 + wall;
     let make = |pts: &[(f64, f64)]| -> Result<Mesh, String> {
         let circles: Vec<[f64; 2]> = pts
             .iter()

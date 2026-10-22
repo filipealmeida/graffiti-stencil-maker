@@ -147,6 +147,43 @@ fn mounting_pads_threads_and_hardware_nodes_run() {
 }
 
 #[test]
+fn hardware_node_makes_joiner_plates_to_the_size_asked() {
+    let mut e = Engine::new();
+    let g = json!({"nodes": [{"id": "hw", "type": "hardware", "params": {
+        "screw": "M5", "plate_distance": 40.0, "plate_height": 6.0, "plate_padding": 4.0,
+        "plate_clearance": 0.4, "extend": 30.0, "fit_test": false}}], "edges": []});
+    let r = e.run(&g, None, &|| 0.0);
+    assert_eq!(r["nodes"]["hw"]["state"], "done", "{r}");
+    let key = r["nodes"]["hw"]["key"].as_str().unwrap().to_string();
+    let Some(Value::Parts(p)) = e.value(&key, "parts") else {
+        panic!("{r}")
+    };
+    let get = |n: &str| {
+        let f = p
+            .files
+            .iter()
+            .find(|f| f.0 == n)
+            .unwrap_or_else(|| panic!("{n}"));
+        crate::mesh::Mesh::from_stl(&f.1).unwrap()
+    };
+    let two = get("joiner_plate_M5_40mm.stl");
+    let four = get("joiner_plate_4holes_M5_40x30mm.stl");
+    // 40 mm between centres, a 2.5 mm screw radius and 4 mm of padding each side, 6 mm high
+    let (lo, hi) = two.bounds();
+    assert!(
+        (hi[0] - lo[0] - (40.0 + 2.0 * (2.5 + 4.0))).abs() < 0.01,
+        "{lo:?} {hi:?}"
+    );
+    assert!((hi[1] - lo[1] - 2.0 * (2.5 + 4.0)).abs() < 0.01);
+    assert!((hi[2] - lo[2] - 6.0).abs() < 1e-6);
+    let (l4, h4) = four.bounds();
+    assert!((h4[1] - l4[1] - (30.0 + 13.0)).abs() < 0.01);
+    for m in [&two, &four] {
+        assert!(m.is_watertight());
+    }
+}
+
+#[test]
 fn runs_caches_and_reruns_only_what_changed() {
     let mut e = Engine::new();
     let id = e.add_image(test_png()).unwrap()["id"]

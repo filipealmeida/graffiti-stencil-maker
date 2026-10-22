@@ -435,6 +435,34 @@ pub(super) fn run_hardware(
         }
         files.push((n, m.to_stl()));
     }
+    if p.b("plate") {
+        let dist = p.f("plate_distance");
+        let (two, four) = hw::join_plates_padded(
+            p.s("screw"),
+            false,
+            p.f("plate_clearance"),
+            dist / 2.0,
+            p.f("extend"),
+            p.f("plate_height"),
+            seg,
+            p.f("plate_padding"),
+        )?;
+        let (name2, name4) = (
+            format!("joiner_plate_{}_{}mm.stl", p.s("screw"), dist),
+            format!(
+                "joiner_plate_4holes_{}_{}x{}mm.stl",
+                p.s("screw"),
+                dist,
+                p.f("extend")
+            ),
+        );
+        for (mesh, n) in [(two, name2), (four, name4)] {
+            if !mesh.is_watertight() {
+                return Err(format!("verification failed: {n} is not watertight"));
+            }
+            files.push((n, mesh.to_stl()));
+        }
+    }
     if p.b("fit_test") {
         let d: f64 = p.s("connector_d").parse().unwrap_or(3.0);
         let m = hw::fit_test(

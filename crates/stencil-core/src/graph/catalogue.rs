@@ -424,6 +424,11 @@ pub(super) fn catalogue() -> Vec<NodeDef> {
             params: vec![
                 num("extend", "Extender plate reach (mm)", 25.0, 10.0, 120.0, 1.0, Some("Joiner plates"), false),
                 num("joiner_thickness", "Joiner plate thickness (mm)", 4.0, 2.0, 10.0, 0.5, Some("Joiner plates"), false),
+                flag("plate", "Joiner plates (set by hand)", true, Some("Joiner plate")),
+                num("plate_distance", "Distance between hole centres (mm)", 30.0, 8.0, 300.0, 1.0, Some("Joiner plate"), false),
+                num("plate_height", "Height (mm)", 4.0, 1.0, 20.0, 0.5, Some("Joiner plate"), false),
+                num("plate_padding", "Padding round the holes (mm)", 3.0, 1.0, 20.0, 0.5, Some("Joiner plate"), false),
+                num("plate_clearance", "Hole clearance (mm, diametral)", 0.4, 0.0, 1.5, 0.05, Some("Joiner plate"), false),
                 choice("screw", "Screw size", "M4", &THREAD_NAMES, Some("Screw and nut")),
                 num("length", "Screw length (mm)", 20.0, 4.0, 120.0, 1.0, Some("Screw and nut"), false),
                 num("nut_clearance", "Nut thread clearance (mm, radial)", 0.2, 0.0, 0.6, 0.05, Some("Screw and nut"), false),
@@ -434,7 +439,7 @@ pub(super) fn catalogue() -> Vec<NodeDef> {
                 choice("connector_d", "Connector diameter (mm)", "3", &["2.5", "3", "4", "5", "6"], Some("Fit test")),
                 num("segments", "Round segments (threads, round holes)", 48.0, 24.0, 128.0, 4.0, None, true),
             ],
-            doc: "Printable hex-head bolt and hex nut with real threads (M3 to M10). The bolt tip narrows over the last thread pitch (set the taper and its length in pitches) so it finds the hole; the taper is 0 for a plain end. Connect a Pads & mounting holes node and it also prints a joiner plate and an extender plate that bridge the seams over the frame, sized for that node's mounting screw. Also a calibration strip of connector holes with growing clearance: try the rod in each and keep the snuggest.",
+            doc: "Printable hex-head bolt and hex nut with real threads (M3 to M10). The bolt tip narrows over the last thread pitch (set the taper and its length in pitches) so it finds the hole; the taper is 0 for a plain end. Connect a Pads & mounting holes node and it also prints a joiner plate and an extender plate that bridge the seams over the frame, sized for that node's mounting screw. Also a joiner plate you size by hand: two holes of the screw size the given distance apart (centre to centre), as high as set, with the padding of material round the holes and rounded ends, plus a second plate with four holes (the second row the extender reach further out). The holes are plain clearance holes for the bolt, with the clearance set (0.4 mm diametral, like the mounting holes of the Pads node). Also a calibration strip of connector holes with growing clearance: try the rod in each and keep the snuggest.",
             run: run_hardware,
         },
     ]
