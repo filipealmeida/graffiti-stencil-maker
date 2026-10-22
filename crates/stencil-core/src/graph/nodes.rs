@@ -1141,7 +1141,25 @@ pub(super) fn run_ring(_: &Engine, i: &HashMap<String, Value>, p: &P) -> Result<
         ));
     }
     let mut unnumbered: Vec<String> = vec![];
-    for sl in &slabs {
+    let gap = p.f("gap");
+    for sl_full in &slabs {
+        // each slab gives up half the gap on every side, the first ring the whole gap towards the plate; the
+        // holes stay where they are, so the joiner plates stay centred on the seams
+        let mut sl = sl_full.clone();
+        for a in 0..2 {
+            sl.lo[a] += gap / 2.0;
+            sl.hi[a] -= gap / 2.0;
+        }
+        if let Some(rest) = sl.name.strip_prefix("ring_1_") {
+            match rest.split('_').next() {
+                Some("bottom") => sl.hi[1] -= gap / 2.0,
+                Some("top") => sl.lo[1] += gap / 2.0,
+                Some("left") => sl.hi[0] -= gap / 2.0,
+                Some("right") => sl.lo[0] += gap / 2.0,
+                _ => {}
+            }
+        }
+        let sl = &sl;
         // drilled around the origin: the boolean is robust there, far from it it can fail
         let (cx, cy) = ((sl.lo[0] + sl.hi[0]) / 2.0, (sl.lo[1] + sl.hi[1]) / 2.0);
         let block = crate::mesh::Mesh::cuboid(
@@ -1228,7 +1246,7 @@ pub(super) fn run_ring(_: &Engine, i: &HashMap<String, Value>, p: &P) -> Result<
         "rings": rings, "slabs": slabs.len(), "joiner_plates": joiner_plates, "plate_joints": plate_joints,
         "wall_holes": wall_holes, "unused_plate_holes": unused, "width_mm": width,
         "numbered": p.b("number_parts"), "unnumbered": unnumbered,
-        "thickness_mm": thick, "screw": screw, "joiner_file": format!("ring_joiner_{screw}.stl"), "square_joiner_file": format!("ring_joiner_square_{screw}.stl"),
+        "thickness_mm": thick, "gap_mm": gap, "screw": screw, "joiner_file": format!("ring_joiner_{screw}.stl"), "square_joiner_file": format!("ring_joiner_square_{screw}.stl"),
     });
     Ok(vec![(
         "parts",

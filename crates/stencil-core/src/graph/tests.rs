@@ -964,6 +964,51 @@ fn margin_expansion_gives_a_bolt_and_nut_that_fit_the_joint() {
 }
 
 #[test]
+fn margin_expansion_gap_shrinks_the_slabs_and_keeps_the_holes() {
+    let size = |g: f64| {
+        let mut e = Engine::new();
+        let id = e.add_image(test_png()).unwrap()["id"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        let mut gr = graph(&id, 6.0);
+        gr["nodes"][2]["params"] =
+            json!({"thickness_mm": 6.0, "margin_mm": 12.0, "flip": false, "width_mm": 140.0});
+        gr["nodes"][3] =
+            json!({"id": "ex", "type": "tiles", "params": {"max_x": 80.0, "max_y": 80.0}});
+        gr["nodes"].as_array_mut().unwrap().push(json!({"id": "pd", "type": "pads", "params": {"pad_thread": "none", "mount_screw": "M4", "hole_spacing": 40.0}}));
+        gr["nodes"].as_array_mut().unwrap().push(json!({"id": "rg", "type": "ring", "params": {"width": 30.0, "slab_length": 90.0, "gap": g, "number_parts": false}}));
+        gr["edges"]
+            .as_array_mut()
+            .unwrap()
+            .push(json!({"from": ["ex", "parts"], "to": ["pd", "parts"]}));
+        gr["edges"]
+            .as_array_mut()
+            .unwrap()
+            .push(json!({"from": ["pd", "parts"], "to": ["rg", "parts"]}));
+        let r = e.run(&gr, None, &|| 0.0);
+        let key = r["nodes"]["rg"]["key"].as_str().unwrap().to_string();
+        let Some(Value::Parts(p)) = e.value(&key, "parts") else {
+            panic!("{r}")
+        };
+        let f = p
+            .files
+            .iter()
+            .find(|f| f.0 == "ring_1_bottom_1.stl")
+            .unwrap();
+        let m = crate::mesh::Mesh::from_stl(&f.1).unwrap();
+        assert!(m.is_watertight());
+        let (lo, hi) = m.bounds();
+        (hi[0] - lo[0], hi[1] - lo[1])
+    };
+    let (w0, h0) = size(0.0);
+    let (w1, h1) = size(1.0);
+    // half a millimetre off each end, and across the width a whole one towards the plate and half off the outer side
+    assert!((w0 - w1 - 1.0).abs() < 0.01, "{w0} {w1}");
+    assert!((h0 - h1 - 1.5).abs() < 0.01, "{h0} {h1}");
+}
+
+#[test]
 fn margin_expansion_refuses_a_plate_without_margin_or_holes() {
     let (r, p) = ring_run(false, 0.0, false, "M4", 1);
     assert!(p.is_none() && r["nodes"]["rg"]["state"] != "done", "{r}");

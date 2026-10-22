@@ -49,7 +49,7 @@ pub fn side_holes(lo: [f64; 2], w: f64, h: f64, c: f64, spacing: f64) -> Vec<P> 
     v
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Slab {
     pub name: String,
     pub lo: [f64; 2],
@@ -283,7 +283,11 @@ pub fn plan(q: &RingParams) -> Result<Ring, String> {
             while off <= reach && best.is_none() {
                 for t in [want + off, want - off] {
                     let hs = [pt(s, t - c, q.ring / 2.0), pt(s, t + c, q.ring / 2.0)];
-                    if hs.iter().all(|&h| all.iter().all(|&o| d(h, o) >= clear)) {
+                    // a seam must not run through a hole: that hole would belong to neither slab
+                    let on_hole = plate_joints[si]
+                        .iter()
+                        .any(|k| (k.0 - t).abs() < q.hole_r + 2.0);
+                    if !on_hole && hs.iter().all(|&h| all.iter().all(|&o| d(h, o) >= clear)) {
                         best = Some(t);
                         break;
                     }
@@ -363,10 +367,22 @@ pub fn plan(q: &RingParams) -> Result<Ring, String> {
     let inside = |sl: &Slab, h: P, m: f64| {
         h.0 > sl.lo[0] + m && h.0 < sl.hi[0] - m && h.1 > sl.lo[1] + m && h.1 < sl.hi[1] - m
     };
-    for &(p1, p2) in &joints {
-        for h in [p1, p2] {
-            if let Some(sl) = slabs.iter_mut().find(|sl| inside(sl, h, 0.0)) {
-                sl.holes.push(h);
+    for (k, &(p1, p2)) in joints.iter().enumerate() {
+        // the first joints end in the plate (or the ring inside), whose own hole is drilled elsewhere
+        let ends = if k < used.len() {
+            vec![p2]
+        } else {
+            vec![p1, p2]
+        };
+        for h in ends {
+            match slabs.iter_mut().find(|sl| inside(sl, h, 0.0)) {
+                Some(sl) => sl.holes.push(h),
+                None => {
+                    return Err(format!(
+                        "a screw hole at ({:.1}, {:.1}) falls between two slabs: use another longest slab",
+                        h.0, h.1
+                    ))
+                }
             }
         }
     }
@@ -523,6 +539,35 @@ mod tests {
         assert!(r.joints[..12]
             .iter()
             .all(|j| (d(j.0, j.1) - 10.0).abs() < 1e-9));
+    }
+
+    #[test]
+    fn a_seam_never_runs_through_a_screw_hole() {
+        // a 224 mm edge cut in two has its seam at mid-edge, where the plate's hole is
+        let mut p = params(
+            vec![(112.0, 10.0), (112.0, 214.0), (10.0, 112.0), (214.0, 112.0)],
+            0.0,
+        );
+        p.w = 224.0;
+        p.h = 224.0;
+        p.c = 10.0;
+        p.ring = 40.0;
+        p.max_x = 200.0;
+        p.max_y = 200.0;
+        p.hole_r = 3.2;
+        p.join_r = 6.0;
+        let r = plan(&p).unwrap();
+        for j in &r.joints {
+            for h in [j.0, j.1] {
+                let n = r
+                    .slabs
+                    .iter()
+                    .filter(|s| h.0 > s.lo[0] && h.0 < s.hi[0] && h.1 > s.lo[1] && h.1 < s.hi[1])
+                    .count();
+                let in_plate = h.0 > 0.0 && h.0 < 224.0 && h.1 > 0.0 && h.1 < 224.0;
+                assert_eq!(n, usize::from(!in_plate), "{h:?}");
+            }
+        }
     }
 
     #[test]

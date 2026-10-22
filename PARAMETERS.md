@@ -269,6 +269,7 @@ Every parameter `--set NODE.PARAM=VALUE` accepts. Generated with `stencil --list
 | `width` | Border width (mm) | float | `40.0` | 20.0 to 400.0 |
 | `rings` | Number of rings | int | `1.0` | 1.0 to 5.0 |
 | `slab_length` | Longest slab (mm) | float | `200.0` | 40.0 to 1000.0 |
+| `gap` | Gap between parts (mm) | float | `0.0` | 0.0 to 1.0 |
 | `joiner_thickness` | Joiner plate thickness (mm) | float | `4.0` | 2.0 to 12.0 |
 | `hardware` | Add a bolt and a nut for the joiner plates | bool | `true` | true \| false |
 | `screw_length` | Bolt length (mm, 0 = fit the joint) | float | `0.0` | 0.0 to 120.0 |
