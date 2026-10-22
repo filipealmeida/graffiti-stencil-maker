@@ -275,6 +275,8 @@ Every parameter `--set NODE.PARAM=VALUE` accepts. Generated with `stencil --list
 | `hardware` | Add a bolt and a nut for the joiner plates | bool | `true` | true \| false |
 | `screw_length` | Bolt length (mm, 0 = fit the joint) | float | `0.0` | 0.0 to 120.0 |
 | `nut_clearance` | Nut thread clearance (mm, radial) | float | `0.2` | 0.0 to 0.6 |
+| `tip_taper` | Bolt tip taper (mm, radial; 0 = none) | float | `1.0` | 0.0 to 2.0 |
+| `tip_pitches` | Bolt tip taper length (thread pitches) | float | `1.0` | 0.5 to 4.0 |
 | `number_parts` | Number the slabs | bool | `true` | true \| false |
 | `number_size` | Number size (mm) | float | `10.0` | 4.0 to 30.0 |
 | `pocket_depth` | Pocket depth (mm, 0 = the plate's layer height) | float | `0.0` | 0.0 to 3.0 |
@@ -302,6 +304,8 @@ Every parameter `--set NODE.PARAM=VALUE` accepts. Generated with `stencil --list
 | `screw` | Screw size | choice | `"M4"` | M3 \| M4 \| M5 \| M6 \| M8 \| M10 |
 | `length` | Screw length (mm) | float | `20.0` | 4.0 to 120.0 |
 | `nut_clearance` | Nut thread clearance (mm, radial) | float | `0.2` | 0.0 to 0.6 |
+| `tip_taper` | Bolt tip taper (mm, radial; 0 = none) | float | `1.0` | 0.0 to 2.0 |
+| `tip_pitches` | Bolt tip taper length (thread pitches) | float | `1.0` | 0.5 to 4.0 |
 | `fit_test` | Connector fit-test strip | bool | `true` | true \| false |
 | `connector` | Connector shape | choice | `"hex"` | hex \| round |
 | `connector_d` | Connector diameter (mm) | choice | `"3"` | 2.5 \| 3 \| 4 \| 5 \| 6 |

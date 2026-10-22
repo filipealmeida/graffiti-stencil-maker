@@ -417,7 +417,14 @@ pub(super) fn run_hardware(
 ) -> Result<Outputs, String> {
     use crate::hardware as hw;
     let seg = p.f("segments") as usize;
-    let (bolt, nut) = hw::screw_parts(p.s("screw"), p.f("length"), p.f("nut_clearance"), seg)?;
+    let (bolt, nut) = hw::screw_parts(
+        p.s("screw"),
+        p.f("length"),
+        p.f("nut_clearance"),
+        seg,
+        p.f("tip_taper"),
+        p.f("tip_pitches"),
+    )?;
     let mut files = vec![];
     for (m, n) in [
         (bolt, format!("bolt_{}x{}.stl", p.s("screw"), p.f("length"))),
@@ -1241,7 +1248,14 @@ pub(super) fn run_ring(_: &Engine, i: &HashMap<String, Value>, p: &P) -> Result<
         } else {
             auto
         };
-        let (bolt, nut) = hw::screw_parts(&screw, length, p.f("nut_clearance"), seg)?;
+        let (bolt, nut) = hw::screw_parts(
+            &screw,
+            length,
+            p.f("nut_clearance"),
+            seg,
+            p.f("tip_taper"),
+            p.f("tip_pitches"),
+        )?;
         let (bn, nn) = (
             format!("ring_bolt_{screw}x{length}.stl"),
             format!("ring_nut_{screw}.stl"),

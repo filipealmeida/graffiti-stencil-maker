@@ -35,6 +35,21 @@ pub fn thread_void(
     n: usize,
     per_turn: usize,
 ) -> Result<Mesh, String> {
+    thread_void_tapered(name, clearance, z0, z1, n, per_turn, 0.0, 0.0)
+}
+
+/// `thread_void` whose last `taper_len` mm (at z1) narrow linearly, by `taper` mm of radius at the very end.
+#[allow(clippy::too_many_arguments)]
+pub fn thread_void_tapered(
+    name: &str,
+    clearance: f64,
+    z0: f64,
+    z1: f64,
+    n: usize,
+    per_turn: usize,
+    taper: f64,
+    taper_len: f64,
+) -> Result<Mesh, String> {
     let (d, pitch) = thread(name)?;
     let r_maj = d / 2.0 + clearance;
     let depth = 0.54 * pitch;
@@ -60,7 +75,19 @@ pub fn thread_void(
     for k in 0..=slices {
         let z = z0 + h * k as f64 / slices as f64;
         let twist = TAU * (z - z0) / pitch;
+        let len = taper_len.min(h);
+        let cut = if taper > 0.0 && len > 0.0 {
+            taper * ((z - (z1 - len)) / len).clamp(0.0, 1.0)
+        } else {
+            0.0
+        };
         for &(r, a) in &prof {
+            // never thinner than a quarter of the screw: the tip must stay a solid
+            let r = if cut > 0.0 {
+                (r - cut).max(0.25 * r_maj)
+            } else {
+                r
+            };
             m.v.push([r * (a + twist).cos(), r * (a + twist).sin(), z]);
         }
     }
@@ -556,13 +583,16 @@ pub fn join_plates(
 }
 
 /// Printable hex-head bolt (fully threaded, head on the bed) and its hex nut.
+/// The tip of the bolt narrows by `tip` mm of radius over the last `tip_pitches` thread pitches, so it finds the hole.
 pub fn screw_parts(
     screw: &str,
     length: f64,
     nut_clearance: f64,
     segments: usize,
+    tip: f64,
+    tip_pitches: f64,
 ) -> Result<(Mesh, Mesh), String> {
-    let (d, _) = thread(screw)?;
+    let (d, pitch) = thread(screw)?;
     let af = (1.6 * d * 10.0).round() / 10.0;
     let (head, nut) = (
         (0.7 * d * 10.0).round() / 10.0,
@@ -570,13 +600,15 @@ pub fn screw_parts(
     );
     let ac = af / (PI / 6.0).cos();
     let per_turn = (segments / 6).clamp(8, 16);
-    let bolt = hexagon(ac, 0.0, head).union(&thread_void(
+    let bolt = hexagon(ac, 0.0, head).union(&thread_void_tapered(
         screw,
         0.0,
         head - 0.01,
         head + length,
         segments,
         per_turn,
+        tip,
+        tip_pitches * pitch,
     )?)?;
     let nut = hexagon(ac, 0.0, nut).subtract(&thread_void(
         screw,
@@ -649,9 +681,43 @@ mod tests {
     }
 
     #[test]
+    fn the_bolt_tip_narrows_and_the_rest_is_untouched() {
+        for (name, d, pitch) in THREADS {
+            let plain = screw_parts(name, 12.0, 0.2, 48, 0.0, 1.0).unwrap().0;
+            let tip = screw_parts(name, 12.0, 0.2, 48, 1.0, 1.0).unwrap().0;
+            assert!(tip.is_watertight(), "{name}");
+            // widest reach from the axis, below and in the last pitch
+            let reach = |m: &Mesh, z0: f64, z1: f64| {
+                m.v.iter()
+                    .filter(|v| v[2] >= z0 && v[2] <= z1)
+                    .map(|v| v[0].hypot(v[1]))
+                    .fold(0.0, f64::max)
+            };
+            let head = (0.7 * d * 10.0).round() / 10.0;
+            let top = head + 12.0;
+            assert!(
+                (reach(&plain, top - 0.01, top) - d / 2.0).abs() < 0.05,
+                "{name}"
+            );
+            assert!(reach(&tip, top - 0.01, top) < d / 2.0 - 0.7, "{name}");
+            // the shank below the taper is as wide as before
+            let low = (head + 1.0, top - pitch - 0.01);
+            assert!(
+                (reach(&tip, low.0, low.1) - reach(&plain, low.0, low.1)).abs() < 1e-6,
+                "{name}"
+            );
+            assert!(tip.volume() < plain.volume());
+            for (t, l) in [(2.0, 0.5), (2.0, 4.0)] {
+                let m = screw_parts(name, 12.0, 0.2, 48, t, l).unwrap().0;
+                assert!(m.is_watertight() && m.volume() > 0.0, "{name} {t} {l}");
+            }
+        }
+    }
+
+    #[test]
     fn screws_nuts_plates_and_fit_test_build() {
         for (name, _, _) in THREADS {
-            let (b, n) = screw_parts(name, 10.0, 0.2, 48).unwrap();
+            let (b, n) = screw_parts(name, 10.0, 0.2, 48, 1.0, 1.0).unwrap();
             assert!(b.is_watertight() && n.is_watertight(), "{name}");
             let (j, e) = join_plates(name, true, 0.15, 10.0, 20.0, 4.0, 48).unwrap();
             assert!(j.is_watertight() && e.is_watertight(), "{name}");
