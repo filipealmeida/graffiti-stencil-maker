@@ -923,3 +923,17 @@ test('a node that does not fit the edge leaves it alone', async ({ page }) => {
   await drop()
   await expect(page.locator('.react-flow__edge')).toHaveCount(2)
 })
+
+test('the status text lives in a footer, so the toolbar buttons never move while it changes', async ({ page }) => {
+  await open(page)
+  await expect(page.locator('header [role=status]')).toHaveCount(0)
+  await expect(page.locator('footer.statusbar [role=status]')).toBeVisible()
+  const rerun = page.locator('header').getByRole('button', { name: 'Rerun' })
+  const before = (await rerun.boundingBox())!
+  await page.getByRole('button', { name: '+ post' }).click()
+  await page.locator('.menu button').filter({ hasText: 'Add pads & mounting holes' }).click()
+  await expect(page.locator('footer .goto-fail')).toBeVisible({ timeout: 60000 })
+  const after = (await rerun.boundingBox())!
+  expect(after.x).toBe(before.x)
+  expect(after.y).toBe(before.y)
+})

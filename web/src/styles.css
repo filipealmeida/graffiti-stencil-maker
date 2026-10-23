@@ -1195,6 +1195,9 @@ header .btn.icon-btn {
   white-space: nowrap;
 }
 .tb-badge {
+  position: absolute;
+  top: -6px;
+  right: -6px;
   min-width: 14px;
   padding: 0 4px;
   border-radius: 8px;
@@ -1213,4 +1216,28 @@ header .btn.icon-btn {
   stroke: var(--acc) !important;
   stroke-width: 4 !important;
   stroke-dasharray: 8 5;
+}
+.statusbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: none;
+  height: 28px;
+  padding: 0 12px;
+  background: var(--panel);
+  border-top: 1px solid var(--line);
+  overflow: hidden;
+}
+.statusbar .status {
+  flex: 1;
+  min-width: 0;
+  max-width: none;
+}
+.statusbar .goto-fail {
+  margin-left: 0;
+  padding: 1px 8px;
+}
+
+header button {
+  position: relative;
 }

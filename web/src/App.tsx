@@ -610,23 +610,6 @@ function Canvas() {
         >
           <Icon name="rerun" />
         </button>
-        {s.busy && s.progress.total > 0 && (
-          <span
-            className="gbar"
-            role="progressbar"
-            aria-label="Run progress"
-            aria-valuemin={0}
-            aria-valuemax={s.progress.total}
-            aria-valuenow={Math.floor(s.progress.done)}
-            title={`${Math.floor(s.progress.done)}/${s.progress.total} nodes`}
-          >
-            <i
-              style={{
-                width: `${(s.progress.done / s.progress.total) * 100}%`,
-              }}
-            />
-          </span>
-        )}
         <button
           className={s.reportOpen ? "on" : ""}
           onClick={() => s.setReport(!s.reportOpen)}
@@ -654,13 +637,6 @@ function Canvas() {
           <Icon name="console" />
           {s.logs.some((l) => l.level === "error") && <span className="tb-badge err" aria-hidden="true">!</span>}
         </button>
-        <Status
-          onGoto={(id) => {
-            useStudio.getState().select(id);
-            const n = rf.getNode(id);
-            if (n) rf.setCenter(n.position.x + (n.measured?.width ?? 200) / 2, n.position.y + (n.measured?.height ?? 100) / 2, { zoom: Math.max(rf.getZoom(), 0.8), duration: 250 });
-          }}
-        />
       </header>
       {cmdOpen && (
         <CommandPalette actions={cmdActions} onClose={() => setCmdOpen(false)} />
@@ -712,6 +688,32 @@ function Canvas() {
         <Inspector />
       </main>
       {s.consoleOpen && <Console height={170} />}
+      <footer className="statusbar">
+        <Status
+          onGoto={(id) => {
+            useStudio.getState().select(id);
+            const n = rf.getNode(id);
+            if (n) rf.setCenter(n.position.x + (n.measured?.width ?? 200) / 2, n.position.y + (n.measured?.height ?? 100) / 2, { zoom: Math.max(rf.getZoom(), 0.8), duration: 250 });
+          }}
+        />
+        {s.busy && s.progress.total > 0 && (
+          <span
+            className="gbar"
+            role="progressbar"
+            aria-label="Run progress"
+            aria-valuemin={0}
+            aria-valuemax={s.progress.total}
+            aria-valuenow={Math.floor(s.progress.done)}
+            title={`${Math.floor(s.progress.done)}/${s.progress.total} nodes`}
+          >
+            <i
+              style={{
+                width: `${(s.progress.done / s.progress.total) * 100}%`,
+              }}
+            />
+          </span>
+        )}
+      </footer>
       <Workbench />
     </div>
   );
