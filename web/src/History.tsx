@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import Icon from './Icon'
 import { historyItems, jumpTo, useStudio } from './store'
 
 /** The undo history as a list: pick any earlier (or later) state to go straight to it. */
@@ -15,8 +16,8 @@ export default function History() {
   const items = open ? historyItems() : []
   return (
     <span ref={box} style={{ position: 'relative' }}>
-      <button className={open ? 'on' : ''} onClick={() => setOpen(!open)} title="List of edits: pick one to go back (or forward) to it" aria-expanded={open}>
-        History
+      <button className={open ? 'on' : ''} onClick={() => setOpen(!open)} title="History: list of edits, pick one to go back (or forward) to it" aria-expanded={open} aria-label="History">
+        <Icon name="history" />
       </button>
       {open && (
         <div className="hist" role="listbox" aria-label="Edit history">

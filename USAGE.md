@@ -175,6 +175,7 @@ Chain **Tile layout → Stencil (or Vector stencil) → Pads → Screws**. The m
 - **Problem highlight and counts**: a node with an error finding gets a red outline, one with only warnings an amber one, and the *Report* button shows the totals (`✖` errors, `▲` warnings). A node whose result is being recomputed has a dashed outline.
 - **History** (toolbar): lists every edit in order ("Add Reshape paint", "Edit Stencil: bridge_mm", "Connect nodes", ...); pick one to jump straight to that state. Undo and redo still work as before.
 - **Presets** (Inspector, under the parameters): *Save as…* stores the node's parameters under a name in this browser; choosing a preset applies every parameter it holds. Tile layout also has a built-in *Mounting challenge* preset (100 mm wide, 10 mm margin, 50 mm tiles). *Export* writes all your presets to `stencil-presets.json` and *Import* adds those from such a file (a name you already have is kept), so presets can be shared or backed up.
+- **Toolbar:** apart from the `+ trace`, `+ stencil`, `+ post` and `+ All` menus, the top buttons are icons; hover one for its name and shortcut (open image, templates, command palette, history, undo, redo, open project, save, new, rerun, report, perf, console). Report and Console show a small badge when there are errors or warnings.
 - **Rerun** (`Ctrl+Enter`): runs the whole graph again; unchanged nodes come from the cache.
 - **Live preview**: while a slider is dragged a coarse draft (lower resolution, easy bridging, low vector detail) runs; releasing the slider runs the full quality pass. The status line says "draft preview" until then.
 - **Progress and ETA**: each running node shows its message, elapsed time and an estimated time left; the top status line is announced to screen readers.
@@ -183,6 +184,6 @@ Chain **Tile layout → Stencil (or Vector stencil) → Pads → Screws**. The m
 - **Performance**: the vector stencil uses a spatial index for bridge selection and near-contact repair and stops repairing once the mesh is watertight (a 287-island project: 19 s → 2.8 s easy, ~73 s → 10 s steps). Noding only re-checks edges a repair created, and the watertight check runs once. The CLI runs contours in parallel; in the browser, if a threaded WASM package is available and shared memory is allowed, the engine uses half the cores and leaves at least one free, else it falls back to one worker.
 - **Fix**: *Delete islands under (mm²)* in the vector stencil now really uses mm².
 
-- **Command palette**: press `Ctrl+K` (or the `⌘K` button) and type a node or template name to insert it quickly.
+- **Command palette**: press `Ctrl+K` (or the ⌘ button) and type a node or template name to insert it quickly.
 - **3D viewer controls**: `shading` switches between smooth and flat normals, and `detail` can force high/low detail (or auto, which shows low detail while orbiting and high detail when still).
 - **Threaded WebAssembly**: when `web/public/pkg-mt/` is built and the page is cross-origin isolated, the engine uses a worker pool sized to half the CPU cores and never all cores; otherwise it falls back to one worker automatically.

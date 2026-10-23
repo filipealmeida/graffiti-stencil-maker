@@ -9,6 +9,7 @@ import {
   type Edge,
 } from "@xyflow/react";
 import { api, type NodeType, type Stage } from "./api";
+import Icon from "./Icon";
 import PanelResizer from './PanelResizer'
 import Inspector from "./Inspector";
 import Console from "./Console";
@@ -438,8 +439,9 @@ function Canvas() {
             )}
           </div>
         </div>
-        <label className="btn">
-          Open image…
+        <label className="btn icon-btn" title="Open image…">
+          <Icon name="image" />
+          <span className="sr">Open image…</span>
           <input
             type="file"
             accept=".png,.jpg,.jpeg,.bmp,.svg"
@@ -453,9 +455,10 @@ function Canvas() {
             aria-haspopup="true"
             aria-expanded={menu === "templates"}
             onClick={() => setMenu(menu === "templates" ? null : "templates")}
-            title="Rebuild the graph around the current picture"
+            title="Templates: rebuild the graph around the current picture"
+            aria-label="Templates"
           >
-            Templates ▾
+            <Icon name="templates" />
           </button>
           {menu === "templates" && (
             <div className="menu wide">
@@ -480,23 +483,26 @@ function Canvas() {
         <button
           onClick={() => setCmdOpen(true)}
           title="Command palette (Ctrl+K)"
+          aria-label="Command palette"
         >
-          ⌘K
+          <Icon name="command" />
         </button>
         <History />
-        <button title="Undo (Ctrl+Z)" disabled={!s.canUndo} onClick={undo}>
-          ↶ Undo
+        <button title="Undo (Ctrl+Z)" aria-label="Undo" disabled={!s.canUndo} onClick={undo}>
+          <Icon name="undo" />
         </button>
         <button
           title="Redo (Ctrl+Shift+Z)"
+          aria-label="Redo"
           disabled={!s.canRedo}
           onClick={redo}
         >
-          ↷ Redo
+          <Icon name="redo" />
         </button>
         <span className="spacer" />
-        <label className="btn">
-          Open project…
+        <label className="btn icon-btn" title="Open project…">
+          <Icon name="folder" />
+          <span className="sr">Open project…</span>
           <input
             type="file"
             accept=".json"
@@ -514,8 +520,12 @@ function Canvas() {
           onChange={(e) => setPname(e.target.value)}
           aria-label="Project name"
         />
-        <button onClick={save}>Save project</button>
+        <button onClick={save} title="Save project" aria-label="Save project">
+          <Icon name="save" />
+        </button>
         <button
+          title="New project: discard the current graph"
+          aria-label="New"
           onClick={() => {
             if (
               s.nodes.length &&
@@ -528,14 +538,15 @@ function Canvas() {
             localStorage.removeItem(STORE_KEY);
           }}
         >
-          New
+          <Icon name="new" />
         </button>
         <button
           onClick={rerun}
           disabled={s.busy}
-          title="Run the whole graph again (Ctrl+Enter). Unchanged nodes come from the cache."
+          title="Rerun the whole graph (Ctrl+Enter). Unchanged nodes come from the cache."
+          aria-label="Rerun"
         >
-          ↻ Rerun
+          <Icon name="rerun" />
         </button>
         {s.busy && s.progress.total > 0 && (
           <span
@@ -557,22 +568,29 @@ function Canvas() {
         <button
           className={s.reportOpen ? "on" : ""}
           onClick={() => s.setReport(!s.reportOpen)}
-          title="Print readiness and per-node timing"
+          title="Report: print readiness and per-node timing"
+          aria-label={`Report${rep.errors > 0 ? ` ✖${rep.errors}` : ""}${rep.warnings > 0 ? ` ▲${rep.warnings}` : ""}`}
         >
-          Report{rep.errors > 0 ? ` ✖${rep.errors}` : ""}{rep.warnings > 0 ? ` ▲${rep.warnings}` : ""}
+          <Icon name="report" />
+          {rep.errors > 0 && <span className="tb-badge err" aria-hidden="true">{rep.errors}</span>}
+          {rep.warnings > 0 && <span className="tb-badge warn" aria-hidden="true">{rep.warnings}</span>}
         </button>
         <button
           className={s.perfOpen ? "on" : ""}
           onClick={() => s.setPerf(!s.perfOpen)}
-          title="Show engine workers and load"
+          title="Perf: show engine workers and load"
+          aria-label="Perf"
         >
-          Perf
+          <Icon name="perf" />
         </button>
         <button
           className={s.consoleOpen ? "on" : ""}
           onClick={() => s.setConsole(!s.consoleOpen)}
+          title="Console: the engine log"
+          aria-label={`Console${s.logs.some((l) => l.level === "error") ? " ⚠" : ""}`}
         >
-          Console{s.logs.some((l) => l.level === "error") ? " ⚠" : ""}
+          <Icon name="console" />
+          {s.logs.some((l) => l.level === "error") && <span className="tb-badge err" aria-hidden="true">!</span>}
         </button>
         <Status
           onGoto={(id) => {

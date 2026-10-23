@@ -861,3 +861,14 @@ test('a failed run offers a jump to the node that failed', async ({ page }) => {
   await jump.click({ timeout: 8000 })
   await expect(page.locator('aside.inspector h2')).toContainText('Add pads & mounting holes')
 })
+
+test('the toolbar buttons are icons that each carry a tooltip and a name', async ({ page }) => {
+  await open(page)
+  for (const name of ['Templates', 'Command palette', 'History', 'Undo', 'Redo', 'Save project', 'New', 'Rerun', 'Report', 'Perf', 'Console']) {
+    const b = page.locator('header').getByRole('button', { name: new RegExp(`^${name}`) })
+    await expect(b, name).toBeVisible()
+    await expect(b.locator('svg.icon'), name).toHaveCount(1)
+    expect((await b.getAttribute('title')) ?? '', name).not.toBe('')
+  }
+  for (const title of ['Open image…', 'Open project…']) await expect(page.locator(`header label[title="${title}"] svg.icon`)).toHaveCount(1)
+})

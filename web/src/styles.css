@@ -1176,3 +1176,36 @@ header > .pal .menu:not(.wide) {
 .goto-fail {
   margin-left: 8px;
 }
+header button,
+header .btn.icon-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 7px;
+}
+.icon {
+  flex: none;
+}
+.sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+.tb-badge {
+  min-width: 14px;
+  padding: 0 4px;
+  border-radius: 8px;
+  font-size: 10px;
+  line-height: 14px;
+  text-align: center;
+  color: #16191e;
+}
+.tb-badge.err {
+  background: #ff6b6b;
+}
+.tb-badge.warn {
+  background: #f0d24a;
+}
