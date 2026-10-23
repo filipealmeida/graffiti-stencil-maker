@@ -290,8 +290,26 @@ function Canvas() {
   const addFromMenu = (t: NodeType) => {
     const c = rf.screenToFlowPosition({ x: window.innerWidth * 0.3, y: 160 });
     const sp = stageColumn(t.stage);
-    s.addNode(t.id, {}, { x: t.stage === "trace" ? c.x : sp.x + 30, y: c.y });
+    const id = s.addNode(t.id, {}, { x: t.stage === "trace" ? c.x : sp.x + 30, y: c.y });
     setMenu(null);
+    revealNode(id);
+  };
+  // once the new node is measured, pan (never zoom) just far enough to show all of it
+  const revealNode = (id: string) => {
+    setTimeout(() => {
+      const n = rf.getNode(id);
+      const box = document.querySelector(".canvas")?.getBoundingClientRect();
+      if (!n || !box) return;
+      const { x, y, zoom } = rf.getViewport();
+      const w = (n.measured?.width ?? 260) * zoom;
+      const h = (n.measured?.height ?? 160) * zoom;
+      const gap = 30;
+      const sx = n.position.x * zoom + x;
+      const sy = n.position.y * zoom + y;
+      const dx = sx < gap ? gap - sx : sx + w + gap > box.width ? box.width - gap - w - sx : 0;
+      const dy = sy < gap ? gap - sy : sy + h + gap > box.height ? box.height - gap - h - sy : 0;
+      if (dx || dy) rf.setViewport({ x: x + dx, y: y + dy, zoom }, { duration: 250 });
+    }, 120);
   };
   // fill each column to the height the page allows, then start the next one
   const menuStyle = (n: number) => {

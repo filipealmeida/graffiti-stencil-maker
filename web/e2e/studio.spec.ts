@@ -872,3 +872,22 @@ test('the toolbar buttons are icons that each carry a tooltip and a name', async
   }
   for (const title of ['Open image…', 'Open project…']) await expect(page.locator(`header label[title="${title}"] svg.icon`)).toHaveCount(1)
 })
+
+test('a node added while the view is panned away is brought into view', async ({ page }) => {
+  await open(page)
+  const box = (await page.locator('.react-flow__pane').boundingBox())!
+  // drag the canvas far to the left so the place of a new node is off screen
+  await page.mouse.move(box.x + 100, box.y + box.height - 20)
+  await page.mouse.down()
+  await page.mouse.move(box.x + box.width - 20, box.y + box.height - 20, { steps: 5 })
+  await page.mouse.up()
+  await page.getByRole('button', { name: '+ post' }).click()
+  await page.locator('.menu button').filter({ hasText: 'Make screws' }).click()
+  const node = page.locator('.react-flow__node').filter({ hasText: 'Make screws' })
+  await expect(node).toBeVisible()
+  await expect.poll(async () => {
+    const n = (await node.boundingBox())!
+    const c = (await page.locator('.canvas').boundingBox())!
+    return n.x >= c.x && n.y >= c.y && n.x + n.width <= c.x + c.width && n.y + n.height <= c.y + c.height
+  }).toBe(true)
+})
