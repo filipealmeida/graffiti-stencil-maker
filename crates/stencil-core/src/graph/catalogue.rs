@@ -274,8 +274,9 @@ pub(super) fn catalogue() -> Vec<NodeDef> {
                 num("clearance", "Connector hole clearance (mm, diametral)", 0.2, 0.0, 0.6, 0.05, Some("Connectors"), false),
                 num("spacing", "Pockets about every (mm)", 30.0, 10.0, 200.0, 5.0, Some("Connectors"), false),
                 num("segments", "Round segments", 48.0, 24.0, 128.0, 4.0, Some("Connectors"), true),
+                json!({"name": "edits", "label": "Layout edits", "kind": "text", "default": "", "group": null}),
             ],
-            doc: "Divides the plate into tiles before it is built, on an even grid, and reserves a block of material for every connector pocket (at the spot along each seam that covers the least paint). Connect it to a Stencil (from a mask) or a Vector stencil (from shapes) in place of their mask or shapes: each tile is then a stencil of its own, bridged on its own, so cutting never creates an island. The plate width and margin are set here; the stencil node supplies thickness, bridges and the rest. The Parts output goes on to Pads and Screws like the Tiles node's.",
+            doc: "Divides the plate into tiles before it is built, on an even grid, and reserves a block of material for every connector pocket (at the spot along each seam that covers the least paint). Connect it to a Stencil (from a mask) or a Vector stencil (from shapes) in place of their mask or shapes: each tile is then a stencil of its own, bridged on its own, so cutting never creates an island. The plate width and margin are set here; the stencil node supplies thickness, bridges and the rest. The Parts output goes on to Pads and Screws like the Tiles node's. In the viewer, drag a seam or a connector block to adjust the layout by hand; edits are kept as offsets from the automatic layout and ignored if they stop fitting.",
             run: run_tile_layout,
         },
         NodeDef {

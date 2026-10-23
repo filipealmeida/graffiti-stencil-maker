@@ -447,6 +447,85 @@ test('the Tiles first template cuts before bridging and feeds pads', async ({ pa
   await expect(page.locator('.v3bar label').filter({ hasText: 'layout' }).locator('input')).toBeVisible({ timeout: 80_000 })
 })
 
+async function openLayoutPreview(page: Page) {
+  await open(page)
+  await page.getByRole('button', { name: /Templates/ }).click()
+  await page.locator('.menu button').filter({ hasText: 'Tiles first' }).click()
+  await page.locator('.react-flow__node').filter({ hasText: 'Tile layout' }).first().dispatchEvent('dblclick')
+  await expect(page.locator('.imgbar')).toContainText('drag a seam or block', { timeout: 80_000 })
+  const seam = page.locator('.bench').getByLabel('Seam may move up to', { exact: true })
+  await seam.fill('0')
+  await seam.blur()
+  await page.waitForTimeout(1200)
+  await settled(page)
+  await expect(page.locator('.imgbar')).toContainText('drag a seam or block', { timeout: 80_000 })
+}
+
+/** The first inner vertical seam sits at the centre of the view; grab it where the cursor says it can be moved (not on a block). */
+async function dragSeam(page: Page, dx: number) {
+  const stage = page.locator('.imgstage')
+  const b = (await stage.boundingBox())!
+  const x = b.x + b.width / 2
+  let y = 0
+  for (let t = b.y + b.height / 2 + 20; t < b.y + b.height - 10 && !y; t += 3) {
+    await page.mouse.move(x, t)
+    if ((await stage.evaluate((el) => (el as HTMLElement).style.cursor)) === 'col-resize') y = t
+  }
+  expect(y).toBeGreaterThan(0)
+  await page.mouse.down()
+  await page.mouse.move(x + dx / 2, y, { steps: 4 })
+  await page.mouse.move(x + dx, y, { steps: 4 })
+  return async () => { await page.mouse.up() }
+}
+
+test('dragging a seam that would break the tile size limit snaps back and says why', async ({ page }) => {
+  await openLayoutPreview(page)
+  const release = await dragSeam(page, 30)
+  await expect(page.locator('.layout-note')).toContainText('over the 200 mm limit')
+  await release()
+  await expect(page.locator('.layout-note')).toContainText('Layout edit not applied')
+  await expect(page.getByRole('button', { name: 'Reset layout' })).toHaveCount(0)
+})
+
+test('dragging a seam edits the layout, and Reset layout brings the automatic one back', async ({ page }) => {
+  await openLayoutPreview(page)
+  const wide = page.locator('.bench').getByLabel('Largest tile width', { exact: true })
+  await wide.fill('300')
+  await wide.blur()
+  await page.waitForTimeout(1200)
+  await settled(page)
+  await expect(page.locator('.imgbar')).toContainText('drag a seam or block')
+  const release = await dragSeam(page, 30)
+  await expect(page.locator('.layout-note')).toHaveText('')
+  await release()
+  await expect(page.getByRole('button', { name: 'Reset layout' })).toBeVisible({ timeout: 80_000 })
+  await page.getByRole('button', { name: 'Reset layout' }).click()
+  await expect(page.getByRole('button', { name: 'Reset layout' })).toHaveCount(0, { timeout: 80_000 })
+})
+
+test('a connector block slides along its seam and an overlap is refused', async ({ page }) => {
+  await openLayoutPreview(page)
+  const stage = page.locator('.imgstage')
+  const b = (await stage.boundingBox())!
+  const x = b.x + b.width / 2
+  let y0 = 0
+  for (let y = b.y + 20; y < b.y + b.height - 20 && !y0; y += 3) {
+    await page.mouse.move(x, y)
+    if ((await stage.evaluate((el) => (el as HTMLElement).style.cursor)) === 'grab') y0 = y
+  }
+  expect(y0).toBeGreaterThan(0)
+  await page.mouse.down()
+  await page.mouse.move(x, y0 + 4, { steps: 3 })
+  await page.mouse.up()
+  await expect(page.getByRole('button', { name: 'Reset layout' })).toBeVisible({ timeout: 80_000 })
+  // far off the seam is refused with a reason
+  await page.mouse.move(x, y0)
+  await page.mouse.down()
+  await page.mouse.move(x, y0 + 400, { steps: 6 })
+  await expect(page.locator('.layout-note')).toContainText("Can't drop here")
+  await page.mouse.up()
+})
+
 test('undo and redo restore a deleted node', async ({ page }) => {
   await open(page)
   await page.waitForTimeout(600)

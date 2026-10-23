@@ -8,6 +8,7 @@ import Presets from './Presets'
 import { NodeActions, downloadFor, runSummary } from './NodeActions'
 import ImageInfoPanel from './ImageInfo'
 import { useStudio } from './store'
+import { parseEdits, stringify, type LayoutInfo } from './layoutEdit'
 const Viewer3D = lazy(() => import('./Viewer3D'))
 
 const STATS = ['islands_found', 'bridges_added', 'islands_remaining', 'watertight', 'triangles', 'overhang_area_mm2', 'layers', 'size_mm']
@@ -21,6 +22,7 @@ export default function Workbench() {
   const runs = useStudio((s) => s.runs)
   const busy = useStudio((s) => s.busy)
   const open = useStudio((s) => s.openBench)
+  const setParam = useStudio((s) => s.setParam)
   const [view, setView] = useState('')
   const [mode, setMode] = useState<'plate' | 'tiles'>('plate')
   const [info, setInfo] = useState<Record<string, any> | null>(null)
@@ -94,7 +96,11 @@ export default function Workbench() {
           {!cur && <div className="mut center">{run?.state === 'error' ? run.error : 'nothing computed yet'}</div>}
           {cur && (cur.kind === 'image' || cur.kind === 'mask' || cur.kind === 'shapes' || cur.kind === 'tiles' || cur.kind === 'any') && cur.key && (
             <ImageView key={`${cur.id}`} src={artifactUrl(cur.key, cur.out)} kind={cur.kind === 'mask' ? 'mask' : 'image'}
-              under={cur.kind === 'mask' && cur.id.startsWith('out:') ? imageFor(cur.key) : undefined} />
+              under={cur.kind === 'mask' && cur.id.startsWith('out:') ? imageFor(cur.key) : undefined}
+              layout={cur.kind === 'tiles' && cur.id.startsWith('out:') && node.data.type === 'tile_layout' && info?.kind === 'tiles' && info.pocket_list
+                ? { info: info as LayoutInfo, edits: parseEdits(node.data.params.edits),
+                    onCommit: (e) => setParam(node.id, 'edits', stringify(e)), onReset: () => setParam(node.id, 'edits', '') }
+                : undefined} />
           )}
           <Suspense fallback={<div className="mut center">loading 3D viewer…</div>}>
             {cur?.kind === 'solid' && <Viewer3D parts={solidParts()} />}

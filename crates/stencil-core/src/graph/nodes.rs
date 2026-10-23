@@ -1331,6 +1331,7 @@ pub(super) fn run_tile_layout(
     use crate::tiles::Shape;
     let diameter: f64 = p.s("connector_d").parse().unwrap_or(3.0);
     let lp = tf::LayoutParams {
+        edits: tf::Edits::parse(p.s("edits"))?,
         width: p.f("width_mm"),
         margin: p.f("margin_mm"),
         max_x: p.f("max_x"),

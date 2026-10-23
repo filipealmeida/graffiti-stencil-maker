@@ -38,9 +38,17 @@ pub struct Pocket {
     pub axis: usize,
     pub s: f64,
     pub u: f64,
+    /// Which seam (inner grid line), segment of it and pocket along the segment this is, for naming it in edits.
+    pub seam: usize,
+    pub seg: usize,
+    pub k: usize,
 }
 
 impl Pocket {
+    /// The name edits use for this pocket: `axis.seam.segment.k`.
+    pub fn key(&self) -> String {
+        format!("{}.{}.{}.{}", self.axis, self.seam, self.seg, self.k)
+    }
     fn rect(&self, across: f64, along: f64) -> [f64; 4] {
         if self.axis == 0 {
             [
@@ -63,7 +71,7 @@ impl Pocket {
         self.rect(c.depth, c.half_width())
     }
     /// The material kept solid: the footprint with a wall at the closed ends.
-    fn block(&self, c: &Connectors) -> [f64; 4] {
+    pub fn block(&self, c: &Connectors) -> [f64; 4] {
         self.rect(c.depth + WALL_MM, c.half_width())
     }
 }
@@ -123,6 +131,43 @@ pub enum Source {
     Vector(Shapes),
 }
 
+/// Hand edits of the automatic layout, as offsets from it so they follow a change of plate or tile size.
+/// Seams are named `x1`, `y2`, ... (inner grid lines, counted from the left or the bottom) and move across the
+/// seam; pockets are named by `Pocket::key` and slide along theirs. An edit that no longer fits is ignored.
+#[derive(Clone, Default, Debug)]
+pub struct Edits {
+    pub seams: std::collections::BTreeMap<String, f64>,
+    pub pockets: std::collections::BTreeMap<String, f64>,
+}
+
+impl Edits {
+    pub fn parse(text: &str) -> Result<Edits, String> {
+        if text.trim().is_empty() {
+            return Ok(Edits::default());
+        }
+        let v: Json = serde_json::from_str(text)
+            .map_err(|e| format!("the layout edits are not valid: {e}"))?;
+        let read = |name: &str| -> std::collections::BTreeMap<String, f64> {
+            v.get(name)
+                .and_then(|m| m.as_object())
+                .map(|m| {
+                    m.iter()
+                        .filter_map(|(k, x)| {
+                            x.as_f64()
+                                .filter(|d| d.is_finite() && d.abs() > 1e-9)
+                                .map(|d| (k.clone(), d))
+                        })
+                        .collect()
+                })
+                .unwrap_or_default()
+        };
+        Ok(Edits {
+            seams: read("seams"),
+            pockets: read("pockets"),
+        })
+    }
+}
+
 pub struct Layout {
     pub width: f64,
     pub height: f64,
@@ -133,6 +178,17 @@ pub struct Layout {
     pub ys: Vec<f64>,
     pub spec: Connectors,
     pub pockets: Vec<Pocket>,
+    /// Where each pocket sat before the pocket edits (the seams already edited).
+    pub pocket_auto_u: Vec<f64>,
+    /// The grid lines before the seam edits.
+    pub auto_xs: Vec<f64>,
+    pub auto_ys: Vec<f64>,
+    /// The largest tile size and, for a raster plate, the cell that seams snap to (0 = any position).
+    pub max_x: f64,
+    pub max_y: f64,
+    pub quantum: f64,
+    /// Edits that no longer fit the layout and were left out.
+    pub edits_ignored: usize,
     pub source: Source,
     cover: Cover,
 }
@@ -145,6 +201,7 @@ pub struct LayoutParams {
     pub spec: Connectors,
     /// How far a seam may move off the even grid to cross less paint (never past the largest tile size).
     pub seam_shift: f64,
+    pub edits: Edits,
 }
 
 fn check_plate(lp: &LayoutParams) -> Result<(), String> {
@@ -208,7 +265,8 @@ pub fn from_mask(
         ch: cell,
     };
     shift_seams(lp, &mut xs, &mut ys, &cover, cell);
-    let pockets = plan(&lp.spec, &xs, &ys, &cover)?;
+    let (auto_xs, auto_ys) = (xs.clone(), ys.clone());
+    let (pockets, pocket_auto_u, edits_ignored) = edited(lp, &mut xs, &mut ys, &cover, cell)?;
     for pk in &pockets {
         let b = pk.block(&lp.spec);
         let (c0, c1, r0, r1) = {
@@ -232,6 +290,13 @@ pub fn from_mask(
         ys,
         spec: lp.spec.clone(),
         pockets,
+        pocket_auto_u,
+        auto_xs,
+        auto_ys,
+        max_x: lp.max_x,
+        max_y: lp.max_y,
+        quantum: cell,
+        edits_ignored,
         source: Source::Raster {
             w,
             h,
@@ -269,7 +334,8 @@ pub fn from_shapes(shapes: &Shapes, lp: &LayoutParams) -> Result<Layout, String>
     let mut xs = tiles::grid(lp.width, lp.max_x);
     let mut ys = tiles::grid(height, lp.max_y);
     shift_seams(lp, &mut xs, &mut ys, &cover, 0.0);
-    let pockets = plan(&lp.spec, &xs, &ys, &cover)?;
+    let (auto_xs, auto_ys) = (xs.clone(), ys.clone());
+    let (pockets, pocket_auto_u, edits_ignored) = edited(lp, &mut xs, &mut ys, &cover, 0.0)?;
     Ok(Layout {
         width: lp.width,
         height,
@@ -278,6 +344,13 @@ pub fn from_shapes(shapes: &Shapes, lp: &LayoutParams) -> Result<Layout, String>
         ys,
         spec: lp.spec.clone(),
         pockets,
+        pocket_auto_u,
+        auto_xs,
+        auto_ys,
+        max_x: lp.max_x,
+        max_y: lp.max_y,
+        quantum: 0.0,
+        edits_ignored,
         source: Source::Vector(shapes.clone()),
         cover,
     })
@@ -342,6 +415,110 @@ fn shift_seams(lp: &LayoutParams, xs: &mut [f64], ys: &mut [f64], cover: &Cover,
     }
 }
 
+/// How far in from each end of a seam segment of this length the pockets must stay: clear of the seams that cross
+/// there, or only the end wall at the plate edge.
+fn seam_ends(c: &Connectors, len: f64, at_edge_a: bool, at_edge_b: bool) -> (f64, f64) {
+    let hw = c.half_width();
+    let near = hw + WALL_MM + 0.5;
+    let far = (c.depth + WALL_MM + hw + 0.5).min(len / 2.0 - 1e-6).max(hw);
+    (
+        if at_edge_a { near } else { far },
+        if at_edge_b { near } else { far },
+    )
+}
+
+/// The range a pocket's centre may take along its seam segment.
+fn pocket_range(c: &Connectors, xs: &[f64], ys: &[f64], pk: &Pocket) -> (f64, f64) {
+    let (nx, ny) = (xs.len() - 1, ys.len() - 1);
+    let (a, b, lo_edge, hi_edge) = if pk.axis == 0 {
+        (ys[pk.seg], ys[pk.seg + 1], ys[0], ys[ny])
+    } else {
+        (xs[pk.seg], xs[pk.seg + 1], xs[0], xs[nx])
+    };
+    let (ia, ib) = seam_ends(c, b - a, a <= lo_edge + 1e-6, b >= hi_edge - 1e-6);
+    (a + ia, b - ib)
+}
+
+/// The automatic pockets with the hand edits applied. Edits that break a rule (a tile too small or too large, a
+/// block off its seam or on another block, a plan with no room) are skipped and counted.
+fn edited(
+    lp: &LayoutParams,
+    xs: &mut [f64],
+    ys: &mut [f64],
+    cover: &Cover,
+    quantum: f64,
+) -> Result<(Vec<Pocket>, Vec<f64>, usize), String> {
+    let c = &lp.spec;
+    let mut pockets = plan(c, xs, ys, cover)?;
+    let mut ignored = 0;
+    let low = tiles::min_tile(c.depth);
+    for (key, d) in &lp.edits.seams {
+        let axis = match key.chars().next() {
+            Some('x') => 0,
+            Some('y') => 1,
+            _ => {
+                ignored += 1;
+                continue;
+            }
+        };
+        let Ok(i) = key[1..].parse::<usize>() else {
+            ignored += 1;
+            continue;
+        };
+        let max = if axis == 0 { lp.max_x } else { lp.max_y };
+        let g: &mut [f64] = if axis == 0 { &mut *xs } else { &mut *ys };
+        if i == 0 || i + 1 >= g.len() {
+            ignored += 1;
+            continue;
+        }
+        let mut v = g[i] + d;
+        if quantum > 0.0 {
+            v = (v / quantum).round() * quantum;
+        }
+        let (left, right) = (v - g[i - 1], g[i + 1] - v);
+        let fits = left >= low - 1e-6
+            && right >= low - 1e-6
+            && (max <= 0.0 || (left <= max + 1e-6 && right <= max + 1e-6));
+        if !fits {
+            ignored += 1;
+            continue;
+        }
+        let old = g[i];
+        g[i] = v;
+        match plan(c, xs, ys, cover) {
+            Ok(p) => pockets = p,
+            Err(_) => {
+                let g: &mut [f64] = if axis == 0 { &mut *xs } else { &mut *ys };
+                g[i] = old;
+                ignored += 1;
+            }
+        }
+    }
+    let auto_u: Vec<f64> = pockets.iter().map(|p| p.u).collect();
+    for (key, d) in &lp.edits.pockets {
+        let Some(idx) = pockets.iter().position(|p| p.key() == *key) else {
+            ignored += 1;
+            continue;
+        };
+        let moved = Pocket {
+            u: pockets[idx].u + d,
+            ..pockets[idx]
+        };
+        let (lo, hi) = pocket_range(c, xs, ys, &moved);
+        let r = moved.block(c);
+        let clear = !pockets
+            .iter()
+            .enumerate()
+            .any(|(j, o)| j != idx && overlap(r, o.block(c), ROW_GAP_MM));
+        if moved.u < lo - 1e-6 || moved.u > hi + 1e-6 || !clear {
+            ignored += 1;
+            continue;
+        }
+        pockets[idx] = moved;
+    }
+    Ok((pockets, auto_u, ignored))
+}
+
 /// Pockets along every seam segment, each where the fewest paint is under its block.
 fn plan(c: &Connectors, xs: &[f64], ys: &[f64], cover: &Cover) -> Result<Vec<Pocket>, String> {
     let (nx, ny) = (xs.len() - 1, ys.len() - 1);
@@ -359,24 +536,23 @@ fn plan(c: &Connectors, xs: &[f64], ys: &[f64], cover: &Cover) -> Result<Vec<Poc
             ));
         }
     }
-    let mut seams: Vec<(usize, f64, f64, f64)> = Vec::new();
-    for &s in &xs[1..nx] {
+    let mut seams: Vec<(usize, usize, usize, f64, f64, f64)> = Vec::new();
+    for (si, &s) in xs.iter().enumerate().take(nx).skip(1) {
         for j in 0..ny {
-            seams.push((0, s, ys[j], ys[j + 1]));
+            seams.push((0, si, j, s, ys[j], ys[j + 1]));
         }
     }
-    for &s in &ys[1..ny] {
+    for (si, &s) in ys.iter().enumerate().take(ny).skip(1) {
         for i in 0..nx {
-            seams.push((1, s, xs[i], xs[i + 1]));
+            seams.push((1, si, i, s, xs[i], xs[i + 1]));
         }
     }
     let hw = c.half_width();
-    let reach = c.depth + WALL_MM;
     // seams of one axis run along the other axis' extent
     let edge = [(ys[0], ys[ny]), (xs[0], xs[nx])];
     let mut pockets: Vec<Pocket> = Vec::new();
     let mut blocks: Vec<[f64; 4]> = Vec::new();
-    for (axis, s, a, b) in seams {
+    for (axis, seam, seg, s, a, b) in seams {
         let len = b - a;
         if len < 2.0 * hw + 1.0 {
             return Err(format!(
@@ -385,9 +561,7 @@ fn plan(c: &Connectors, xs: &[f64], ys: &[f64], cover: &Cover) -> Result<Vec<Poc
         }
         // keep clear of the ends where another seam crosses; at the plate edge only the end wall is needed
         let (ea, eb) = (a <= edge[axis].0 + 1e-6, b >= edge[axis].1 - 1e-6);
-        let near = hw + WALL_MM + 0.5;
-        let far = (reach + hw + 0.5).min(len / 2.0 - 1e-6).max(hw);
-        let (ina, inb) = (if ea { near } else { far }, if eb { near } else { far });
+        let (ina, inb) = seam_ends(c, len, ea, eb);
         let n = ((len / c.spacing.max(5.0) - 1e-9).ceil() as usize).max(1);
         let cell = len / n as f64;
         for k in 0..n {
@@ -404,7 +578,14 @@ fn plan(c: &Connectors, xs: &[f64], ys: &[f64], cover: &Cover) -> Result<Vec<Poc
             options.push(hi);
             let mut best: Option<(f64, Pocket)> = None;
             for u in options {
-                let pk = Pocket { axis, s, u };
+                let pk = Pocket {
+                    axis,
+                    s,
+                    u,
+                    seam,
+                    seg,
+                    k,
+                };
                 let r = pk.block(c);
                 if blocks.iter().any(|&o| overlap(r, o, ROW_GAP_MM)) {
                     continue;
@@ -905,6 +1086,11 @@ pub fn build(l: &Layout, m: &Method) -> Result<Built, String> {
 }
 
 impl Layout {
+    /// The range a pocket's centre may take along its seam.
+    pub fn pocket_range(&self, pk: &Pocket) -> (f64, f64) {
+        pocket_range(&self.spec, &self.xs, &self.ys, pk)
+    }
+
     /// The artwork (mm²) the reserved blocks interrupt.
     pub fn paint_under_blocks_mm2(&self) -> f64 {
         self.pockets
@@ -999,6 +1185,7 @@ mod tests {
             max_y: 70.0,
             spec: spec(),
             seam_shift: 0.0,
+            edits: Edits::default(),
         }
     }
 
@@ -1008,6 +1195,108 @@ mod tests {
             assert!(t.mesh.is_watertight(), "{}", t.name);
             assert_eq!(crate::tile_bridge::components(&t.mesh).0, 1, "{}", t.name);
         }
+    }
+
+    fn with(edits: &str) -> LayoutParams {
+        LayoutParams {
+            edits: Edits::parse(edits).unwrap(),
+            ..lp()
+        }
+    }
+
+    #[test]
+    fn a_seam_edit_moves_the_seam_and_the_pockets_follow() {
+        let auto = from_mask(&art(120), 120, 120, &lp()).unwrap();
+        let l = from_mask(&art(120), 120, 120, &with(r#"{"seams":{"x1":4}}"#)).unwrap();
+        assert_eq!(l.edits_ignored, 0);
+        assert!(
+            (l.xs[1] - auto.xs[1] - 4.0).abs() < 1.5,
+            "{} vs {}",
+            l.xs[1],
+            auto.xs[1]
+        );
+        assert_eq!(l.auto_xs, auto.xs);
+        assert!(l
+            .pockets
+            .iter()
+            .filter(|p| p.axis == 0)
+            .all(|p| (p.s - l.xs[1]).abs() < 1e-6));
+    }
+
+    #[test]
+    fn edits_that_break_a_rule_are_ignored_and_counted() {
+        let auto = from_mask(&art(120), 120, 120, &lp()).unwrap();
+        // a tile far below the smallest, one over the largest, an unknown seam and an unknown pocket
+        let l = from_mask(
+            &art(120),
+            120,
+            120,
+            &with(r#"{"seams":{"x1":-80,"y1":60,"z9":1,"x7":1},"pockets":{"9.9.9.9":1}}"#),
+        )
+        .unwrap();
+        assert_eq!(l.edits_ignored, 5);
+        assert_eq!(l.xs, auto.xs);
+        assert_eq!(l.ys, auto.ys);
+    }
+
+    #[test]
+    fn a_pocket_edit_slides_it_along_its_seam_and_an_overlap_is_ignored() {
+        let auto = from_mask(&art(120), 120, 120, &lp()).unwrap();
+        let p = *auto.pockets.iter().find(|p| p.axis == 0).unwrap();
+        let (lo, hi) = auto.pocket_range(&p);
+        let d = if p.u + 3.0 <= hi { 3.0 } else { -3.0 };
+        let l = from_mask(
+            &art(120),
+            120,
+            120,
+            &with(&format!(r#"{{"pockets":{{"{}":{d}}}}}"#, p.key())),
+        )
+        .unwrap();
+        let q = l.pockets.iter().find(|q| q.key() == p.key()).unwrap();
+        if l.edits_ignored == 0 {
+            assert!((q.u - (p.u + d)).abs() < 1e-6 && q.s == p.s);
+        }
+        // far off the seam is always refused
+        let far = format!(r#"{{"pockets":{{"{}":{}}}}}"#, p.key(), (hi - lo) * 5.0);
+        let l = from_mask(&art(120), 120, 120, &with(&far)).unwrap();
+        assert_eq!(l.edits_ignored, 1);
+        let q = l.pockets.iter().find(|q| q.key() == p.key()).unwrap();
+        assert!((q.u - p.u).abs() < 1e-6);
+    }
+
+    #[test]
+    fn edits_stay_relative_to_the_automatic_layout_when_the_plate_changes() {
+        let wide = LayoutParams {
+            width: 140.0,
+            max_x: 100.0,
+            ..with(r#"{"seams":{"x1":3}}"#)
+        };
+        let auto = from_mask(
+            &art(120),
+            120,
+            120,
+            &LayoutParams {
+                width: 140.0,
+                max_x: 100.0,
+                ..lp()
+            },
+        )
+        .unwrap();
+        let l = from_mask(&art(120), 120, 120, &wide).unwrap();
+        assert_eq!(l.auto_xs, auto.xs);
+        assert!(
+            l.xs[1] > auto.xs[1],
+            "{:?} {:?} {}",
+            l.xs,
+            auto.xs,
+            l.edits_ignored
+        );
+    }
+
+    #[test]
+    fn layout_edits_must_be_valid_json() {
+        assert!(Edits::parse("").unwrap().seams.is_empty());
+        assert!(Edits::parse("{oops").is_err());
     }
 
     #[test]

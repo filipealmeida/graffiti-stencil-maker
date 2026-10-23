@@ -31,6 +31,7 @@ export function badgesFor(type: string, params: Record<string, unknown>, info: I
     if (n(t?.seam_step_mm) > 0) out.push({ level: 'info', text: `${n(t.seam_step_mm).toFixed(0)} mm of seam where neighbouring tiles differ by more than a layer in height` })
     if (n(t?.paint_under_blocks_mm2) > 0 && !t?.pre_tiled) out.push({ level: 'info', text: `${n(t.paint_under_blocks_mm2).toFixed(0)} mm² of paint under connector blocks` })
   }
+  if (info?.kind === 'tiles' && n(info.edits_ignored) > 0) out.push({ level: 'warn', text: `${n(info.edits_ignored)} layout edit(s) no longer fit and were ignored` })
   if (info?.kind === 'tiles' && n(info.paint_under_blocks_mm2) > 0) {
     const lost = n(info.paint_under_blocks_mm2)
     const share = n(info.paint_mm2) > 0 ? ` (${((100 * lost) / n(info.paint_mm2)).toFixed(1)}% of the artwork)` : ''

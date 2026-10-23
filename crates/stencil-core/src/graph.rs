@@ -97,12 +97,29 @@ impl Value {
             Value::Solid(s) => {
                 json!({"kind": "solid", "stats": s.stats, "bytes": s.stl.len(), "tiles": []})
             }
-            Value::Tiles(l) => json!({
-                "kind": "tiles", "width": l.width, "height": l.height,
-                "grid": [l.xs.len() - 1, l.ys.len() - 1], "pockets": l.pockets.len(),
-                "paint_under_blocks_mm2": (l.paint_under_blocks_mm2() * 10.0).round() / 10.0,
-                "paint_mm2": (l.paint_mm2() * 10.0).round() / 10.0,
-            }),
+            Value::Tiles(l) => {
+                let pocket_list: Vec<Json> = l
+                    .pockets
+                    .iter()
+                    .zip(&l.pocket_auto_u)
+                    .map(|(p, auto)| {
+                        let (lo, hi) = l.pocket_range(p);
+                        json!({"key": p.key(), "axis": p.axis, "seam": p.seam, "s": p.s, "u": p.u, "auto_u": auto,
+                            "block": p.block(&l.spec), "range": [lo, hi]})
+                    })
+                    .collect();
+                json!({
+                    "kind": "tiles", "width": l.width, "height": l.height,
+                    "grid": [l.xs.len() - 1, l.ys.len() - 1], "pockets": l.pockets.len(),
+                    "paint_under_blocks_mm2": (l.paint_under_blocks_mm2() * 10.0).round() / 10.0,
+                    "paint_mm2": (l.paint_mm2() * 10.0).round() / 10.0,
+                    "xs": l.xs, "ys": l.ys, "auto_xs": l.auto_xs, "auto_ys": l.auto_ys,
+                    "pocket_list": pocket_list,
+                    "min_tile": crate::tiles::min_tile(l.spec.depth),
+                    "max": [l.max_x, l.max_y], "gap": 1.5, "quantum": l.quantum,
+                    "edits_ignored": l.edits_ignored,
+                })
+            }
             Value::Parts(p) => {
                 let files: Map<String, Json> = p
                     .files

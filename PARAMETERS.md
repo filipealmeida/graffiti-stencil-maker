@@ -193,6 +193,7 @@ Every parameter `--set NODE.PARAM=VALUE` accepts. Generated with `stencil --list
 | `clearance` | Connector hole clearance (mm, diametral) | float | `0.2` | 0.0 to 0.6 |
 | `spacing` | Pockets about every (mm) | float | `30.0` | 10.0 to 200.0 |
 | `segments` | Round segments | int | `48.0` | 24.0 to 128.0 |
+| `edits` | Layout edits | text | `""` | text |
 
 ### Remesh (`remesh`)
 
