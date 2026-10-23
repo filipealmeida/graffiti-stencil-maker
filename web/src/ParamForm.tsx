@@ -1,4 +1,4 @@
-import { useEffect, useId, useState } from 'react'
+import { useEffect, useId, useState, type ReactNode } from 'react'
 import type { NodeType, ParamDef } from './api'
 import { useStudio, type StudioNode } from './store'
 import { PARAM_HELP, unitOf } from './help'
@@ -62,21 +62,21 @@ function Field({ p, value, onChange }: { p: ParamDef; value: unknown; onChange: 
   )
 }
 
-export default function ParamForm({ node, type, layers }: { node: StudioNode; type: NodeType; layers?: number }) {
+export default function ParamForm({ node, type, layers, before }: { node: StudioNode; type: NodeType; layers?: number; before?: ReactNode }) {
   const setParam = useStudio((s) => s.setParam)
   const groups = [...new Set(type.params.map((p) => p.group ?? ''))]
   // the picture of an Image node is not a setting
   const editable = type.params.filter((p) => p.kind !== 'text')
   const changed = editable.filter((p) => !same(node.data.params[p.name] ?? p.default, p.default))
   const [showHelp, setShowHelp] = useState(false)
-  const hasHelp = editable.some((p) => PARAM_HELP[p.name])
+  useEffect(() => setShowHelp(false), [node.id])
   return (
     <div className={showHelp ? 'show-help' : ''}>
-      {hasHelp && (
-        <button className="help-toggle" aria-pressed={showHelp} onClick={() => setShowHelp(!showHelp)}>
-          {showHelp ? 'Hide help' : 'Show help'}
-        </button>
-      )}
+      <p className="mut doc">{type.doc}</p>
+      <button className="help-toggle" aria-pressed={showHelp} onClick={() => setShowHelp(!showHelp)}>
+        {showHelp ? 'Hide help' : 'Show help'}
+      </button>
+      {before}
       {groups.map((g) => (
         <fieldset key={g}>
           {g && <legend>{g}</legend>}

@@ -88,9 +88,7 @@ export default function Workbench() {
       {run?.state === 'running' && <div className="bar"><i style={{ width: `${(run.progress ?? 0) * 100}%` }} /></div>}
       <div className="bench-body">
         <aside className="bench-params">
-          <p className="mut">{t.doc}</p>
-          {t.id === 'source' && <SourceActions id={node.id} imageId={String(node.data.params.image_id)} title={node.data.title} />}
-          <ParamForm node={node} type={t} />
+          <ParamForm node={node} type={t} before={t.id === 'source' ? <SourceActions id={node.id} imageId={String(node.data.params.image_id)} title={node.data.title} /> : undefined} />
           {t.id === 'source' && <ImageInfoPanel imageId={String(node.data.params.image_id)} resolution={Number(node.data.params.resolution ?? 1000)} />}
           {run?.state === 'error' && <div className="err">{run.error}</div>}
         </aside>

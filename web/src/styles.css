@@ -1090,3 +1090,15 @@ header > .pal .menu:not(.wide) {
   margin: 0;
   overflow-wrap: anywhere;
 }
+.doc {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 4;
+  line-clamp: 4;
+  overflow: hidden;
+  margin: 0 0 6px;
+}
+.show-help .doc {
+  display: block;
+  overflow: visible;
+}

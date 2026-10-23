@@ -489,6 +489,43 @@ test('help text stays hidden until the Show help toggle is on', async ({ page })
   await expect(help).toBeHidden()
 })
 
+test('every node type has the Show help button and its parameters have help text', async ({ page }) => {
+  await open(page)
+  await page.getByRole('button', { name: '+ trace' }).click()
+  const labels = await page.locator('.menu button').allInnerTexts()
+  expect(labels.length).toBeGreaterThan(3)
+  for (const stage of ['+ trace', '+ stencil', '+ post']) {
+    await page.keyboard.press('Escape')
+    await page.getByRole('button', { name: stage }).click()
+    const n = await page.locator('.menu button').count()
+    for (let i = 0; i < n; i++) {
+      if (i > 0) { await page.getByRole('button', { name: stage }).click() }
+      const b = page.locator('.menu button').nth(i)
+      const name = (await b.innerText()).split('\n')[0]
+      await b.click()
+      const node = page.locator('.react-flow__node').last()
+      await node.dispatchEvent('click')
+      await expect(page.getByRole('button', { name: 'Show help' }), name).toBeVisible()
+      const rows = await page.locator('aside .row').count()
+      await page.getByRole('button', { name: 'Show help' }).click()
+      if (rows > 0) expect(await page.locator('aside .help').count(), `${name}: settings have help`).toBeGreaterThan(0)
+    }
+  }
+})
+
+test('a long node description is cut at four lines until Show help is pressed', async ({ page }) => {
+  await open(page)
+  await page.getByRole('button', { name: '+ post' }).click()
+  await page.locator('.menu button').filter({ hasText: 'Screws, nuts' }).click()
+  await page.locator('.react-flow__node').last().dispatchEvent('click')
+  const doc = page.locator('aside .doc')
+  const lh = await doc.evaluate((e) => parseFloat(getComputedStyle(e).lineHeight) || 18)
+  expect(await doc.evaluate((e) => e.scrollHeight)).toBeGreaterThan(await doc.evaluate((e) => e.clientHeight))
+  expect(await doc.evaluate((e) => e.clientHeight)).toBeLessThanOrEqual(lh * 4 + 2)
+  await page.getByRole('button', { name: 'Show help' }).click()
+  expect(await doc.evaluate((e) => e.clientHeight)).toBe(await doc.evaluate((e) => e.scrollHeight))
+})
+
 test('the engine thread budget leaves at least one core free when threads are available', async ({ page }) => {
   await open(page)
   await page.getByRole('button', { name: 'Perf', exact: true }).click()
