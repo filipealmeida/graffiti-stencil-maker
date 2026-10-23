@@ -1164,3 +1164,15 @@ header > .pal .menu:not(.wide) {
     border-top: 1px solid var(--line);
   }
 }
+.shared-tag {
+  margin-left: 6px;
+  padding: 0 5px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  font-size: 10px;
+  text-transform: uppercase;
+  color: var(--mut);
+}
+.goto-fail {
+  margin-left: 8px;
+}

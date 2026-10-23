@@ -351,7 +351,7 @@ function Canvas() {
       ...current.map((t) => ({
         id: `node:${t.id}`,
         title: t.label,
-        note: `${t.stage} · ${t.doc.split(/(?<=\.)\s/)[0]}`,
+        note: `${t.stage} · ${t.doc.split(/(?<=\.)\s/)[0]}${FORMER_NAMES[t.id] ? ` · was ${FORMER_NAMES[t.id]}` : ""}`,
         run: () => addFromMenu(t),
       })),
       ...templates.map(([name, doc, make]) => ({
@@ -574,7 +574,13 @@ function Canvas() {
         >
           Console{s.logs.some((l) => l.level === "error") ? " ⚠" : ""}
         </button>
-        <Status />
+        <Status
+          onGoto={(id) => {
+            useStudio.getState().select(id);
+            const n = rf.getNode(id);
+            if (n) rf.setCenter(n.position.x + (n.measured?.width ?? 200) / 2, n.position.y + (n.measured?.height ?? 100) / 2, { zoom: Math.max(rf.getZoom(), 0.8), duration: 250 });
+          }}
+        />
       </header>
       {cmdOpen && (
         <CommandPalette actions={cmdActions} onClose={() => setCmdOpen(false)} />
@@ -624,6 +630,16 @@ function Canvas() {
     </div>
   );
 }
+
+/** The names nodes had before the verb/noun rename, so the palette still finds them. */
+const FORMER_NAMES: Record<string, string> = {
+  tone_patterns: "Tone patterns",
+  morphology: "Morphology",
+  shapes_to_mask: "Shapes to mask",
+  ring: "Margin expansion",
+  pads: "Pads & mounting holes",
+  hardware: "Screws, nuts & fit test",
+};
 
 export default function App() {
   return (

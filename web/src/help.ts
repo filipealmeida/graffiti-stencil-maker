@@ -114,6 +114,8 @@ export const PARAM_HELP: Record<string, string> = {
   kind_N: 'Pattern for this tone. auto picks one from how light the tone is.',
   spacing_N: 'Distance between lines or dots for this tone. 0 uses the default spacing above.',
   cover_N: 'How much of this tone is paint, in percent. 0 lets the engine choose from the tone.',
+  op: 'What to do to the paint. erode shrinks it, dilate grows it, open removes specks, close fills small gaps, thin and skeleton reduce shapes to lines; the others pick out edges, small bright or dark details, or a hand-made pattern (hit_or_miss).',
+  tile_method: 'Used with a Tile layout. per_tile bridges every tile on its own. cut_whole bridges the plate once, cuts it into tiles, and re-bridges only the pieces that came loose.',
 }
 
 /** Where one node means something different by the same parameter name. */

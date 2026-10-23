@@ -510,7 +510,7 @@ test('every node type has the Show help button and its parameters have help text
       const rows = await page.locator('aside .row').count()
       if ((await toggle.innerText()) === 'Show help') await toggle.click()
       await expect(page.locator('aside').getByRole('button', { name: 'Delete node' }), `${name}: action row`).toBeVisible()
-      if (rows > 0) expect(await page.locator('aside .help').count(), `${name}: settings have help`).toBeGreaterThan(0)
+      expect(await page.locator('aside .row .help').count(), `${name}: every setting has help`).toBe(rows)
     }
   }
 })
@@ -833,4 +833,31 @@ test('a narrow window stacks the panel under the canvas without sideways scrolli
   const a = (await page.locator('aside.inspector').boundingBox())!
   const c = (await page.locator('.canvas').boundingBox())!
   expect(a.y).toBeGreaterThanOrEqual(c.y + c.height - 2)
+})
+
+test('the shared bolt settings carry a shared tag', async ({ page }) => {
+  await open(page)
+  await page.getByRole('button', { name: '+ post' }).click()
+  await page.locator('.menu button').filter({ hasText: 'Make screws' }).click()
+  await page.locator('.react-flow__node').last().dispatchEvent('click')
+  await expect(page.locator('aside .shared-tag').first()).toBeVisible()
+})
+
+test('the command palette still finds a node by its former name', async ({ page }) => {
+  await open(page)
+  await page.keyboard.press('Control+k')
+  await page.getByRole('textbox', { name: 'Command palette' }).fill('Morphology')
+  await expect(page.locator('.cmdpal-list button').first()).toContainText('Reshape paint')
+})
+
+test('a failed run offers a jump to the node that failed', async ({ page }) => {
+  await open(page)
+  await page.getByRole('button', { name: '+ post' }).click()
+  await page.locator('.menu button').filter({ hasText: 'Add pads & mounting holes' }).click()
+  const jump = page.locator('.goto-fail')
+  await expect(jump).toBeVisible({ timeout: 60000 })
+  await expect(jump).toContainText('Add pads & mounting holes')
+  await page.locator('.react-flow__node').first().dispatchEvent('click')
+  await jump.click({ timeout: 8000 })
+  await expect(page.locator('aside.inspector h2')).toContainText('Add pads & mounting holes')
 })

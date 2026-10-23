@@ -100,7 +100,7 @@ interface State {
 }
 
 /** Printer fit of the bolt and nut: one value for the whole project, so parts from different nodes still mate. */
-const SHARED_FIT = ['nut_clearance', 'tip_taper', 'tip_pitches']
+export const SHARED_FIT = ['nut_clearance', 'tip_taper', 'tip_pitches']
 
 export const useStudio = create<State>((set, get) => ({
   canUndo: false, canRedo: false,

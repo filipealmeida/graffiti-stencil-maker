@@ -1,6 +1,6 @@
 import { useEffect, useId, useState, type ReactNode } from 'react'
 import type { NodeType, ParamDef } from './api'
-import { useStudio, type StudioNode } from './store'
+import { SHARED_FIT, useStudio, type StudioNode } from './store'
 import { helpFor, plainLabel, unitOf } from './help'
 
 const same = (a: unknown, b: unknown) => a === b || (typeof a === 'number' && typeof b === 'number' && Math.abs(a - b) < 1e-9)
@@ -51,7 +51,7 @@ function Field({ p, value, onChange, nodeType }: { p: ParamDef; value: unknown; 
   const unit = unitOf(p.label)
   return (
     <label className="row" {...tip}>
-      <span>{plainLabel(p.label)} <em>{String(value)}{unit ? ` ${unit}` : ''}</em><Reset p={p} value={value} onChange={onChange} /></span>
+      <span>{plainLabel(p.label)} <em>{String(value)}{unit ? ` ${unit}` : ''}</em>{SHARED_FIT.includes(p.name) && <small className="shared-tag" title="One value for the whole project: every node that makes bolts and nuts uses it">shared</small>}<Reset p={p} value={value} onChange={onChange} /></span>
       <span className="sliderrow">
         <input type="range" min={p.min} max={p.max} step={p.step} value={Number(value)} onChange={(e) => onChange(+e.target.value)} aria-valuetext={`${value}${unit ? ` ${unit}` : ''}`} {...desc} />
         <NumberBox p={p} value={Number(value)} onChange={onChange} />
