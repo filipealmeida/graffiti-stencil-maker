@@ -236,6 +236,50 @@ function Canvas() {
     if (f) addFile(f, rf.screenToFlowPosition({ x: e.clientX, y: e.clientY }));
   };
 
+  /** Can an output of this kind feed an input of that kind? The same rule as drawing a connection by hand. */
+  const kindFits = (out: string, inp: string) =>
+    inp === out || (inp === "any" && (out === "image" || out === "mask"));
+
+  /** The edge under a dragged, unconnected node that the node could be placed in the middle of. */
+  const edgeToSplit = (nodeId: string) => {
+    const st = useStudio.getState();
+    if (st.edges.some((e) => e.source === nodeId || e.target === nodeId)) return null;
+    const node = st.nodes.find((n) => n.id === nodeId);
+    const t = node && st.types[node.data.type];
+    const el = document.querySelector(`.react-flow__node[data-id="${nodeId}"]`);
+    if (!node || !t || !el) return null;
+    const r = el.getBoundingClientRect();
+    const cx = r.x + r.width / 2, cy = r.y + r.height / 2;
+    let best: { id: string; d: number; input: string; output: string } | null = null;
+    for (const e of st.edges) {
+      const path = document.querySelector(`.react-flow__edge[data-id="${CSS.escape(e.id)}"] path`) as SVGPathElement | null;
+      const m = path?.getScreenCTM();
+      if (!path || !m) continue;
+      const out = st.types[st.nodes.find((n) => n.id === e.source)?.data.type ?? ""]?.outputs.find((o) => o.name === e.sourceHandle);
+      const inp = st.types[st.nodes.find((n) => n.id === e.target)?.data.type ?? ""]?.inputs.find((i) => i.name === e.targetHandle);
+      if (!out || !inp) continue;
+      const myIn = t.inputs.find((i) => kindFits(out.type, i.type));
+      const myOut = t.outputs.find((o) => kindFits(o.type, inp.type));
+      if (!myIn || !myOut) continue;
+      const len = path.getTotalLength();
+      for (let k = 0; k <= 40; k++) {
+        const q = path.getPointAtLength((len * k) / 40);
+        const x = q.x * m.a + q.y * m.c + m.e, y = q.x * m.b + q.y * m.d + m.f;
+        if (x < r.x || x > r.x + r.width || y < r.y || y > r.y + r.height) continue;
+        const d = Math.hypot(x - cx, y - cy);
+        if (!best || d < best.d) best = { id: e.id, d, input: myIn.name, output: myOut.name };
+      }
+    }
+    return best;
+  };
+  const [splitEdge, setSplitEdge] = useState<string | null>(null);
+  useEffect(() => {
+    if (!splitEdge) return;
+    const el = document.querySelector(`.react-flow__edge[data-id="${CSS.escape(splitEdge)}"]`);
+    el?.classList.add("splice");
+    return () => el?.classList.remove("splice");
+  }, [splitEdge]);
+
   const isValid = (c: {
     source: string;
     sourceHandle?: string | null;
@@ -636,6 +680,12 @@ function Canvas() {
             isValidConnection={isValid}
             onNodeClick={(_, n) => s.select(n.id)}
             onPaneClick={() => s.select(null)}
+            onNodeDrag={(_, n) => setSplitEdge(edgeToSplit(n.id)?.id ?? null)}
+            onNodeDragStop={(_, n) => {
+              const hit = edgeToSplit(n.id);
+              setSplitEdge(null);
+              if (hit) useStudio.getState().insertOnEdge(n.id, hit.id, hit.input, hit.output);
+            }}
             onNodeDoubleClick={(_, n) => s.openBench(n.id)}
             deleteKeyCode={["Delete", "Backspace"]}
             colorMode="dark"

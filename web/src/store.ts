@@ -71,6 +71,8 @@ interface State {
   onNodesChange: (c: NodeChange<StudioNode>[]) => void
   onEdgesChange: (c: EdgeChange[]) => void
   connect: (c: Connection) => void
+  /** Splits an edge and routes it through a node: source -> node input, node output -> target. */
+  insertOnEdge: (nodeId: string, edgeId: string, input: string, output: string) => void
   select: (id: string | null) => void
   usage: Record<string, number>
   perfOpen: boolean
@@ -122,6 +124,14 @@ export const useStudio = create<State>((set, get) => ({
     edges: addEdge({ ...c, id: `${c.source}.${c.sourceHandle}->${c.target}.${c.targetHandle}` },
       s.edges.filter((e) => !(e.target === c.target && e.targetHandle === c.targetHandle))),
   })),
+  insertOnEdge: (nodeId, edgeId, input, output) => set((s) => {
+    const e = s.edges.find((x) => x.id === edgeId)
+    if (!e) return {}
+    const a = { source: e.source, sourceHandle: e.sourceHandle ?? null, target: nodeId, targetHandle: input }
+    const b = { source: nodeId, sourceHandle: output, target: e.target, targetHandle: e.targetHandle ?? null }
+    const id = (c: { source: string; sourceHandle: string | null; target: string; targetHandle: string | null }) => `${c.source}.${c.sourceHandle}->${c.target}.${c.targetHandle}`
+    return { edges: [...s.edges.filter((x) => x.id !== edgeId), { ...a, id: id(a) }, { ...b, id: id(b) }] }
+  }),
   select: (id) => set({ selected: id }),
   addNode: (type, params, pos, title) => {
     const t = get().types[type]

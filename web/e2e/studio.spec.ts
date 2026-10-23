@@ -891,3 +891,35 @@ test('a node added while the view is panned away is brought into view', async ({
     return n.x >= c.x && n.y >= c.y && n.x + n.width <= c.x + c.width && n.y + n.height <= c.y + c.height
   }).toBe(true)
 })
+
+async function dragNodeOntoEdge(page: Page, label: string, edgeIndex: number) {
+  const node = page.locator('.react-flow__node').filter({ hasText: label }).last()
+  const nb = (await node.boundingBox())!
+  const eb = (await page.locator('.react-flow__edge').nth(edgeIndex).locator('path').first().boundingBox())!
+  await page.mouse.move(nb.x + nb.width / 2, nb.y + 12)
+  await page.mouse.down()
+  await page.mouse.move(eb.x + eb.width / 2, eb.y + eb.height / 2 - nb.height / 2 + 12, { steps: 12 })
+  return async () => { await page.mouse.up() }
+}
+
+test('a node dragged onto a compatible edge is placed between its ends', async ({ page }) => {
+  await open(page)
+  await expect(page.locator('.react-flow__edge')).toHaveCount(2)
+  await page.getByRole('button', { name: '+ trace' }).click()
+  await page.locator('.menu button').filter({ hasText: 'Smooth mask' }).click()
+  const drop = await dragNodeOntoEdge(page, 'Smooth mask', 1)
+  await expect(page.locator('.react-flow__edge.splice')).toHaveCount(1)
+  await drop()
+  await expect(page.locator('.react-flow__edge.splice')).toHaveCount(0)
+  await expect(page.locator('.react-flow__edge')).toHaveCount(3)
+})
+
+test('a node that does not fit the edge leaves it alone', async ({ page }) => {
+  await open(page)
+  await page.getByRole('button', { name: '+ trace' }).click()
+  await page.locator('.menu button').filter({ hasText: /^Threshold/ }).click()
+  const drop = await dragNodeOntoEdge(page, 'Threshold', 1)
+  await expect(page.locator('.react-flow__edge.splice')).toHaveCount(0)
+  await drop()
+  await expect(page.locator('.react-flow__edge')).toHaveCount(2)
+})

@@ -1209,3 +1209,8 @@ header .btn.icon-btn {
 .tb-badge.warn {
   background: #f0d24a;
 }
+.react-flow__edge.splice path {
+  stroke: var(--acc) !important;
+  stroke-width: 4 !important;
+  stroke-dasharray: 8 5;
+}
