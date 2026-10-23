@@ -183,10 +183,31 @@ function Canvas() {
         if (!useStudio.getState().nodes.length) {
           useStudio.getState().vectorStarter(img.id, img.name);
           fit();
-        } else
-          useStudio
+        } else {
+          // one image in the graph: the drop swaps it, so the whole pipeline re-runs on the new picture
+          const sources = useStudio
             .getState()
-            .addNode("source", { image_id: img.id }, at, img.name);
+            .nodes.filter((n) => n.data.type === "source");
+          if (sources.length === 1)
+            useStudio.setState((st) => ({
+              nodes: st.nodes.map((n) =>
+                n.id === sources[0].id
+                  ? {
+                      ...n,
+                      data: {
+                        ...n.data,
+                        title: img.name,
+                        params: { ...n.data.params, image_id: img.id },
+                      },
+                    }
+                  : n,
+              ),
+            }));
+          else
+            useStudio
+              .getState()
+              .addNode("source", { image_id: img.id }, at, img.name);
+        }
       } catch (e) {
         useStudio.setState({
           error: String(e instanceof Error ? e.message : e),
@@ -268,7 +289,7 @@ function Canvas() {
   const templates = [
     [
       "Simple",
-      "image → threshold → stencil → export. The quickest route to an STL.",
+      "image → threshold → stencil. The quickest route to an STL.",
       s.starter,
     ],
     [

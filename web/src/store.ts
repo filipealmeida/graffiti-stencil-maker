@@ -195,10 +195,8 @@ export const useStudio = create<State>((set, get) => ({
     const src = addNode('source', { image_id: imageId }, { x: 40, y: 60 }, title)
     const thr = addNode('threshold', {}, { x: 420, y: 60 })
     const st = addNode('stencil', {}, { x: stageColumn('stencil').x + 30, y: 60 })
-    const ex = addNode('export', {}, { x: stageColumn('post').x + 30, y: 60 })
     connect({ source: src, sourceHandle: 'image', target: thr, targetHandle: 'image' })
     connect({ source: thr, sourceHandle: 'mask', target: st, targetHandle: 'mask' })
-    connect({ source: st, sourceHandle: 'solid', target: ex, targetHandle: 'solid' })
     set({ selected: st })
   },
   colourStarter: (imageId, title) => {
@@ -208,11 +206,9 @@ export const useStudio = create<State>((set, get) => ({
     const red = addNode('reduce', { colours: 3 }, { x: 400, y: 60 })
     const tp = addNode('tone_patterns', {}, { x: 760, y: 60 })
     const st = addNode('stencil', { width_mm: 100, margin_mm: 6, raised_bridges: true, z_bridging: 'easy', layer_height_mm: 0.2 }, { x: stageColumn('stencil').x + 30, y: 60 })
-    const ex = addNode('export', {}, { x: stageColumn('post').x + 30, y: 60 })
     connect({ source: src, sourceHandle: 'image', target: red, targetHandle: 'image' })
     connect({ source: red, sourceHandle: 'image', target: tp, targetHandle: 'image' })
     connect({ source: tp, sourceHandle: 'mask', target: st, targetHandle: 'mask' })
-    connect({ source: st, sourceHandle: 'solid', target: ex, targetHandle: 'solid' })
     set({ selected: tp })
   },
   colourSetStarter: (imageId, title) => {
@@ -274,11 +270,9 @@ export const useStudio = create<State>((set, get) => ({
     const thr = addNode('threshold', {}, { x: 400, y: 60 })
     const tr = addNode('trace', {}, { x: 760, y: 60 })
     const st = addNode('vector_stencil', {}, { x: stageColumn('stencil').x + 30, y: 60 })
-    const ex = addNode('export', {}, { x: stageColumn('post').x + 30, y: 60 })
     connect({ source: src, sourceHandle: 'image', target: thr, targetHandle: 'image' })
     connect({ source: thr, sourceHandle: 'mask', target: tr, targetHandle: 'mask' })
     connect({ source: tr, sourceHandle: 'shapes', target: st, targetHandle: 'shapes' })
-    connect({ source: st, sourceHandle: 'solid', target: ex, targetHandle: 'solid' })
     set({ selected: tr })
   },
   graph: () => ({

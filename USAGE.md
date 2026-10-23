@@ -77,7 +77,7 @@ Editing: select nodes and press Ctrl+C / Ctrl+V to copy and paste them (links be
 The 3D viewers (Stencil and Post-process outputs) show the model size (width × depth × height in mm) in the corner, and per-file sizes in the file list; for tiled output the corner shows the assembled plate. The Trace node's output has an **Export SVG** button (workbench footer and inspector) that saves the vector outlines.
 
 Build and run the studio as described in [INSTALL.md](INSTALL.md). Drop an image onto the canvas, or choose one of
-the starter templates. The graph is evaluated in a Web Worker; node outputs can be inspected in the side panel.
+the starter templates. The graph is evaluated in a Web Worker; node outputs can be inspected in the side panel. Templates never use the nodes marked "(old)"; a dropped image onto a graph that has one Image node swaps that picture.
 New nodes are placed in the first free spot, left to right by stage (Trace, Stencil, Post-process).
 
 The graph is arranged into three stages:

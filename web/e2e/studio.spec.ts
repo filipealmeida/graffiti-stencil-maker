@@ -45,6 +45,35 @@ async function open(page: Page, template: string | null = 'Simple') {
   }
 }
 
+test('dropping an image file on the page loads it', async ({ page }) => {
+  await page.goto('/')
+  const dt = await page.evaluateHandle((b64) => {
+    const d = new DataTransfer()
+    d.items.add(new File([Uint8Array.from(atob(b64), (c) => c.charCodeAt(0))], 'dot.png', { type: 'image/png' }))
+    return d
+  }, 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==')
+  await page.locator('.react-flow').dispatchEvent('dragover', { dataTransfer: dt })
+  await page.locator('.react-flow').dispatchEvent('drop', { dataTransfer: dt })
+  await expect(page.locator('.react-flow__node').filter({ hasText: 'Vector stencil' })).toBeVisible()
+})
+
+test('dropping a second image swaps the picture of the existing graph', async ({ page }) => {
+  await page.goto('/')
+  const drop = async (name: string) => {
+    const dt = await page.evaluateHandle((name) => {
+      const d = new DataTransfer()
+      d.items.add(new File([Uint8Array.from(atob('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=='), (c) => c.charCodeAt(0))], name, { type: 'image/png' }))
+      return d
+    }, name)
+    await page.locator('.react-flow').dispatchEvent('drop', { dataTransfer: dt })
+  }
+  await drop('first.png')
+  await expect(page.locator('.react-flow__node').filter({ hasText: 'first.png' })).toBeVisible()
+  await drop('second.png')
+  await expect(page.locator('.react-flow__node').filter({ hasText: 'second.png' })).toBeVisible()
+  await expect(page.locator('.react-flow__node').filter({ hasText: 'first.png' })).toHaveCount(0)
+})
+
 test('a dropped image builds the Vector template by default', async ({ page }) => {
   await open(page, null)
   const nodes = page.locator('.react-flow__node')
@@ -53,7 +82,7 @@ test('a dropped image builds the Vector template by default', async ({ page }) =
 })
 
 const states = (page: Page) => page.locator('[title=done],[title=error],[title=running],[title=pending]').evaluateAll((l) => l.map((e) => e.getAttribute('title')))
-const settled = (page: Page) => expect.poll(() => states(page), { timeout: 60_000 }).toEqual(Array(4).fill('done'))
+const settled = (page: Page) => expect.poll(async () => { const l = await states(page); return l.length > 0 && l.every((x) => x === 'done') }, { timeout: 60_000 }).toBe(true)
 const setSlider = (page: Page, v: number) =>
   page.locator('aside input[type=range]').first().evaluate((e, v) => {
     Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(e, String(v))
@@ -125,7 +154,7 @@ test('new nodes avoid existing ones and no lane panels are drawn', async ({ page
     await page.locator('.menu button').filter({ hasText: 'Morphology' }).click()
   }
   const boxes = await page.locator('.react-flow__node').evaluateAll((l) => l.map((e) => { const r = e.getBoundingClientRect(); return [r.x, r.y, r.width, r.height] }))
-  expect(boxes.length).toBe(7)
+  expect(boxes.length).toBe(6)
   for (let i = 0; i < boxes.length; i++) for (let j = i + 1; j < boxes.length; j++) {
     const [a, b] = [boxes[i], boxes[j]]
     const overlap = a[0] < b[0] + b[2] && b[0] < a[0] + a[2] && a[1] < b[1] + b[3] && b[1] < a[1] + a[3]
@@ -238,13 +267,13 @@ test('copy, paste and duplicate create independent nodes', async ({ page }) => {
   const th = nodes.filter({ hasText: 'Threshold' })
   await th.first().click()
   await page.keyboard.press('Control+d')
-  await expect(nodes).toHaveCount(5)
+  await expect(nodes).toHaveCount(4)
   await expect(th).toHaveCount(2)
   await page.keyboard.press('Control+c')
   await page.keyboard.press('Control+v')
-  await expect(nodes).toHaveCount(6)
+  await expect(nodes).toHaveCount(5)
   await th.first().locator('button[title^="Duplicate"]').click()
-  await expect(nodes).toHaveCount(7)
+  await expect(nodes).toHaveCount(6)
   const boxes = await nodes.evaluateAll((l) => l.map((e) => { const r = e.getBoundingClientRect(); return [r.x, r.y, r.width, r.height] }))
   for (let i = 0; i < boxes.length; i++) for (let j = i + 1; j < boxes.length; j++) {
     const [a, b] = [boxes[i], boxes[j]]
