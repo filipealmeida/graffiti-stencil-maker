@@ -1,9 +1,11 @@
 import { Suspense, lazy, useEffect, useState } from 'react'
-import { api, artifactUrl, partUrl } from './api'
+import { api, artifactUrl, partUrl, type Kind } from './api'
 import Console from './Console'
 import ImageView from './ImageView'
 import ParamForm from './ParamForm'
 import SourceActions from './SourceActions'
+import Presets from './Presets'
+import { NodeActions, downloadFor, runSummary } from './NodeActions'
 import ImageInfoPanel from './ImageInfo'
 import { useStudio } from './store'
 const Viewer3D = lazy(() => import('./Viewer3D'))
@@ -22,12 +24,6 @@ export default function Workbench() {
   const [view, setView] = useState('')
   const [mode, setMode] = useState<'plate' | 'tiles'>('plate')
   const [info, setInfo] = useState<Record<string, any> | null>(null)
-
-  useEffect(() => {
-    const k = (e: KeyboardEvent) => e.key === 'Escape' && open(null)
-    window.addEventListener('keydown', k)
-    return () => window.removeEventListener('keydown', k)
-  }, [])
 
   const t = node && types[node.data.type]
   const run = id ? runs[id] : undefined
@@ -80,16 +76,18 @@ export default function Workbench() {
           </div>
         )}
         <span className="spacer" />
-        {run?.state === 'running' && <span className="pct">{Math.round((run.progress ?? 0) * 100)}% {run.message}</span>}
-        {run?.state !== 'running' && busy && <span className="pct">updating…</span>}
-        {run?.state === 'done' && !busy && <span className="mut">{run.cached ? 'cached' : `${run.ms ?? 0} ms`}</span>}
+        <span className="mut">{runSummary(run, busy)}</span>
         <button onClick={() => open(null)}>Close ✕</button>
       </div>
       {run?.state === 'running' && <div className="bar"><i style={{ width: `${(run.progress ?? 0) * 100}%` }} /></div>}
       <div className="bench-body">
         <aside className="bench-params">
-          <ParamForm node={node} type={t} before={t.id === 'source' ? <SourceActions id={node.id} imageId={String(node.data.params.image_id)} title={node.data.title} /> : undefined} />
+          <ParamForm node={node} type={t} before={<>
+            <NodeActions id={node.id} download={downloadFor(cur?.kind as Kind, cur?.key, cur?.out, Object.keys(info?.files ?? {}).length)} />
+            {t.id === 'source' && <SourceActions id={node.id} imageId={String(node.data.params.image_id)} title={node.data.title} />}
+          </>} />
           {t.id === 'source' && <ImageInfoPanel imageId={String(node.data.params.image_id)} resolution={Number(node.data.params.resolution ?? 1000)} />}
+          <Presets key={node.id} node={node} />
           {run?.state === 'error' && <div className="err">{run.error}</div>}
         </aside>
         <section className="bench-view">
@@ -110,9 +108,6 @@ export default function Workbench() {
           {info?.kind === 'tiles' && typeof info.paint_under_blocks_mm2 === 'number' && <span>paint under blocks: <b>{info.paint_under_blocks_mm2.toFixed(0)} mm²</b>{info.paint_mm2 > 0 && <> ({((100 * info.paint_under_blocks_mm2) / info.paint_mm2).toFixed(1)}%)</>}</span>}
           {info?.coverage !== undefined && <span>{info.width}×{info.height}px · <b>{(info.coverage * 100).toFixed(1)}%</b> paint</span>}
           {info?.width !== undefined && info.coverage === undefined && <span>{info.width}×{info.height}px</span>}
-          {cur?.kind === 'solid' && cur.key && <a className="btn" href={artifactUrl(cur.key, cur.out)} download="stencil.stl">Download STL</a>}
-          {cur?.kind === 'shapes' && cur.key && <a className="btn" href={artifactUrl(cur.key, cur.out)} download="trace.svg" title="Vector outlines as an SVG">Export SVG</a>}
-          {cur?.kind === 'parts' && cur.key && <a className="btn" href={artifactUrl(cur.key, cur.out)}>Download</a>}
         </div>
         <Console nodeId={id} height={130} />
       </div>

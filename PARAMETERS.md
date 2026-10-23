@@ -189,8 +189,8 @@ Every parameter `--set NODE.PARAM=VALUE` accepts. Generated with `stencil --list
 | `seam_shift` | Seam may move (mm) | float | `8.0` | 0.0 to 50.0 |
 | `connector` | Connector shape | choice | `"hex"` | hex \| round |
 | `connector_d` | Connector diameter (mm) | choice | `"3"` | 2.5 \| 3 \| 4 \| 5 \| 6 |
-| `depth` | Pocket depth into each tile (mm) | float | `10.0` | 4.0 to 20.0 |
-| `clearance` | Pocket clearance (mm) | float | `0.2` | 0.0 to 0.6 |
+| `depth` | Connector depth into each tile (mm) | float | `10.0` | 4.0 to 20.0 |
+| `clearance` | Connector hole clearance (mm, diametral) | float | `0.2` | 0.0 to 0.6 |
 | `spacing` | Pockets about every (mm) | float | `30.0` | 10.0 to 200.0 |
 | `segments` | Round segments | int | `48.0` | 24.0 to 128.0 |
 
@@ -216,17 +216,17 @@ Every parameter `--set NODE.PARAM=VALUE` accepts. Generated with `stencil --list
 | `connector` | Connector shape | choice | `"hex"` | hex \| round |
 | `connector_d` | Connector diameter (mm) | choice | `"3"` | 2.5 \| 3 \| 4 \| 5 \| 6 |
 | `depth` | Connector depth into each tile (mm) | float | `10.0` | 4.0 to 20.0 |
-| `clearance` | Connector hole clearance (mm) | float | `0.2` | 0.0 to 0.6 |
+| `clearance` | Connector hole clearance (mm, diametral) | float | `0.2` | 0.0 to 0.6 |
 | `segments` | Round segments (connectors, holes, threads) | int | `48.0` | 24.0 to 128.0 |
 | `pad_count` | Raised pads (0-4) | int | `0.0` | 0.0 to 4.0 |
 | `pad_thread` | Pad thread | choice | `"M8"` | M3 \| M4 \| M5 \| M6 \| M8 \| M10 |
 | `pad_height` | Pad height (mm) | float | `6.0` | 1.0 to 30.0 |
-| `thread_clearance` | Thread clearance (mm, radial) | float | `0.2` | 0.0 to 0.6 |
+| `thread_clearance` | Pad thread clearance (mm, radial) | float | `0.2` | 0.0 to 0.6 |
 | `mount_screw` | Mounting screw | choice | `"none"` | none \| M3 \| M4 \| M5 \| M6 \| M8 \| M10 |
-| `mount_clearance` | Hole clearance (mm, diametral) | float | `0.3` | 0.0 to 1.0 |
+| `mount_clearance` | Mounting hole clearance (mm, diametral) | float | `0.3` | 0.0 to 1.0 |
 | `mount_threaded` | Cut a real thread | bool | `true` | true \| false |
 | `mount_offset` | Distance from a seam to the hole (mm) | float | `10.0` | 4.0 to 60.0 |
-| `mount_extend` | Extender plate: outer row distance (mm) | float | `20.0` | 8.0 to 100.0 |
+| `mount_extend` | Extender plate: distance between the two rows of holes (mm) | float | `20.0` | 8.0 to 100.0 |
 
 ### Split volume (`tiles`)
 
@@ -239,7 +239,7 @@ Every parameter `--set NODE.PARAM=VALUE` accepts. Generated with `stencil --list
 | `connector` | Connector shape | choice | `"hex"` | hex \| round |
 | `connector_d` | Connector diameter (mm) | choice | `"3"` | 2.5 \| 3 \| 4 \| 5 \| 6 |
 | `depth` | Connector depth into each tile (mm) | float | `10.0` | 4.0 to 20.0 |
-| `clearance` | Connector hole clearance (mm) | float | `0.2` | 0.0 to 0.6 |
+| `clearance` | Connector hole clearance (mm, diametral) | float | `0.2` | 0.0 to 0.6 |
 | `segments` | Round segments | int | `48.0` | 24.0 to 128.0 |
 | `bridge_islands` | Bridge islands a cut creates | bool | `true` | true \| false |
 | `bridge_mm` | Bridge width (mm) | float | `1.6` | 0.4 to 6.0 |
@@ -253,14 +253,14 @@ Every parameter `--set NODE.PARAM=VALUE` accepts. Generated with `stencil --list
 |---|---|---|---|---|
 | `pad_thread` | Pad thread (none = no pads) | choice | `"M4"` | none \| M3 \| M4 \| M5 \| M6 \| M8 \| M10 |
 | `pad_height` | Pad height above the plate (mm) | float | `4.0` | 1.0 to 20.0 |
-| `thread_clearance` | Thread clearance (mm, radial) | float | `0.2` | 0.0 to 0.6 |
+| `thread_clearance` | Pad thread clearance (mm, radial) | float | `0.2` | 0.0 to 0.6 |
 | `long_edge` | Add pads along edges longer than (mm, 0 = corners only) | float | `300.0` | 0.0 to 2000.0 |
 | `mount_screw` | Mounting hole screw | choice | `"M4"` | none \| M3 \| M4 \| M5 \| M6 \| M8 \| M10 |
 | `mount_threaded` | Threaded mounting holes | bool | `false` | true \| false |
 | `mount_clearance` | Mounting hole clearance (mm, diametral) | float | `0.4` | 0.0 to 1.5 |
 | `hole_spacing` | Hole every (mm, 0 = none) | float | `120.0` | 0.0 to 1000.0 |
 | `joiner_offset` | Joiner holes this far each side of a seam (mm, 0 = none) | float | `12.0` | 0.0 to 60.0 |
-| `extend` | Extender plate reach (mm) | float | `25.0` | 10.0 to 120.0 |
+| `extend` | Extender plate: distance between the two rows of holes (mm) | float | `25.0` | 10.0 to 120.0 |
 | `segments` | Round segments | int | `48.0` | 24.0 to 128.0 |
 
 ### Margin expansion (`ring`)
@@ -301,14 +301,14 @@ Every parameter `--set NODE.PARAM=VALUE` accepts. Generated with `stencil --list
 |---|---|---|---|---|
 | `extend` | Extender plate: distance between the two rows of holes (mm) | float | `25.0` | 10.0 to 120.0 |
 | `joiner_thickness` | Joiner plate thickness (mm) | float | `4.0` | 2.0 to 10.0 |
-| `plate` | Joiner plates (set by hand) | bool | `true` | true \| false |
+| `plate` | Make the hand-sized plates | bool | `true` | true \| false |
 | `plate_distance` | Distance between hole centres (mm) | float | `30.0` | 8.0 to 300.0 |
-| `plate_height` | Height (mm) | float | `4.0` | 1.0 to 20.0 |
+| `plate_height` | Plate thickness (mm) | float | `4.0` | 1.0 to 20.0 |
 | `plate_padding` | Padding round the holes (mm) | float | `3.0` | 1.0 to 20.0 |
 | `plate_threaded` | Threaded holes (the bolt screws in) | bool | `false` | true \| false |
-| `plate_clearance` | Hole clearance (mm, diametral) | float | `0.4` | 0.0 to 1.5 |
+| `plate_clearance` | Plate hole clearance (mm, diametral) | float | `0.4` | 0.0 to 1.5 |
 | `screw` | Screw size | choice | `"M4"` | M3 \| M4 \| M5 \| M6 \| M8 \| M10 |
-| `length` | Screw length (mm) | float | `20.0` | 4.0 to 120.0 |
+| `length` | Bolt length (mm) | float | `20.0` | 4.0 to 120.0 |
 | `nut_clearance` | Nut thread clearance (mm, radial) | float | `0.2` | 0.0 to 0.6 |
 | `tip_taper` | Bolt tip taper (mm, radial; 0 = none) | float | `1.0` | 0.0 to 2.0 |
 | `tip_pitches` | Bolt tip taper length (thread pitches) | float | `1.0` | 0.5 to 4.0 |

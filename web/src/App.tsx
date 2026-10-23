@@ -79,8 +79,18 @@ function Canvas() {
     };
     const esc = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
+        // one step back each press: menus, then the preview, then the selection
+        const menuOpen = !!document.querySelector(".menu, .cmdpal");
         setMenu(null);
         setCmdOpen(false);
+        if (menuOpen) return;
+        const st = useStudio.getState();
+        if (st.bench) st.openBench(null);
+        else if (
+          st.selected &&
+          !(e.target as HTMLElement).closest?.("input, textarea, select")
+        )
+          st.select(null);
         return;
       }
       const t = e.target as HTMLElement;

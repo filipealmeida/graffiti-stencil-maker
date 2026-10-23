@@ -240,7 +240,7 @@ fn targets_limit_evaluation_and_errors_stay_local() {
     assert_eq!(missing["nodes"]["s"]["state"], "error");
     assert_eq!(
         missing["nodes"]["st"]["error"],
-        "waiting on a failed node upstream"
+        "an earlier node failed: fix that one first"
     );
 }
 

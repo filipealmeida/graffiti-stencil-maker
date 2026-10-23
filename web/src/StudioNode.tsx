@@ -2,6 +2,7 @@ import { Handle, Position, type NodeProps } from '@xyflow/react'
 import { api, artifactUrl, type Kind } from './api'
 import { useStudio, type StudioNode } from './store'
 import { badgesFor } from './badges'
+import { runSummary } from './NodeActions'
 import { etaSeconds, formatEta, nodeStarts, useNow } from './eta'
 
 export const KIND_COLOR: Record<Kind, string> = { image: '#4aa3ff', mask: '#ffa24a', shapes: '#f0d24a', tiles: '#ff7a9c', solid: '#5fd38d', parts: '#c28bff', any: '#8a93a0' }
@@ -64,6 +65,7 @@ export default function StudioNodeView({ id, data, selected }: NodeProps<StudioN
         ))}
         {run?.state === 'error' && <div className="err">{run.error}</div>}
       </div>
+      {run?.state === 'done' && <div className="node-foot">{runSummary(run)}</div>}
     </div>
   )
 }

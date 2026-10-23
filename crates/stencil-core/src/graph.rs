@@ -415,7 +415,8 @@ impl Engine {
                             }
                         },
                         _ => {
-                            problem = Some("waiting on a failed node upstream".to_string());
+                            problem =
+                                Some("an earlier node failed: fix that one first".to_string());
                             break;
                         }
                     },

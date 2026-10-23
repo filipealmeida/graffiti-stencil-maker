@@ -1102,3 +1102,24 @@ header > .pal .menu:not(.wide) {
   display: block;
   overflow: visible;
 }
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0 0 8px;
+}
+.actions .btn,
+.actions .danger {
+  margin: 0;
+  font-size: 12px;
+  padding: 3px 9px;
+}
+.status-line {
+  margin: -4px 0 6px;
+  font-size: 11px;
+}
+.node-foot {
+  color: var(--mut);
+  font-size: 10px;
+  padding: 0 10px 5px;
+}

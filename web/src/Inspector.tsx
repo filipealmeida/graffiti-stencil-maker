@@ -5,13 +5,14 @@ import { useStudio } from './store'
 import ParamForm from './ParamForm'
 import SourceActions from './SourceActions'
 import Presets from './Presets'
+import { NodeActions, downloadFor, runSummary } from './NodeActions'
 
 export default function Inspector() {
   const id = useStudio((s) => s.selected)
   const node = useStudio((s) => s.nodes.find((n) => n.id === s.selected))
   const t = useStudio((s) => (node ? s.types[node.data.type] : undefined))
   const run = useStudio((s) => (id ? s.runs[id] : undefined))
-  const { removeNode, openBench } = useStudio.getState()
+  const busy = useStudio((s) => s.busy)
   const [info, setInfo] = useState<Record<string, any> | null>(null)
   const [out, setOut] = useState<string>('')
   const key = run?.key
@@ -39,8 +40,9 @@ export default function Inspector() {
   return (
     <aside className="inspector">
       <h2>{t.label} <small className={`tag stage-${t.stage}`}>{t.stage}</small></h2>
+      <p className="mut status-line">{runSummary(run, busy)}</p>
       <ParamForm node={node} type={t} layers={layers} before={<>
-      <button className="btn" onClick={() => openBench(node.id)}>⤢ Open preview (double-click a node)</button>
+      <NodeActions id={node.id} preview download={downloadFor(cur?.type, key, cur?.name, Object.keys(info?.files ?? {}).length)} />
       {fileInput && <><p className="mut">Image: {String(node.data.title ?? node.data.params.image_id)}</p><SourceActions id={node.id} imageId={String(node.data.params.image_id)} title={node.data.title} /></>}
       </>} />
       {fileInput && <ImageInfoPanel imageId={String(node.data.params.image_id)} resolution={Number(node.data.params.resolution ?? 1000)} />}
@@ -52,12 +54,9 @@ export default function Inspector() {
             <div className="tabs">{avail.map((o) => <button key={o.name} className={o.name === cur.name ? 'on' : ''} onClick={() => setOut(o.name)}>{o.name}</button>)}</div>
           )}
           {(cur.type === 'image' || cur.type === 'mask' || cur.type === 'shapes') && <img className={`big ${cur.type}`} src={artifactUrl(key, cur.name, 700)} alt="" />}
-          {cur.type === 'shapes' && <a className="btn" href={artifactUrl(key, cur.name)} download="trace.svg">Export SVG</a>}
-          {cur.type === 'solid' && <a className="btn" href={artifactUrl(key, cur.name)} download="stencil.stl">Download STL</a>}
           {cur.type === 'parts' && info?.files && (
             <>
               <ul>{Object.entries(info.files as Record<string, number>).map(([n, b]) => <li key={n}>{n} <em>{(b / 1024).toFixed(0)} kB</em></li>)}</ul>
-              <a className="btn" href={artifactUrl(key, cur.name)}>Download {Object.keys(info.files).length > 1 ? 'ZIP' : 'STL'}</a>
             </>
           )}
           {info?.stats && (
@@ -70,7 +69,6 @@ export default function Inspector() {
           {info?.coverage !== undefined && <p className="mut">{info.width}×{info.height}px · {(info.coverage * 100).toFixed(1)}% paint</p>}
         </div>
       )}
-      <button className="danger" onClick={() => removeNode(node.id)}>Delete node</button>
     </aside>
   )
 }

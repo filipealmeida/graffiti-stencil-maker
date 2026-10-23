@@ -414,7 +414,9 @@ fn build_once(
 ) -> Result<Output, String> {
     validate(p)?;
     if shapes.w == 0 || shapes.h == 0 || shapes.loops.is_empty() {
-        return Err("vector input contains no closed outlines".into());
+        return Err(
+            "the shapes contain no closed outlines: trace a picture that has paint in it".into(),
+        );
     }
     if !detail.is_finite() || detail <= 0.0 {
         return Err("mesh detail must be positive and finite".into());

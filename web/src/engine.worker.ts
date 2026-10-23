@@ -126,7 +126,7 @@ async function runGraph(m: Extract<Req, { op: 'run' }>) {
     const node = byId.get(id)!
     const upstream = edges.some((x) => x.to[0] === id && failed.has(x.from[0]))
     if (upstream) {
-      const msg = 'waiting on a failed node upstream'
+      const msg = 'an earlier node failed: fix that one first'
       failed.add(id)
       post(m.id, { node: id, state: { state: 'error', error: msg }, log: [{ at: Date.now(), t: (Date.now() - t0) / 1000, level: 'error', node: id, type: node.type, msg, ms: null }], n: ++n, total: order.length })
       continue

@@ -22,7 +22,7 @@ pub(super) fn run_morphology(
 ) -> Result<Outputs, String> {
     use crate::morphology as m;
     let Some(Value::Mask(src)) = i.get("mask") else {
-        return Err("input 'mask' missing".into());
+        return Err("nothing is connected to the 'mask' input: connect a mask".into());
     };
     let (w, h, a) = (src.w, src.h, &src.paint[..]);
     let shape = m::Shape::parse(p.s("kernel")).ok_or("unknown kernel shape")?;
@@ -83,7 +83,7 @@ pub(super) fn run_transform(
 
 pub(super) fn run_smooth(_: &Engine, i: &HashMap<String, Value>, p: &P) -> Result<Outputs, String> {
     let Some(Value::Mask(src)) = i.get("mask") else {
-        return Err("input 'mask' missing".into());
+        return Err("nothing is connected to the 'mask' input: connect a mask".into());
     };
     let (w, h, paint) = crate::smooth::smooth(
         src.w,
@@ -101,7 +101,7 @@ pub(super) fn run_threshold(
     p: &P,
 ) -> Result<Outputs, String> {
     let Some(Value::Image(img)) = i.get("image") else {
-        return Err("input 'image' missing".into());
+        return Err("nothing is connected to the 'image' input: connect an image".into());
     };
     let gray: Vec<u8> = img
         .rgb
@@ -174,7 +174,7 @@ pub(super) fn finish_solid(o: crate::Output, p: &P) -> Result<Outputs, String> {
 
 pub(super) fn run_trace(_: &Engine, i: &HashMap<String, Value>, p: &P) -> Result<Outputs, String> {
     let Some(Value::Mask(m)) = i.get("mask") else {
-        return Err("input 'mask' missing".into());
+        return Err("nothing is connected to the 'mask' input: connect a mask".into());
     };
     let s = crate::trace::trace(
         &m.paint,
@@ -196,7 +196,7 @@ pub(super) fn run_round_corners(
     p: &P,
 ) -> Result<Outputs, String> {
     let Some(Value::Shapes(s)) = i.get("shapes") else {
-        return Err("input 'shapes' missing".into());
+        return Err("nothing is connected to the 'shapes' input: connect shapes".into());
     };
     let (out, rounded, _) = crate::shape_edit::round_corners(
         s,
@@ -218,7 +218,7 @@ pub(super) fn run_remove_islands(
     p: &P,
 ) -> Result<Outputs, String> {
     let Some(Value::Shapes(s)) = i.get("shapes") else {
-        return Err("input 'shapes' missing".into());
+        return Err("nothing is connected to the 'shapes' input: connect shapes".into());
     };
     let (out, removed, _) = crate::shape_edit::remove_islands(
         s,
@@ -241,7 +241,7 @@ pub(super) fn run_shapes_to_mask(
     p: &P,
 ) -> Result<Outputs, String> {
     let Some(Value::Shapes(s)) = i.get("shapes") else {
-        return Err("input 'shapes' missing".into());
+        return Err("nothing is connected to the 'shapes' input: connect shapes".into());
     };
     let k = p.f("resolution") / s.w.max(s.h) as f64;
     let (gw, gh) = (
@@ -280,7 +280,9 @@ pub(super) fn run_vector_stencil(
         return tiled_parts(l, method, p);
     }
     let Some(Value::Shapes(s)) = i.get("shapes") else {
-        return Err("input 'shapes' missing: connect shapes, or a tile layout".into());
+        return Err(
+            "nothing is connected to the 'shapes' input: connect shapes, or a tile layout".into(),
+        );
     };
     finish_solid(crate::vector_stencil::build(s, p.f("detail"), &q)?, p)
 }
@@ -288,7 +290,7 @@ pub(super) fn run_vector_stencil(
 pub(super) fn input_image(i: &HashMap<String, Value>) -> Result<&Rc<RgbImage>, String> {
     match i.get("image") {
         Some(Value::Image(img)) => Ok(img),
-        _ => Err("input 'image' missing".into()),
+        _ => Err("nothing is connected to the 'image' input: connect an image".into()),
     }
 }
 
@@ -357,7 +359,9 @@ pub(super) fn run_stencil(
         );
     }
     let Some(Value::Mask(m)) = i.get("mask") else {
-        return Err("input 'mask' missing: connect a mask, or a tile layout".into());
+        return Err(
+            "nothing is connected to the 'mask' input: connect a mask, or a tile layout".into(),
+        );
     };
     finish_solid(
         stencil_from_paint(&m.paint, m.w, m.h, 0, &stencil_params_from(p))?,
@@ -367,7 +371,7 @@ pub(super) fn run_stencil(
 
 pub(super) fn run_remesh(_: &Engine, i: &HashMap<String, Value>, p: &P) -> Result<Outputs, String> {
     let Some(Value::Solid(s)) = i.get("solid") else {
-        return Err("input 'solid' missing".into());
+        return Err("nothing is connected to the 'solid' input: connect a solid".into());
     };
     let lh = s.stats["layer_height_mm"]
         .as_f64()
@@ -523,7 +527,7 @@ pub(super) fn run_hardware(
 pub(super) fn run_export(_: &Engine, i: &HashMap<String, Value>, p: &P) -> Result<Outputs, String> {
     use crate::{hardware as hw, tiles};
     let Some(Value::Solid(s)) = i.get("solid") else {
-        return Err("input 'solid' missing".into());
+        return Err("nothing is connected to the 'solid' input: connect a solid".into());
     };
     let tp = tiles::TileParams {
         max_x: p.f("max_x"),
@@ -666,7 +670,7 @@ pub(super) fn run_export(_: &Engine, i: &HashMap<String, Value>, p: &P) -> Resul
 pub(super) fn run_tiles(_: &Engine, i: &HashMap<String, Value>, p: &P) -> Result<Outputs, String> {
     use crate::tiles;
     let Some(Value::Solid(s)) = i.get("solid") else {
-        return Err("input 'solid' missing".into());
+        return Err("nothing is connected to the 'solid' input: connect a solid".into());
     };
     let st = &s.stats;
     let (lh, thickness) = (
@@ -746,7 +750,7 @@ pub(super) fn run_tiles(_: &Engine, i: &HashMap<String, Value>, p: &P) -> Result
 pub(super) fn run_pads(_: &Engine, i: &HashMap<String, Value>, p: &P) -> Result<Outputs, String> {
     use crate::hardware as hw;
     let Some(Value::Parts(src)) = i.get("parts") else {
-        return Err("input 'parts' missing".into());
+        return Err("nothing is connected to the 'parts' input: connect parts".into());
     };
     let plate = &src.meta["plate"];
     if plate.is_null() {
@@ -766,7 +770,7 @@ pub(super) fn run_pads(_: &Engine, i: &HashMap<String, Value>, p: &P) -> Result<
         })
         .collect();
     if tiles.is_empty() {
-        return Err("the plate has no tiles".into());
+        return Err("the plate has no tiles: connect a Split volume node (or a Tile layout) that cuts it into tiles first".into());
     }
     let quad = |k: &str| -> Vec<[f64; 4]> {
         plate[k]
@@ -1055,7 +1059,7 @@ pub(super) fn run_pads(_: &Engine, i: &HashMap<String, Value>, p: &P) -> Result<
 pub(super) fn run_ring(_: &Engine, i: &HashMap<String, Value>, p: &P) -> Result<Outputs, String> {
     use crate::{hardware as hw, ring};
     let Some(Value::Parts(src)) = i.get("parts") else {
-        return Err("input 'parts' missing".into());
+        return Err("nothing is connected to the 'parts' input: connect parts".into());
     };
     let plate = &src.meta["plate"];
     let m = &plate["mounting"];
@@ -1079,7 +1083,7 @@ pub(super) fn run_ring(_: &Engine, i: &HashMap<String, Value>, p: &P) -> Result<
             .map(|a| a.iter().filter(|e| e["role"] == "tile").collect())
             .unwrap_or_default();
         if t.is_empty() {
-            return Err("the plate has no tiles".into());
+            return Err("the plate has no tiles: connect a Split volume node (or a Tile layout) that cuts it into tiles first".into());
         }
         [
             t.iter()

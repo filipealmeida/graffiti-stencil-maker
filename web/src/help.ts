@@ -117,3 +117,11 @@ export function unitOf(label: string): string | null {
   }
   return null
 }
+
+/** The label without its unit: the unit shows beside the number box. "(mm)" goes, "(mm, 0 = none)" becomes "(0 = none)". */
+export function plainLabel(label: string): string {
+  return label
+    .replace(/\((mm²|mm|px²|px|deg|degrees)(?:[,;]\s*([^)]*))?\)/g, (_, _u, rest) => (rest ? `(${rest})` : ''))
+    .replace(/\s+/g, ' ')
+    .trim()
+}

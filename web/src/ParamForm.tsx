@@ -1,7 +1,7 @@
 import { useEffect, useId, useState, type ReactNode } from 'react'
 import type { NodeType, ParamDef } from './api'
 import { useStudio, type StudioNode } from './store'
-import { PARAM_HELP, unitOf } from './help'
+import { PARAM_HELP, plainLabel, unitOf } from './help'
 
 const same = (a: unknown, b: unknown) => a === b || (typeof a === 'number' && typeof b === 'number' && Math.abs(a - b) < 1e-9)
 
@@ -12,7 +12,7 @@ function NumberBox({ p, value, onChange }: { p: ParamDef; value: number; onChang
   const inRange = (v: number) => Number.isFinite(v) && v >= (p.min ?? -Infinity) && v <= (p.max ?? Infinity)
   return (
     <input
-      className="numbox" type="number" min={p.min} max={p.max} step={p.step} value={draft} aria-label={p.label}
+      className="numbox" type="number" min={p.min} max={p.max} step={p.step} value={draft} aria-label={plainLabel(p.label)}
       onChange={(e) => { setDraft(e.target.value); const v = parseFloat(e.target.value); if (inRange(v)) onChange(v) }}
       onBlur={() => {
         const v = parseFloat(draft)
@@ -26,7 +26,7 @@ function NumberBox({ p, value, onChange }: { p: ParamDef; value: number; onChang
 
 function Reset({ p, value, onChange }: { p: ParamDef; value: unknown; onChange: (v: unknown) => void }) {
   if (same(value, p.default)) return null
-  const text = `Reset ${p.label} to ${String(p.default)}`
+  const text = `Reset ${plainLabel(p.label)} to ${String(p.default)}`
   return <button className="reset" title={`Reset to ${String(p.default)}`} aria-label={text} onClick={(e) => { e.preventDefault(); onChange(p.default) }}>↺</button>
 }
 
@@ -42,16 +42,16 @@ function Field({ p, value, onChange }: { p: ParamDef; value: unknown; onChange: 
   const tip = {}
   const desc = help ? { 'aria-describedby': hid } : {}
   if (p.kind === 'bool')
-    return <label className="row chk" {...tip}><input type="checkbox" checked={!!value} onChange={(e) => onChange(e.target.checked)} {...desc} />{p.label}<Reset p={p} value={value} onChange={onChange} /><Help p={p} id={hid} /></label>
+    return <label className="row chk" {...tip}><input type="checkbox" checked={!!value} onChange={(e) => onChange(e.target.checked)} {...desc} />{plainLabel(p.label)}<Reset p={p} value={value} onChange={onChange} /><Help p={p} id={hid} /></label>
   if (p.kind === 'choice')
-    return <label className="row" {...tip}><span>{p.label}<Reset p={p} value={value} onChange={onChange} /></span><select value={String(value)} onChange={(e) => onChange(e.target.value)} {...desc}>{p.choices!.map((c) => <option key={c}>{c}</option>)}</select><Help p={p} id={hid} /></label>
+    return <label className="row" {...tip}><span>{plainLabel(p.label)}<Reset p={p} value={value} onChange={onChange} /></span><select value={String(value)} onChange={(e) => onChange(e.target.value)} {...desc}>{p.choices!.map((c) => <option key={c}>{c}</option>)}</select><Help p={p} id={hid} /></label>
   if (p.kind === 'string')
-    return <label className="row" {...tip}><span>{p.label}<Reset p={p} value={value} onChange={onChange} /></span><textarea rows={2} value={String(value)} onChange={(e) => onChange(e.target.value)} {...desc} /><Help p={p} id={hid} /></label>
+    return <label className="row" {...tip}><span>{plainLabel(p.label)}<Reset p={p} value={value} onChange={onChange} /></span><textarea rows={2} value={String(value)} onChange={(e) => onChange(e.target.value)} {...desc} /><Help p={p} id={hid} /></label>
   if (p.kind === 'text') return null
   const unit = unitOf(p.label)
   return (
     <label className="row" {...tip}>
-      <span>{p.label} <em>{String(value)}{unit ? ` ${unit}` : ''}</em><Reset p={p} value={value} onChange={onChange} /></span>
+      <span>{plainLabel(p.label)} <em>{String(value)}{unit ? ` ${unit}` : ''}</em><Reset p={p} value={value} onChange={onChange} /></span>
       <span className="sliderrow">
         <input type="range" min={p.min} max={p.max} step={p.step} value={Number(value)} onChange={(e) => onChange(+e.target.value)} aria-valuetext={`${value}${unit ? ` ${unit}` : ''}`} {...desc} />
         <NumberBox p={p} value={Number(value)} onChange={onChange} />
@@ -68,8 +68,8 @@ export default function ParamForm({ node, type, layers, before }: { node: Studio
   // the picture of an Image node is not a setting
   const editable = type.params.filter((p) => p.kind !== 'text')
   const changed = editable.filter((p) => !same(node.data.params[p.name] ?? p.default, p.default))
-  const [showHelp, setShowHelp] = useState(false)
-  useEffect(() => setShowHelp(false), [node.id])
+  const showHelp = useStudio((s) => s.showHelp)
+  const setShowHelp = useStudio((s) => s.setShowHelp)
   return (
     <div className={showHelp ? 'show-help' : ''}>
       <p className="mut doc">{type.doc}</p>
@@ -94,7 +94,7 @@ export default function ParamForm({ node, type, layers, before }: { node: Studio
         </fieldset>
       ))}
       {changed.length > 0 && (
-        <button className="reset-all" onClick={() => changed.forEach((p) => setParam(node.id, p.name, p.default))}>
+        <button className="reset-all" title="Back to the node's own defaults, not to the values a template set" onClick={() => changed.forEach((p) => setParam(node.id, p.name, p.default))}>
           Reset {changed.length} changed setting{changed.length > 1 ? 's' : ''} to default
         </button>
       )}

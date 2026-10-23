@@ -53,6 +53,8 @@ interface State {
   edges: Edge[]
   runs: Record<string, NodeRun>
   selected: string | null
+  showHelp: boolean
+  setShowHelp: (on: boolean) => void
   busy: boolean
   error: string | null
   logs: (LogLine & { id: number })[]
@@ -99,7 +101,9 @@ interface State {
 
 export const useStudio = create<State>((set, get) => ({
   canUndo: false, canRedo: false,
-  types: {}, nodes: [], edges: [], runs: {}, selected: null, busy: false, error: null,
+  types: {}, nodes: [], edges: [], runs: {}, selected: null,
+  showHelp: localStorage.getItem('studio.showHelp') === '1',
+  setShowHelp: (on) => { localStorage.setItem('studio.showHelp', on ? '1' : '0'); set({ showHelp: on }) }, busy: false, error: null,
   logs: [], usage: loadUsage(), perfOpen: localStorage.getItem('stencil-perf') === '1', consoleOpen: true, reportOpen: false, hv: 0, bench: null, progress: { done: 0, total: 0 }, draft: false,
   addLogs: (l) => set((s) => ({ logs: [...s.logs, ...l.map((x, i) => ({ ...x, id: s.logs.length + i + Math.random() }))].slice(-500) })),
   clearLogs: () => set({ logs: [] }),

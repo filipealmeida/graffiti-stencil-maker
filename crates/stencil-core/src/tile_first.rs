@@ -246,7 +246,9 @@ pub fn from_mask(
 pub fn from_shapes(shapes: &Shapes, lp: &LayoutParams) -> Result<Layout, String> {
     check_plate(lp)?;
     if shapes.w == 0 || shapes.h == 0 || shapes.loops.is_empty() {
-        return Err("vector input contains no closed outlines".into());
+        return Err(
+            "the shapes contain no closed outlines: trace a picture that has paint in it".into(),
+        );
     }
     let art_w = lp.width - 2.0 * lp.margin;
     let mm_per_px = art_w / shapes.w as f64;
