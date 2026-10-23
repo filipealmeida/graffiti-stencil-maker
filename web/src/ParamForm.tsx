@@ -1,7 +1,7 @@
 import { useEffect, useId, useState, type ReactNode } from 'react'
 import type { NodeType, ParamDef } from './api'
 import { useStudio, type StudioNode } from './store'
-import { PARAM_HELP, plainLabel, unitOf } from './help'
+import { helpFor, plainLabel, unitOf } from './help'
 
 const same = (a: unknown, b: unknown) => a === b || (typeof a === 'number' && typeof b === 'number' && Math.abs(a - b) < 1e-9)
 
@@ -31,22 +31,22 @@ function Reset({ p, value, onChange }: { p: ParamDef; value: unknown; onChange: 
 }
 
 /** The one-line reason behind a setting: a tooltip on the whole row and a line that shows on hover or focus. */
-function Help({ p, id }: { p: ParamDef; id: string }) {
-  const text = PARAM_HELP[p.name]
+function Help({ p, id, nodeType }: { p: ParamDef; id: string; nodeType: string }) {
+  const text = helpFor(nodeType, p.name)
   return text ? <small className="help" id={id}>{text}</small> : null
 }
 
-function Field({ p, value, onChange }: { p: ParamDef; value: unknown; onChange: (v: unknown) => void }) {
+function Field({ p, value, onChange, nodeType }: { p: ParamDef; value: unknown; onChange: (v: unknown) => void; nodeType: string }) {
   const hid = `help-${useId()}`
-  const help = PARAM_HELP[p.name]
+  const help = helpFor(nodeType, p.name)
   const tip = {}
   const desc = help ? { 'aria-describedby': hid } : {}
   if (p.kind === 'bool')
-    return <label className="row chk" {...tip}><input type="checkbox" checked={!!value} onChange={(e) => onChange(e.target.checked)} {...desc} />{plainLabel(p.label)}<Reset p={p} value={value} onChange={onChange} /><Help p={p} id={hid} /></label>
+    return <label className="row chk" {...tip}><input type="checkbox" checked={!!value} onChange={(e) => onChange(e.target.checked)} {...desc} />{plainLabel(p.label)}<Reset p={p} value={value} onChange={onChange} /><Help p={p} id={hid} nodeType={nodeType} /></label>
   if (p.kind === 'choice')
-    return <label className="row" {...tip}><span>{plainLabel(p.label)}<Reset p={p} value={value} onChange={onChange} /></span><select value={String(value)} onChange={(e) => onChange(e.target.value)} {...desc}>{p.choices!.map((c) => <option key={c}>{c}</option>)}</select><Help p={p} id={hid} /></label>
+    return <label className="row" {...tip}><span>{plainLabel(p.label)}<Reset p={p} value={value} onChange={onChange} /></span><select value={String(value)} onChange={(e) => onChange(e.target.value)} {...desc}>{p.choices!.map((c) => <option key={c}>{c}</option>)}</select><Help p={p} id={hid} nodeType={nodeType} /></label>
   if (p.kind === 'string')
-    return <label className="row" {...tip}><span>{plainLabel(p.label)}<Reset p={p} value={value} onChange={onChange} /></span><textarea rows={2} value={String(value)} onChange={(e) => onChange(e.target.value)} {...desc} /><Help p={p} id={hid} /></label>
+    return <label className="row" {...tip}><span>{plainLabel(p.label)}<Reset p={p} value={value} onChange={onChange} /></span><textarea rows={2} value={String(value)} onChange={(e) => onChange(e.target.value)} {...desc} /><Help p={p} id={hid} nodeType={nodeType} /></label>
   if (p.kind === 'text') return null
   const unit = unitOf(p.label)
   return (
@@ -57,7 +57,7 @@ function Field({ p, value, onChange }: { p: ParamDef; value: unknown; onChange: 
         <NumberBox p={p} value={Number(value)} onChange={onChange} />
         {unit && <span className="unit" aria-hidden="true">{unit}</span>}
       </span>
-      <Help p={p} id={hid} />
+      <Help p={p} id={hid} nodeType={nodeType} />
     </label>
   )
 }
@@ -83,11 +83,11 @@ export default function ParamForm({ node, type, layers, before }: { node: Studio
           {type.params.filter((p) => (p.group ?? '') === g).map((p) => {
             const v = node.data.params[p.name] ?? p.default
             const isLayer = layers && node.data.type === 'remesh' && (p.name === 'layer_from' || p.name === 'layer_to')
-            if (!isLayer) return <Field key={p.name} p={p} value={v} onChange={(x) => setParam(node.id, p.name, x)} />
+            if (!isLayer) return <Field nodeType={type.id} key={p.name} p={p} value={v} onChange={(x) => setParam(node.id, p.name, x)} />
             // layer_to = 0 means "the top one", shown as the real maximum of the stencil above
             const shown = p.name === 'layer_to' && Number(v) === 0 ? layers : Number(v)
             return (
-              <Field key={p.name} p={{ ...p, min: 1, max: layers, default: p.name === 'layer_to' ? layers : p.default }} value={Math.min(shown, layers)}
+              <Field nodeType={type.id} key={p.name} p={{ ...p, min: 1, max: layers, default: p.name === 'layer_to' ? layers : p.default }} value={Math.min(shown, layers)}
                 onChange={(x) => setParam(node.id, p.name, p.name === 'layer_to' && x === layers ? 0 : x)} />
             )
           })}

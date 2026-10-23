@@ -99,6 +99,9 @@ interface State {
   canRedo: boolean
 }
 
+/** Printer fit of the bolt and nut: one value for the whole project, so parts from different nodes still mate. */
+const SHARED_FIT = ['nut_clearance', 'tip_taper', 'tip_pitches']
+
 export const useStudio = create<State>((set, get) => ({
   canUndo: false, canRedo: false,
   types: {}, nodes: [], edges: [], runs: {}, selected: null,
@@ -126,14 +129,22 @@ export const useStudio = create<State>((set, get) => ({
     const span = stageColumn(t.stage)
     const position = freeSpot(get().nodes, span, pos ?? { x: span.x + 30, y: 40 })
     const defaults = Object.fromEntries(t.params.map((p) => [p.name, p.default]))
-    const node: StudioNode = { id, type: 'studio', position, data: { type, params: { ...defaults, ...params }, title } }
+    const shared: Record<string, unknown> = {}
+    for (const name of SHARED_FIT) {
+      const peer = get().nodes.find((n) => name in n.data.params)
+      if (peer && name in defaults) shared[name] = peer.data.params[name]
+    }
+    const node: StudioNode = { id, type: 'studio', position, data: { type, params: { ...defaults, ...shared, ...params }, title } }
     const usage = { ...get().usage, [type]: (get().usage[type] ?? 0) + 1 }
     try { localStorage.setItem(USAGE_KEY, JSON.stringify(usage)) } catch { /* the count is a convenience */ }
     set((s) => ({ nodes: [...s.nodes, node], selected: id, usage }))
     return id
   },
   setParam: (id, name, value) => set((s) => ({
-    nodes: s.nodes.map((n) => (n.id === id ? { ...n, data: { ...n.data, params: { ...n.data.params, [name]: value } } } : n)),
+    nodes: s.nodes.map((n) =>
+      n.id === id || (SHARED_FIT.includes(name) && name in n.data.params)
+        ? { ...n, data: { ...n.data, params: { ...n.data.params, [name]: value } } }
+        : n),
   })),
   copy: () => {
     const { nodes, edges, selected } = get()

@@ -20,6 +20,7 @@ export interface NodeType {
   outputs: { name: string; type: Kind }[]
   params: ParamDef[]
   doc: string
+  legacy?: boolean
 }
 export interface NodeRun {
   state: 'pending' | 'running' | 'done' | 'error'

@@ -203,7 +203,7 @@ pub fn node_types() -> Json {
                     "id": d.id, "label": d.label, "stage": d.stage,
                     "inputs": d.inputs.iter().map(|(n, t, r)| json!({"name": n, "type": t, "required": r})).collect::<Vec<_>>(),
                     "outputs": d.outputs.iter().map(|(n, t)| json!({"name": n, "type": t})).collect::<Vec<_>>(),
-                    "params": d.params, "doc": d.doc,
+                    "params": d.params, "doc": d.doc, "legacy": d.id == "export",
                 })
             })
             .collect(),

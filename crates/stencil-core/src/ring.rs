@@ -1,4 +1,4 @@
-//! Margin expansion: a ring of blank slabs around a finished plate, screwed to it through the plate's own mounting
+//! Expand margin: a ring of blank slabs around a finished plate, screwed to it through the plate's own mounting
 //! holes with joiner plates across the seams. This module is the layout (pure geometry); the node builds the meshes.
 
 type P = (f64, f64);

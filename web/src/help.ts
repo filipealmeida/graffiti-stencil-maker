@@ -10,7 +10,7 @@ export const PARAM_HELP: Record<string, string> = {
   z_bridging: 'Steps builds a gentle staircase under each bridge so it never overhangs; easy uses one step and prints faster.',
   layer_height_mm: 'Set this to your slicer layer height. Raised bridges are built in whole layers.',
   extra_top_layers: 'Extra solid layers above the bridges, so the top face is flat and strong.',
-  max_overhang_deg: 'Largest overhang the printer can bridge. 0 uses 45°.',
+  max_overhang_deg: 'Largest overhang the printer can bridge, in degrees from vertical. 90 means no limit.',
   min_island_mm2: 'Floating pieces smaller than this are deleted instead of bridged. 0 keeps all of them.',
   min_contact_mm: 'Material thinner than this is widened with a bridge strip so the nozzle can print it. 0 = off.',
   detail: 'How finely curves are flattened into straight edges. Higher is smoother but makes a much bigger mesh and a slower run.',
@@ -20,11 +20,11 @@ export const PARAM_HELP: Record<string, string> = {
   radius: 'How far the effect reaches, in pixels.',
   tolerance: 'How far the traced outline may move to use fewer points. Higher = simpler outline, less accurate.',
   tolerance_mm: 'How far an outline may move to use fewer vertices. Lower keeps the shape, higher gives a lighter mesh.',
-  corner_deg: 'Corners sharper than this stay sharp; gentler bends are smoothed into curves.',
-  min_area: 'Specks smaller than this are dropped as noise.',
+  corner_deg: 'Corners sharper than this stay sharp; gentler bends are smoothed into curves. 180 rounds everything.',
+  min_area: 'Specks smaller than this are dropped as noise. 0 keeps everything.',
   max_angle: 'Corners sharper than this are rounded. Very pointy tips are fragile to cut and to print.',
   max_area: 'Anything smaller than this is removed.',
-  keep_largest: 'Keep only the biggest shapes; handy to drop noise around a logo.',
+  keep_largest: 'Keep only this many of the biggest shapes; handy to drop noise around a logo. 0 keeps all.',
   smoothing: 'Strength of smoothing across layers: 0 changes nothing, 1 is the most aggressive.',
   decimate: 'Collapse vertices on flat faces and straight edges. Creases and the closed mesh are kept; only the shift below is allowed.',
   decimate_mm: 'How far the surface may move when decimating. Higher removes more triangles; 0.02 mm is invisible, 0.1 mm still keeps every crease.',
@@ -46,7 +46,7 @@ export const PARAM_HELP: Record<string, string> = {
   pin_length: 'Length of each pin. It should go through the plate and a little into the wall or backing.',
   colours: 'How many flat colours to keep. Each becomes its own stencil.',
   supersample: 'Renders at a higher scale and averages, for smoother edges.',
-  angle: 'Rotate by a small angle to straighten a crooked photo. Corners that turn outside the picture are filled with white.',
+  angle: 'Direction of the pattern lines on tones that set none.',
   bridge_islands: 'When a cut leaves a piece floating free, add a bridge so it stays attached. Turn off only if you will join the pieces yourself.',
   crop_left: 'Trim this share of the picture width off the left side.',
   crop_right: 'Trim this share of the picture width off the right side.',
@@ -80,7 +80,7 @@ export const PARAM_HELP: Record<string, string> = {
   mount_threaded: 'Cut a real thread in the holes so the screw bites into the plastic. Off leaves a plain hole for a bolt and nut.',
   number_parts: 'Engrave a number on each slab so you can put them in order when assembling.',
   number_size: 'Height of the engraved numbers.',
-  nut_clearance: 'Gap between bolt and nut threads. Raise it if the nut is tight on your printer, lower it if it is loose.',
+  nut_clearance: 'Gap between bolt and nut threads. Raise it if the nut is tight on your printer, lower it if it is loose. The same value is used by every node that makes bolts and nuts.',
   pad_count: 'Raised pads with a threaded hole, for screwing the finished stencil to a wall or frame. 0 = none.',
   padding: 'Blank border added round the text, in pixels.',
   pad_height: 'How tall the raised pads stand above the plate.',
@@ -102,11 +102,29 @@ export const PARAM_HELP: Record<string, string> = {
   size: 'Height of the letters, in pixels.',
   slab_length: 'Longest piece the border is cut into. Shorter slabs fit smaller printers.',
   thread_clearance: 'Gap between the thread of the screw and of the hole. Raise it if screws are tight.',
-  tip_pitches: 'How far back from the end the bolt tip narrows, counted in thread pitches.',
-  tip_taper: 'How much narrower the very end of the bolt is, so it finds the hole. 0 = a plain end.',
+  tip_pitches: 'How far back from the end the bolt tip narrows, counted in thread pitches. The same value is used by every node that makes bolts and nuts.',
+  tip_taper: 'How much narrower the very end of the bolt is, so it finds the hole. 0 = a plain end. The same value is used by every node that makes bolts and nuts.',
   turn: 'Turn the picture clockwise in steps of 90°.',
   wall_holes: 'Also drill mounting holes along the outer edge of the border, to fix the stencil to a wall.',
   width: 'Width of the border added round the plate, edge of plate to outer edge.',
+  plate_width_mm: 'Width of the plate the patterns are laid out for. Set it to the same width as the Stencil node so the spacing comes out in real millimetres.',
+  spacing_mm: 'Distance between pattern lines or dots on tones that set none. 0 makes them solid.',
+  text: 'The words to trace. Enter starts a new line.',
+  custom: 'A 3x3 pattern to look for, one row per line: 1 is paint, 0 is empty, x is either.',
+  kind_N: 'Pattern for this tone. auto picks one from how light the tone is.',
+  spacing_N: 'Distance between lines or dots for this tone. 0 uses the default spacing above.',
+  cover_N: 'How much of this tone is paint, in percent. 0 lets the engine choose from the tone.',
+}
+
+/** Where one node means something different by the same parameter name. */
+export const NODE_HELP: Record<string, string> = {
+  'pads.hole_spacing': 'Along a long edge of the margin, put a mounting hole every this many millimetres. 0 means corner holes only.',
+  'ring.hole_spacing': 'Along the outer edge of the border, put a wall hole every this many millimetres.',
+}
+
+/** Help for a parameter: the node's own wording first, then the shared one; per-tone settings drop their number. */
+export function helpFor(nodeType: string, name: string): string | undefined {
+  return NODE_HELP[`${nodeType}.${name}`] ?? PARAM_HELP[name] ?? PARAM_HELP[name.replace(/_\d+$/, '_N')]
 }
 
 /** The unit written in a label's parentheses, shown beside the number box. */

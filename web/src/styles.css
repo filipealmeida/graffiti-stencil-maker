@@ -1,4 +1,5 @@
 :root {
+  color-scheme: dark;
   --bg: #16191e;
   --panel: #1d2127;
   --line: #2c323a;
@@ -151,7 +152,8 @@ main {
   color: var(--acc);
 }
 .inspector {
-  width: 380px;
+  width: var(--inspector-w, 380px);
+  flex: none;
   overflow: auto;
   padding: 12px;
   background: var(--panel);
@@ -1122,4 +1124,43 @@ header > .pal .menu:not(.wide) {
   color: var(--mut);
   font-size: 10px;
   padding: 0 10px 5px;
+}
+
+.port.out.empty span {
+  color: var(--mut);
+  font-style: italic;
+}
+.resizer {
+  width: 6px;
+  flex: none;
+  cursor: col-resize;
+  background: var(--line);
+}
+.resizer:hover,
+.resizer:focus-visible {
+  background: var(--acc);
+  outline: none;
+}
+.inspector label.row > span,
+.inspector legend {
+  overflow-wrap: anywhere;
+}
+@media (max-width: 800px) {
+  main {
+    flex-direction: column;
+  }
+  .canvas {
+    flex: 1 1 50%;
+    min-height: 200px;
+  }
+  .resizer {
+    display: none;
+  }
+  .inspector {
+    width: auto;
+    flex: 1 1 50%;
+    min-height: 0;
+    border-left: 0;
+    border-top: 1px solid var(--line);
+  }
 }

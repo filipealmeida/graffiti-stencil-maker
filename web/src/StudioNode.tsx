@@ -23,12 +23,11 @@ function RunNote({ id, message, progress, ms }: { id: string; message?: string; 
 export default function StudioNodeView({ id, data, selected }: NodeProps<StudioNode>) {
   const t = useStudio((s) => s.types[data.type])
   const run = useStudio((s) => s.runs[id])
-  const edges = useStudio((s) => s.edges)
   if (!t) return <div className="node">unknown node {data.type}</div>
   const done = !!run?.key && run.state !== 'error'
   const first = t.outputs.find((o) => run?.outputs?.[o.name]?.available)
   const badges = done && !run.stale && run.key && first ? badgesFor(data.type, data.params, api.peekInfo(run.key, first.name)) : []
-  const shown = t.outputs.filter((o) => !done || run?.outputs?.[o.name]?.available || edges.some((e) => e.source === id && e.sourceHandle === o.name))
+  const shown = t.outputs
   const problem = badges.some((b) => b.level === 'error') || run?.state === 'error' ? ' problem-error' : badges.some((b) => b.level === 'warn') ? ' problem-warn' : ''
   const stale = run?.stale && run.state !== 'running' ? ' stale-node' : ''
   return (
@@ -55,7 +54,7 @@ export default function StudioNodeView({ id, data, selected }: NodeProps<StudioN
           </div>
         ))}
         {shown.map((p) => (
-          <div className="port out" key={p.name}>
+          <div className={`port out${done && !run.outputs?.[p.name]?.available ? ' empty' : ''}`} key={p.name}>
             <span>{p.name}</span>
             {done && run.key && run.outputs?.[p.name]?.available && (p.type === 'image' || p.type === 'mask' || p.type === 'shapes' || p.type === 'tiles') && (
               <img className={`thumb ${p.type}${run.stale ? ' stale' : ''}`} src={artifactUrl(run.key, p.name, 96)} alt="" draggable={false} />

@@ -9,6 +9,7 @@ import {
   type Edge,
 } from "@xyflow/react";
 import { api, type NodeType, type Stage } from "./api";
+import PanelResizer from './PanelResizer'
 import Inspector from "./Inspector";
 import Console from "./Console";
 import Perf from "./Perf";
@@ -337,16 +338,17 @@ function Canvas() {
       setCmdOpen(false);
     }
   };
-  const popular = Object.values(s.types).sort(
+  const current = Object.values(s.types).filter((t) => !t.legacy);
+  const popular = current.sort(
     (a, b) =>
       (s.usage[b.id] ?? 0) - (s.usage[a.id] ?? 0) ||
       a.label.localeCompare(b.label),
   );
   const stageNodes = (st: Stage) =>
-    Object.values(s.types).filter((t) => t.stage === st);
+    current.filter((t) => t.stage === st);
   const cmdActions = useMemo(
     () => [
-      ...Object.values(s.types).map((t) => ({
+      ...current.map((t) => ({
         id: `node:${t.id}`,
         title: t.label,
         note: `${t.stage} · ${t.doc.split(/(?<=\.)\s/)[0]}`,
@@ -614,6 +616,7 @@ function Canvas() {
           )}
           {drag && <div className="dropzone">Drop to add the image</div>}
         </div>
+        <PanelResizer />
         <Inspector />
       </main>
       {s.consoleOpen && <Console height={170} />}

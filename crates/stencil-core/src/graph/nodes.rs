@@ -494,7 +494,7 @@ pub(super) fn run_hardware(
         let m = &plate["mounting"];
         if plate.is_null() || m.is_null() {
             return Err(
-                "the parts have no mounting description: connect a Pads & mounting holes node"
+                "the parts have no mounting description: connect the Add pads & mounting holes node"
                     .into(),
             );
         }
@@ -754,7 +754,10 @@ pub(super) fn run_pads(_: &Engine, i: &HashMap<String, Value>, p: &P) -> Result<
     };
     let plate = &src.meta["plate"];
     if plate.is_null() {
-        return Err("the parts have no plate description: connect a Tiles node".into());
+        return Err(
+            "the parts have no plate description: connect a Split volume or Tile layout node"
+                .into(),
+        );
     }
     let num = |v: &Json| v.as_f64().unwrap_or(0.0);
     let entries = plate["parts"].as_array().cloned().unwrap_or_default();
@@ -1065,7 +1068,8 @@ pub(super) fn run_ring(_: &Engine, i: &HashMap<String, Value>, p: &P) -> Result<
     let m = &plate["mounting"];
     if plate.is_null() || m.is_null() {
         return Err(
-            "the parts have no mounting description: connect a Pads & mounting holes node".into(),
+            "the parts have no mounting description: connect the Add pads & mounting holes node"
+                .into(),
         );
     }
     let screw = m["screw"].as_str().unwrap_or("none").to_string();
