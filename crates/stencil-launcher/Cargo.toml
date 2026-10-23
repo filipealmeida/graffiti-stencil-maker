@@ -1,6 +1,6 @@
 [package]
 name = "stencil-launcher"
-version = "2.7.0"
+version = "2.8.0"
 edition = "2021"
 description = "Starts the stencil studio next to this executable and opens it in the browser"
 
