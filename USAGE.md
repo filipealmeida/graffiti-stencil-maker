@@ -96,6 +96,13 @@ The graph is arranged into three stages:
    joins two different parts of the stencil (a thin "rope" the printer could not lay down on the build plate) is
    widened to the value, over the full height. Dead-end tips are left alone, and the widening grows into the paint
    side only, so the paint area shrinks slightly there.
+   **Minimum first-layer width** (mm, default 0 = off; CLI `--min-first-layer-width`): detects narrow material at the
+   build plate and flares it outward toward the requested width on the first layer. **Taper height** (mm, default 1;
+   CLI `--first-layer-taper`) controls how far up the flare returns to the original outline, rounded up to whole
+   layers. The height must be above 0 and no greater than the stencil thickness when the flare is enabled. This
+   changes only the bottom footprint, not the stencil body; bridges are still selected using the original outline.
+   The flare can consume some adjacent paint opening, but its added material is confined to the detected narrow
+   features rather than expanding every edge.
    **Remesh** (formerly *Complexity reducer*; solid in, solid out) goes right after a stencil node, before post-processing. It re-slices the
    STL into layers (layer 1 is on the plate; the layer height and the layer count come from the input stencil, and the
    interval `layer_from`–`layer_to` defaults to the real maximum, stored as `0`), then smooths and simplifies the outlines

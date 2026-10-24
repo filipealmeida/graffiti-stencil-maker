@@ -422,3 +422,235 @@ pub(crate) fn layered_mesh(
     }
     Ok(mesh)
 }
+
+/// Builds a layered stencil where the original footprint and temporary bottom flare may coexist at different
+/// heights in the same grid cell.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn layered_mesh_with_flare(
+    kmin: &[u32],
+    flare_end: &[u32],
+    w: usize,
+    h: usize,
+    l: u32,
+    s: f64,
+    lh: f64,
+    from_top: bool,
+) -> Result<Mesh, String> {
+    if kmin.len() != w * h || flare_end.len() != w * h {
+        return Err("layer maps have inconsistent dimensions".into());
+    }
+    layered_mesh_by_layer(
+        l as usize,
+        |k| {
+            (0..w * h)
+                .map(|i| {
+                    let core = kmin[i] <= k as u32 && kmin[i] < l;
+                    let k_from_end = l.saturating_sub(1).saturating_sub(k as u32);
+                    core || if from_top {
+                        flare_end[i] > k_from_end
+                    } else {
+                        flare_end[i] > k as u32
+                    }
+                })
+                .collect()
+        },
+        w,
+        h,
+        s,
+        lh,
+    )
+}
+
+fn layered_mesh_by_layer(
+    layers: usize,
+    mut footprint: impl FnMut(usize) -> Vec<bool>,
+    w: usize,
+    h: usize,
+    s: f64,
+    lh: f64,
+) -> Result<Mesh, String> {
+    let vw = w + 1;
+    let mut mesh = Mesh {
+        verts: Vec::new(),
+        tris: Vec::new(),
+    };
+    let mut ids: HashMap<(Vid, usize), u32> = HashMap::new();
+    let vertex = |v: Vid, k: usize, mesh: &mut Mesh, ids: &mut HashMap<(Vid, usize), u32>| {
+        *ids.entry((v, k)).or_insert_with(|| {
+            mesh.verts.push([
+                ((v as usize % vw) as f64 * s) as f32,
+                ((v as usize / vw) as f64 * s) as f32,
+                (k as f64 * lh) as f32,
+            ]);
+            (mesh.verts.len() - 1) as u32
+        })
+    };
+    let fill_cap = |cells: &[usize],
+                    k: usize,
+                    up: bool,
+                    mesh: &mut Mesh,
+                    ids: &mut HashMap<(Vid, usize), u32>|
+     -> Result<(), String> {
+        if cells.is_empty() {
+            return Ok(());
+        }
+        let mut selected = vec![false; w * h];
+        for &cell in cells {
+            selected[cell] = true;
+        }
+        let edges = boundary_edges(cells, |i| selected[i], |_, _, _| 0, w, h);
+        let loops = trace(&edges, vw);
+        let areas: Vec<_> = loops.iter().map(|q| signed_area(&q.v, vw)).collect();
+        let outers: Vec<_> = (0..loops.len()).filter(|&i| areas[i] > 0.0).collect();
+        let bounds = |q: &Loop| {
+            let (mut x0, mut y0, mut x1, mut y1) = (i64::MAX, i64::MAX, i64::MIN, i64::MIN);
+            for &v in &q.v {
+                let x = (v as usize % vw) as i64;
+                let y = (v as usize / vw) as i64;
+                x0 = x0.min(x);
+                y0 = y0.min(y);
+                x1 = x1.max(x);
+                y1 = y1.max(y);
+            }
+            (x0, y0, x1, y1)
+        };
+        let boxes: Vec<_> = loops.iter().map(bounds).collect();
+        let mut holes_of: HashMap<usize, Vec<usize>> = HashMap::new();
+        for hi in (0..loops.len()).filter(|&i| areas[i] < 0.0) {
+            let p = loops[hi].v[0] as usize;
+            let x = (p % vw) as f64;
+            let y = (p / vw) as f64;
+            let hb = boxes[hi];
+            let owner = outers
+                .iter()
+                .copied()
+                .filter(|&o| {
+                    let ob = boxes[o];
+                    ob.0 <= hb.0
+                        && ob.1 <= hb.1
+                        && ob.2 >= hb.2
+                        && ob.3 >= hb.3
+                        && (point_in(&loops[o].v, vw, (x + 1e-3, y + 1e-3))
+                            || point_in(&loops[o].v, vw, (x - 1e-3, y - 1e-3))
+                            || point_in(&loops[o].v, vw, (x + 1e-3, y - 1e-3))
+                            || point_in(&loops[o].v, vw, (x - 1e-3, y + 1e-3)))
+                })
+                .min_by(|&a, &b| areas[a].total_cmp(&areas[b]));
+            holes_of
+                .entry(owner.ok_or("layer footprint hole without outer loop")?)
+                .or_default()
+                .push(hi);
+        }
+        for &outer in &outers {
+            let group: Vec<_> = std::iter::once(outer)
+                .chain(holes_of.get(&outer).into_iter().flatten().copied())
+                .collect();
+            let shape: Vec<Vec<IntPoint>> = group
+                .iter()
+                .map(|&i| {
+                    loops[i]
+                        .v
+                        .iter()
+                        .map(|&v| IntPoint::new((v as usize % vw) as i32, (v as usize / vw) as i32))
+                        .collect()
+                })
+                .collect();
+            let tri = shape.uncheck_triangulate().into_triangulation::<u32>();
+            for c in tri.indices.chunks(3) {
+                let (a, b, d) = (
+                    tri.points[c[0] as usize],
+                    tri.points[c[1] as usize],
+                    tri.points[c[2] as usize],
+                );
+                let cross = (b.x as i64 - a.x as i64) * (d.y as i64 - a.y as i64)
+                    - (b.y as i64 - a.y as i64) * (d.x as i64 - a.x as i64);
+                if cross == 0 {
+                    continue;
+                }
+                let id = |p: &IntPoint| (p.y as usize * vw + p.x as usize) as Vid;
+                let (a, b, d) = (
+                    vertex(id(&a), k, mesh, ids),
+                    vertex(id(&b), k, mesh, ids),
+                    vertex(id(&d), k, mesh, ids),
+                );
+                let ccw = (cross > 0) == up;
+                mesh.tris.push(if ccw { [a, b, d] } else { [a, d, b] });
+            }
+        }
+        Ok(())
+    };
+
+    let mut below = vec![false; w * h];
+    for k in 0..=layers {
+        let mut above = if k < layers {
+            footprint(k)
+        } else {
+            vec![false; w * h]
+        };
+        if above.len() != w * h {
+            return Err("layer footprint has inconsistent dimensions".into());
+        }
+        let mut fixed = crate::islands::Grid { w, h, m: above };
+        crate::islands::fix_diagonals(&mut fixed);
+        above = fixed.m;
+        let mut entering = Vec::new();
+        let mut leaving = Vec::new();
+        for i in 0..w * h {
+            let was = below[i];
+            let now = above[i];
+            if now && !was {
+                entering.push(i);
+            } else if was && !now {
+                leaving.push(i);
+            }
+        }
+        fill_cap(&entering, k, false, &mut mesh, &mut ids)?;
+        fill_cap(&leaving, k, true, &mut mesh, &mut ids)?;
+        if k < layers {
+            let cells: Vec<_> = above
+                .iter()
+                .enumerate()
+                .filter_map(|(i, &on)| on.then_some(i))
+                .collect();
+            if !cells.is_empty() {
+                let mut selected = vec![false; w * h];
+                for &cell in &cells {
+                    selected[cell] = true;
+                }
+                let edges = boundary_edges(&cells, |i| selected[i], |_, _, _| 0, w, h);
+                for e in edges {
+                    let (a0, b0, b1, a1) = (
+                        vertex(e.from, k, &mut mesh, &mut ids),
+                        vertex(e.to, k, &mut mesh, &mut ids),
+                        vertex(e.to, k + 1, &mut mesh, &mut ids),
+                        vertex(e.from, k + 1, &mut mesh, &mut ids),
+                    );
+                    mesh.tris.push([a0, b0, b1]);
+                    mesh.tris.push([a0, b1, a1]);
+                }
+            }
+        }
+        below = above;
+    }
+    Ok(mesh)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn first_layer_flare_is_absent_above_its_taper() {
+        let (w, h, layers) = (3, 3, 4);
+        let mut kmin = vec![layers; w * h];
+        kmin[1 + w] = 0;
+        let mut flare_end = vec![0; w * h];
+        flare_end[w] = 2;
+        let mesh =
+            layered_mesh_with_flare(&kmin, &flare_end, w, h, layers, 1.0, 0.2, false).unwrap();
+        assert!(mesh.is_watertight());
+        assert!(mesh.verts.iter().filter(|v| v[2] > 0.4).all(|v| {
+            (1.0..=2.0).contains(&(v[0] as f64)) && (1.0..=2.0).contains(&(v[1] as f64))
+        }));
+    }
+}

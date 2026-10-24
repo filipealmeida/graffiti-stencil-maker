@@ -6,6 +6,9 @@ const FAR: f64 = 1e20;
 
 /// Squared distance from every pixel to the nearest `true` pixel (exact; Felzenszwalb-Huttenlocher).
 fn distance_sq(sites: &[bool], w: usize, h: usize) -> Vec<f64> {
+    if !sites.iter().any(|&site| site) {
+        return vec![FAR; sites.len()];
+    }
     let mut d: Vec<f64> = sites.iter().map(|&s| if s { 0.0 } else { FAR }).collect();
     let n = w.max(h);
     let (mut f, mut out) = (vec![0f64; n], vec![0f64; n]);
@@ -52,6 +55,100 @@ fn distance_sq(sites: &[bool], w: usize, h: usize) -> Vec<f64> {
         pass(&mut d, w, &|x| y * w + x);
     }
     d
+}
+
+/// For each extra footprint pixel, the exclusive layer at which its tapered flare ends.
+pub(crate) fn first_layer_flare_ends(
+    g: &Grid,
+    s: f64,
+    min_width_mm: f64,
+    taper_layers: u32,
+) -> Vec<u32> {
+    let mut ends = vec![0; g.w * g.h];
+    let target_radius = min_width_mm * 0.5 / s;
+    if target_radius < 0.5 || taper_layers == 0 {
+        return ends;
+    }
+    let hollow: Vec<_> = g.m.iter().map(|&m| !m).collect();
+    if !hollow.iter().any(|&site| site) {
+        return ends;
+    }
+    let away = distance_sq(&hollow, g.w, g.h);
+    let eroded: Vec<_> = (0..g.w * g.h)
+        .map(|i| g.m[i] && away[i] > target_radius * target_radius)
+        .collect();
+    let near = distance_sq(&eroded, g.w, g.h);
+    let candidate = Grid {
+        w: g.w,
+        h: g.h,
+        m: (0..g.w * g.h)
+            .map(|i| g.m[i] && near[i] > target_radius * target_radius)
+            .collect(),
+    };
+    if !candidate.m.iter().any(|&m| m) {
+        return ends;
+    }
+    let (_, labels) = label_islands(&candidate);
+    let count = labels.iter().copied().max().unwrap_or(0) as usize + 1;
+    let mut component_radius = vec![0.0f64; count];
+    for (i, &label) in labels.iter().enumerate() {
+        if label != 0 {
+            component_radius[label as usize] = component_radius[label as usize].max(away[i].sqrt());
+        }
+    }
+    let base_radius = component_radius
+        .into_iter()
+        .skip(1)
+        .filter(|&r| r < target_radius)
+        .min_by(f64::total_cmp);
+    let Some(base_radius) = base_radius else {
+        return ends;
+    };
+    let grow_by = target_radius - base_radius;
+    if grow_by < 0.5 {
+        return ends;
+    }
+    let distance = distance_sq(&candidate.m, g.w, g.h);
+    let max_d2 = grow_by * grow_by;
+    for i in 0..ends.len() {
+        if g.m[i] || distance[i] > max_d2 {
+            continue;
+        }
+        let expanded_radius = base_radius + distance[i].sqrt();
+        if expanded_radius >= target_radius {
+            continue;
+        }
+        ends[i] = ((taper_layers as f64 * (1.0 - expanded_radius / target_radius)).ceil() as u32)
+            .clamp(1, taper_layers);
+    }
+    let (_, openings) = label_islands(&Grid {
+        w: g.w,
+        h: g.h,
+        m: hollow,
+    });
+    let opening_count = openings.iter().copied().max().unwrap_or(0) as usize + 1;
+    let mut remaining = vec![false; opening_count];
+    let mut farthest = vec![(0.0, None); opening_count];
+    for (i, &label) in openings.iter().enumerate() {
+        if label == 0 {
+            continue;
+        }
+        let id = label as usize;
+        if ends[i] == 0 {
+            remaining[id] = true;
+        }
+        if distance[i] > farthest[id].0 {
+            farthest[id] = (distance[i], Some(i));
+        }
+    }
+    for id in 1..opening_count {
+        if !remaining[id] {
+            if let Some(i) = farthest[id].1 {
+                ends[i] = 0;
+            }
+        }
+    }
+    ends
 }
 
 /// `s` is the pixel size in mm. Material is what is `true`; the outside of the grid counts as material.
@@ -135,5 +232,30 @@ mod tests {
         assert_eq!(d[2 * 7 + 3], 0.0);
         assert_eq!(d[2 * 7 + 6], 9.0);
         assert_eq!(d[4 * 7], 13.0);
+    }
+
+    #[test]
+    fn a_first_layer_flare_does_not_close_an_existing_opening() {
+        let (w, h) = (25, 25);
+        let mut material = vec![false; w * h];
+        for y in 8..17 {
+            for x in 8..17 {
+                if x == 8 || x == 16 || y == 8 || y == 16 {
+                    material[y * w + x] = true;
+                }
+            }
+        }
+        let ends = first_layer_flare_ends(
+            &Grid {
+                w,
+                h,
+                m: material.clone(),
+            },
+            1.0,
+            5.0,
+            4,
+        );
+        assert!(ends.iter().any(|&end| end > 0));
+        assert!((9..16).any(|y| (9..16).any(|x| !material[y * w + x] && ends[y * w + x] == 0)));
     }
 }

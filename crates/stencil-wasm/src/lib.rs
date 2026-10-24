@@ -65,6 +65,8 @@ pub fn make(
         flip,
         min_island_mm2,
         min_contact_mm: 0.0,
+        min_first_layer_width_mm: 0.0,
+        first_layer_taper_mm: 1.0,
         max_overhang_deg,
         frame_largest: false,
     };

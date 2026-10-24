@@ -37,9 +37,6 @@ pub(super) type Shape = Vec<Vec<IntPoint<i32>>>;
 /// A contour index, a vertex index within it, and the vertex.
 pub(super) type Vertex = (usize, usize, IntPoint<i32>);
 
-/// The run's contours with the shapes nested under them.
-pub(super) type Job = (Vec<Vec<IntPoint<i32>>>, Vec<Shape>);
-
 /// What an earlier noding round already looked at: every vertex, and every edge it left behind.
 #[derive(Default)]
 pub(super) struct Seen {
@@ -292,4 +289,103 @@ pub(super) fn widen_thin(
         OverlayRule::Intersect,
         FillRule::NonZero,
     )
+}
+
+pub(super) fn first_layer_flare_parts(
+    material: &[Shape],
+    plate: &[IntPoint<i32>],
+    min_width_mm: f64,
+) -> Vec<(Shape, f64)> {
+    let radius = min_width_mm * 0.5 * UNITS_PER_MM;
+    let plate_region = [vec![plate.to_vec()]];
+    let plate_region = &plate_region[0];
+    let paint =
+        plate_region
+            .as_slice()
+            .overlay(material, OverlayRule::Difference, FillRule::EvenOdd);
+    let eroded = plate_region.as_slice().overlay(
+        grow(&paint, radius).as_slice(),
+        OverlayRule::Difference,
+        FillRule::EvenOdd,
+    );
+    let opening = grow(&eroded, radius);
+    let min_area = 0.5 * min_width_mm * min_width_mm;
+    let candidates: Vec<_> = material
+        .overlay(
+            opening.as_slice(),
+            OverlayRule::Difference,
+            FillRule::EvenOdd,
+        )
+        .into_iter()
+        .filter_map(|shape| {
+            let area = shape_area(&shape);
+            if area < min_area {
+                return None;
+            }
+            let b = bounds(&shape);
+            let length = (b[2] - b[0]).max(b[3] - b[1]) as f64 / UNITS_PER_MM;
+            if length <= 0.0 {
+                return None;
+            }
+            let estimated_width = area / length;
+            let expansion = ((min_width_mm - estimated_width).max(0.0) * 0.5) * UNITS_PER_MM;
+            (expansion > 0.0).then_some((shape, expansion))
+        })
+        .collect();
+    let mut accepted = Vec::new();
+    let mut current = material.to_vec();
+    for (shape, expansion) in candidates {
+        let patch = grow(&vec![shape.clone()], expansion);
+        let mut trial =
+            current
+                .as_slice()
+                .overlay(patch.as_slice(), OverlayRule::Union, FillRule::NonZero);
+        trial = trial.as_slice().overlay(
+            plate_region.as_slice(),
+            OverlayRule::Intersect,
+            FillRule::NonZero,
+        );
+        let remaining_paint = plate_region.as_slice().overlay(
+            trial.as_slice(),
+            OverlayRule::Difference,
+            FillRule::EvenOdd,
+        );
+        let preserves_openings = paint.iter().all(|void| {
+            !void
+                .as_slice()
+                .overlay(
+                    remaining_paint.as_slice(),
+                    OverlayRule::Intersect,
+                    FillRule::EvenOdd,
+                )
+                .is_empty()
+        });
+        if preserves_openings {
+            current = trial;
+            accepted.push((shape, expansion));
+        }
+    }
+    accepted
+}
+
+pub(super) fn first_layer_flare_section(
+    material: &[Shape],
+    parts: &[(Shape, f64)],
+    plate: &[IntPoint<i32>],
+    fraction: f64,
+) -> Vec<Shape> {
+    if fraction <= 0.0 || parts.is_empty() {
+        return material.to_vec();
+    }
+    let patches: Vec<_> = parts
+        .iter()
+        .flat_map(|(shape, radius)| grow(&vec![shape.clone()], radius * fraction))
+        .collect();
+    let mut expanded = material.overlay(patches.as_slice(), OverlayRule::Union, FillRule::NonZero);
+    let plate = [vec![plate.to_vec()]];
+    expanded =
+        expanded
+            .as_slice()
+            .overlay(plate.as_slice(), OverlayRule::Intersect, FillRule::NonZero);
+    repair_point_contacts(&expanded)
 }

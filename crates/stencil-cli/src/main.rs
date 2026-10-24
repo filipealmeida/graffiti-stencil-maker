@@ -54,6 +54,12 @@ struct Args {
     /// Widen any strip of material thinner than this (mm); 0 is off
     #[arg(long)]
     min_contact: Option<f64>,
+    /// Minimum width of narrow features at the build plate (mm); 0 is off
+    #[arg(long)]
+    min_first_layer_width: Option<f64>,
+    /// Height over which the bottom flare tapers back to the stencil outline (mm)
+    #[arg(long)]
+    first_layer_taper: Option<f64>,
     /// Worker threads (default: half of the cores, never all of them)
     #[arg(long)]
     threads: Option<usize>,
@@ -429,6 +435,8 @@ fn pipeline(a: &Args, image: &str) -> Json {
         ("extra_top_layers", a.extra_top_layers),
         ("min_island_mm2", a.min_island),
         ("min_contact_mm", a.min_contact),
+        ("min_first_layer_width_mm", a.min_first_layer_width),
+        ("first_layer_taper_mm", a.first_layer_taper),
         ("max_overhang_deg", a.max_overhang),
     ] {
         set(&mut st, k, v);

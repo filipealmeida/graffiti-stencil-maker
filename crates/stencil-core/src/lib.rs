@@ -64,6 +64,10 @@ pub struct Params {
     pub min_island_mm2: f64,
     /// Stretches of material thinner than this (a rope between two parts) are widened to it; 0 is off.
     pub min_contact_mm: f64,
+    /// Minimum width of narrow features at the build plate; 0 is off.
+    pub min_first_layer_width_mm: f64,
+    /// Height over which the bottom flare tapers back to the stencil outline.
+    pub first_layer_taper_mm: f64,
     /// Angle (from vertical) used for the overhang statistic; 0 means 45.
     pub max_overhang_deg: f64,
     /// Bridge islands to the largest piece instead of the one at the grid's corner: a tile cut out of a plate has
@@ -112,6 +116,8 @@ impl Default for Params {
             flip: false,
             min_island_mm2: 0.0,
             min_contact_mm: 0.0,
+            min_first_layer_width_mm: 0.0,
+            first_layer_taper_mm: 1.0,
             max_overhang_deg: 0.0,
             frame_largest: false,
         }
@@ -263,16 +269,45 @@ pub fn stencil_from_paint(
         m: kmin.iter().map(|&k| k < l).collect(),
     };
     stats.islands_remaining = label_islands(&top).0;
+    let flare_end = if p.min_first_layer_width_mm > 0.0 {
+        let taper_layers = (p.first_layer_taper_mm / lh).ceil().max(1.0) as u32;
+        thin::first_layer_flare_ends(
+            &Grid {
+                w,
+                h,
+                m: if p.flip {
+                    top.m.clone()
+                } else {
+                    original.clone()
+                },
+            },
+            s,
+            p.min_first_layer_width_mm,
+            taper_layers,
+        )
+    } else {
+        vec![0; w * h]
+    };
+
     let first = Grid {
         w,
         h,
-        m: kmin.iter().map(|&k| k == 0).collect(),
+        m: (0..w * h)
+            .map(|i| {
+                let core = if p.flip { top.m[i] } else { kmin[i] == 0 };
+                core || flare_end[i] > 0
+            })
+            .collect(),
     };
     stats.first_layer_islands = label_islands(&first).0;
     progress::step("layer map", 0.5);
     stats.overhang_area_mm2 = overhang_area(&kmin, w, h, l, s, lh, p.max_overhang_deg, p.flip);
 
-    let mut mesh = layered_mesh(&kmin, w, h, l, s, lh)?;
+    let mut mesh = if flare_end.iter().any(|&end| end > 0) {
+        layered_mesh_with_flare(&kmin, &flare_end, w, h, l, s, lh, p.flip)?
+    } else {
+        layered_mesh(&kmin, w, h, l, s, lh)?
+    };
     if p.flip {
         let (ww, tt) = (w as f32 * s as f32, l as f32 * lh as f32);
         for v in mesh.verts.iter_mut() {
@@ -308,6 +343,20 @@ pub(crate) fn validate(p: &Params) -> Result<(), String> {
     }
     if !p.min_contact_mm.is_finite() || p.min_contact_mm < 0.0 {
         return Err("minimum surface contact must be 0 or more".into());
+    }
+    if !p.min_first_layer_width_mm.is_finite() || p.min_first_layer_width_mm < 0.0 {
+        return Err("minimum first-layer width must be 0 or more".into());
+    }
+    if !p.first_layer_taper_mm.is_finite() || p.first_layer_taper_mm < 0.0 {
+        return Err("first-layer taper height must be 0 or more".into());
+    }
+    if p.min_first_layer_width_mm > 0.0
+        && (p.first_layer_taper_mm <= 0.0 || p.first_layer_taper_mm > p.thickness_mm)
+    {
+        return Err(format!(
+            "first-layer taper height must be above 0 and no greater than stencil thickness ({} mm)",
+            p.thickness_mm
+        ));
     }
     if p.margin_mm < 0.0 || p.width_mm <= 2.0 * p.margin_mm {
         return Err(format!(
@@ -405,6 +454,65 @@ mod tests {
         assert!(v1 - v0 > 100.0, "volume grew by only {}", v1 - v0);
         let tiny = run(0.2);
         assert!((stl_volume(&tiny.stl) - v0).abs() < 1.0);
+    }
+
+    #[test]
+    fn first_layer_flare_tapers_without_changing_bridge_selection() {
+        let mask = rope_mask();
+        let run = |width: f64, taper: f64, raised_bridges: bool, flip: bool| {
+            stencil_from_paint(
+                &mask,
+                200,
+                100,
+                0,
+                &Params {
+                    width_mm: 100.0,
+                    margin_mm: 4.0,
+                    raised_bridges,
+                    flip,
+                    min_first_layer_width_mm: width,
+                    first_layer_taper_mm: taper,
+                    ..Params::default()
+                },
+            )
+            .unwrap()
+        };
+        for raised in [false, true] {
+            for flip in [false, true] {
+                let (plain, short, long) = (
+                    run(0.0, 1.0, raised, flip),
+                    run(3.0, 0.4, raised, flip),
+                    run(3.0, 1.6, raised, flip),
+                );
+                assert!(short.stats.watertight && long.stats.watertight);
+                assert_eq!(short.stats.islands_remaining, 0);
+                assert_eq!(short.stats.bridge_pixels, plain.stats.bridge_pixels);
+                let base = stl_volume(&plain.stl);
+                let short_gain = stl_volume(&short.stl) - base;
+                let long_gain = stl_volume(&long.stl) - base;
+                assert!(
+                    short_gain > 0.0,
+                    "raised {raised}, flip {flip}: no bottom flare was added"
+                );
+                assert!(
+                    long_gain > short_gain,
+                    "raised {raised}, flip {flip}: a taller taper should add more flare volume: short {short_gain}, long {long_gain}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn first_layer_taper_must_fit_in_the_stencil_thickness() {
+        let p = Params {
+            min_first_layer_width_mm: 1.0,
+            first_layer_taper_mm: 2.1,
+            thickness_mm: 2.0,
+            ..Params::default()
+        };
+        assert!(validate(&p)
+            .unwrap_err()
+            .contains("no greater than stencil thickness"));
     }
 
     #[test]

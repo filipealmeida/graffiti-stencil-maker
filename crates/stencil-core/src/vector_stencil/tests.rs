@@ -184,6 +184,60 @@ fn thin_rope_is_widened_by_minimum_contact() {
 }
 
 #[test]
+fn first_layer_flare_tapers_back_without_changing_bridge_selection() {
+    let (w, h) = (200usize, 100usize);
+    let mask: Vec<bool> = (0..w * h)
+        .map(|i| {
+            let (x, y) = (i % w, i / w);
+            let blob = ((20..60).contains(&x) || (140..180).contains(&x)) && (30..70).contains(&y);
+            !(blob || ((60..140).contains(&x) && (49..51).contains(&y)))
+        })
+        .collect();
+    let tp = TraceParams {
+        smooth_px: 0.0,
+        corner_deg: 60.0,
+        tolerance_px: 0.3,
+        min_area_px: 4.0,
+    };
+    let shapes = trace(&mask, w, h, &tp);
+    let run = |width: f64, taper: f64, raised_bridges: bool, flip: bool| {
+        let p = Params {
+            width_mm: 100.0,
+            margin_mm: 4.0,
+            raised_bridges,
+            flip,
+            min_first_layer_width_mm: width,
+            first_layer_taper_mm: taper,
+            ..Params::default()
+        };
+        build(&shapes, 4.0, &p).unwrap()
+    };
+    for raised in [false, true] {
+        for flip in [false, true] {
+            let (plain, short, long) = (
+                run(0.0, 1.0, raised, flip),
+                run(3.0, 0.4, raised, flip),
+                run(3.0, 1.6, raised, flip),
+            );
+            assert!(short.stats.watertight && long.stats.watertight);
+            assert_eq!(short.stats.islands_remaining, 0);
+            assert_eq!(short.stats.bridge_pixels, plain.stats.bridge_pixels);
+            let base = crate::stl_volume(&plain.stl);
+            let short_gain = crate::stl_volume(&short.stl) - base;
+            let long_gain = crate::stl_volume(&long.stl) - base;
+            assert!(
+                short_gain > 0.0,
+                "raised {raised}, flip {flip}: no bottom flare was added"
+            );
+            assert!(
+                long_gain > short_gain,
+                "raised {raised}, flip {flip}: a taller taper should add more flare volume: short {short_gain}, long {long_gain}"
+            );
+        }
+    }
+}
+
+#[test]
 fn rejects_degenerate_input() {
     let empty = Shapes {
         w: 10,

@@ -558,42 +558,81 @@ fn build_once(
     let layers = base_layers + p.extra_top_layers as usize;
     let thickness = layers as f64 * layer_height;
     let raised = p.raised_bridges && base_layers > 1 && !links.is_empty();
+    let layered = raised || p.min_first_layer_width_mm > 0.0;
     let mut first_layer_islands = 0;
-    let mesh = if raised {
-        // The plate runs the full height with its islands; each bridge joins it from a higher layer, so the first
-        // layer keeps the artwork and the paint passes under the bridges.
-        material = repair_point_contacts(&material);
-        first_layer_islands = material.len().saturating_sub(1);
-        let mut steps: std::collections::BTreeMap<u32, Vec<Vec<IntPoint<i32>>>> =
-            Default::default();
-        for &(a, b) in &links {
-            for (k, poly) in bridge_steps(
-                a,
-                b,
-                p.bridge_mm,
-                base_layers,
-                p.z_bridging == ZBridging::Easy,
-            ) {
-                steps.entry(k).or_default().push(poly);
-            }
-        }
-        let mut planes = vec![0.0];
-        let mut runs = vec![material.clone()];
-        // Each run is built from the plate and the strips themselves, never from the previous run, so that every
-        // crossing is computed from the same two original segments in all of them.
-        let mut cumulative: Vec<Vec<IntPoint<i32>>> = Vec::new();
-        let mut jobs: Vec<Job> = Vec::new();
-        for (k, polys) in &steps {
-            cumulative.extend(polys.iter().cloned());
-            planes.push(*k as f64 * layer_height);
-            jobs.push((cumulative.clone(), Vec::new()));
-        }
-        crate::par::each_mut(&mut jobs, |(strips, out)| {
-            let mut merged = material.as_slice().overlay(
-                strips.as_slice(),
+    let mesh = if layered {
+        if !raised && !bridges.is_empty() {
+            material = material.as_slice().overlay(
+                bridges.as_slice(),
                 OverlayRule::Union,
                 FillRule::NonZero,
             );
+            if let Some(c) = &clip {
+                material = material.as_slice().overlay(
+                    c.as_slice(),
+                    OverlayRule::Intersect,
+                    FillRule::NonZero,
+                );
+            }
+        }
+        // The plate runs the full height with its islands; each bridge joins it from a higher layer, so the first
+        // layer keeps the artwork and the paint passes under the bridges.
+        material = repair_point_contacts(&material);
+        let flare_parts = if p.min_first_layer_width_mm > 0.0 && !p.flip {
+            first_layer_flare_parts(&material, &plate, p.min_first_layer_width_mm)
+        } else {
+            Vec::new()
+        };
+        let bottom = first_layer_flare_section(&material, &flare_parts, &plate, 1.0);
+        if raised {
+            first_layer_islands = bottom.len().saturating_sub(1);
+        }
+        let mut steps: std::collections::BTreeMap<u32, Vec<Vec<IntPoint<i32>>>> =
+            Default::default();
+        if raised {
+            for &(a, b) in &links {
+                for (k, poly) in bridge_steps(
+                    a,
+                    b,
+                    p.bridge_mm,
+                    base_layers,
+                    p.z_bridging == ZBridging::Easy,
+                ) {
+                    steps.entry(k).or_default().push(poly);
+                }
+            }
+        }
+        let mut planes = vec![0.0];
+        let mut runs = vec![bottom];
+        // Each run is built from the plate and the strips themselves, never from the previous run, so that every
+        // crossing is computed from the same two original segments in all of them.
+        let mut cumulative: Vec<Vec<IntPoint<i32>>> = Vec::new();
+        let taper_layers = if flare_parts.is_empty() {
+            0
+        } else {
+            (p.first_layer_taper_mm / layer_height).ceil().max(1.0) as u32
+        };
+        let mut events: std::collections::BTreeSet<u32> = steps.keys().copied().collect();
+        events.extend(1..=taper_layers);
+        for k in events {
+            if let Some(polys) = steps.get(&k) {
+                cumulative.extend(polys.iter().cloned());
+            }
+            let fraction = if taper_layers > k {
+                (taper_layers - k) as f64 / taper_layers as f64
+            } else {
+                0.0
+            };
+            let base = first_layer_flare_section(&material, &flare_parts, &plate, fraction);
+            let mut merged = if cumulative.is_empty() {
+                base
+            } else {
+                base.as_slice().overlay(
+                    cumulative.as_slice(),
+                    OverlayRule::Union,
+                    FillRule::NonZero,
+                )
+            };
             if let Some(c) = &clip {
                 merged = merged.as_slice().overlay(
                     c.as_slice(),
@@ -601,10 +640,48 @@ fn build_once(
                     FillRule::NonZero,
                 );
             }
-            *out = repair_point_contacts(&merged);
-        });
-        runs.extend(jobs.into_iter().map(|(_, run)| run));
+            planes.push(k as f64 * layer_height);
+            runs.push(repair_point_contacts(&merged));
+        }
         planes.push(thickness);
+        if p.flip && p.min_first_layer_width_mm > 0.0 {
+            let source = runs.last().expect("one run exists").clone();
+            let parts = first_layer_flare_parts(&source, &plate, p.min_first_layer_width_mm);
+            if !parts.is_empty() {
+                let taper_layers = (p.first_layer_taper_mm / layer_height).ceil().max(1.0) as u32;
+                let taper_height = taper_layers as f64 * layer_height;
+                let taper_start = thickness - taper_height;
+                let old_planes = planes;
+                let old_runs = runs;
+                let mut new_planes = old_planes.clone();
+                new_planes.push(taper_start);
+                for k in 1..taper_layers {
+                    new_planes.push(thickness - k as f64 * layer_height);
+                }
+                new_planes.sort_by(f64::total_cmp);
+                new_planes.dedup_by(|a, b| (*a - *b).abs() < 1e-8);
+                let mut new_runs = Vec::with_capacity(new_planes.len() - 1);
+                for interval in new_planes.windows(2) {
+                    let mid = (interval[0] + interval[1]) * 0.5;
+                    let index = old_planes
+                        .partition_point(|&z| z <= mid)
+                        .saturating_sub(1)
+                        .min(old_runs.len() - 1);
+                    let fraction = ((interval[1] - taper_start) / taper_height).clamp(0.0, 1.0);
+                    new_runs.push(first_layer_flare_section(
+                        &old_runs[index],
+                        &parts,
+                        &plate,
+                        fraction,
+                    ));
+                }
+                planes = new_planes;
+                runs = new_runs;
+                if raised {
+                    first_layer_islands = runs.last().unwrap().len().saturating_sub(1);
+                }
+            }
+        }
         // Noding can put one run's vertex on another's edge, which is a pinch; patch and node again until stable.
         // The patching rarely settles on its own (it can keep nudging the same few places), so once it stops
         // making headway the mesh is tried and kept if it is already watertight.

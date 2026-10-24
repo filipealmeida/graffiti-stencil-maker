@@ -145,6 +145,8 @@ pub(super) fn stencil_params_from(p: &P) -> Params {
         max_overhang_deg: p.f("max_overhang_deg"),
         min_island_mm2: p.f("min_island_mm2"),
         min_contact_mm: p.f("min_contact_mm"),
+        min_first_layer_width_mm: p.f("min_first_layer_width_mm"),
+        first_layer_taper_mm: p.f("first_layer_taper_mm"),
         ..Params::default()
     }
 }
@@ -161,6 +163,8 @@ pub(super) fn finish_solid(o: crate::Output, p: &P) -> Result<Outputs, String> {
     stats["plate_top_mm"] = json!(o.stats.thickness_mm);
     stats["bridge_mm"] = json!(p.f("bridge_mm"));
     stats["bridges_per_island"] = json!(p.f("bridges_per_island"));
+    stats["min_first_layer_width_mm"] = json!(p.f("min_first_layer_width_mm"));
+    stats["first_layer_taper_mm"] = json!(p.f("first_layer_taper_mm"));
     stats["raised_bridges"] = json!(p.b("raised_bridges"));
     stats["z_bridging"] = json!(p.s("z_bridging"));
     if let Some(f) = &o.fallback {

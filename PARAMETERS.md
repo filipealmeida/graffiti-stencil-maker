@@ -157,6 +157,8 @@ Every parameter `--set NODE.PARAM=VALUE` accepts. Generated with `stencil --list
 | `max_overhang_deg` | Overhang check angle (deg) | float | `0.0` | 0.0 to 89.0 |
 | `min_island_mm2` | Delete islands under (mm²) | float | `0.0` | 0.0 to 100000.0 |
 | `min_contact_mm` | Minimum surface contact (mm) | float | `0.0` | 0.0 to 3.0 |
+| `min_first_layer_width_mm` | Minimum first-layer width (mm) | float | `0.0` | 0.0 to 10.0 |
+| `first_layer_taper_mm` | Taper height (mm) | float | `1.0` | 0.0 to 50.0 |
 
 ### Vector stencil (`vector_stencil`)
 
@@ -176,6 +178,8 @@ Every parameter `--set NODE.PARAM=VALUE` accepts. Generated with `stencil --list
 | `max_overhang_deg` | Overhang check angle (deg) | float | `0.0` | 0.0 to 89.0 |
 | `min_island_mm2` | Delete islands under (mm²) | float | `0.0` | 0.0 to 100000.0 |
 | `min_contact_mm` | Minimum surface contact (mm) | float | `0.0` | 0.0 to 3.0 |
+| `min_first_layer_width_mm` | Minimum first-layer width (mm) | float | `0.0` | 0.0 to 10.0 |
+| `first_layer_taper_mm` | Taper height (mm) | float | `1.0` | 0.0 to 50.0 |
 | `tile_method` | Tile method | choice | `"per_tile"` | per_tile \| cut_whole |
 
 ### Tile layout (`tile_layout`)

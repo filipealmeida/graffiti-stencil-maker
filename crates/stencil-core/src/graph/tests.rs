@@ -43,6 +43,27 @@ fn svg_pictures_run_through_the_graph() {
 }
 
 #[test]
+fn stencil_node_applies_first_layer_width_and_taper() {
+    let mut e = Engine::new();
+    let id = e.add_image(test_png()).unwrap()["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let mut g = graph(&id, 2.0);
+    g["nodes"][2]["params"]["min_first_layer_width_mm"] = json!(2.0);
+    g["nodes"][2]["params"]["first_layer_taper_mm"] = json!(0.4);
+    let result = e.run(&g, None, &|| 0.0);
+    assert_eq!(result["nodes"]["st"]["state"], "done", "{result}");
+    let key = result["nodes"]["st"]["key"].as_str().unwrap();
+    let Some(Value::Solid(s)) = e.value(key, "solid") else {
+        panic!()
+    };
+    assert_eq!(s.stats["min_first_layer_width_mm"], json!(2.0));
+    assert_eq!(s.stats["first_layer_taper_mm"], json!(0.4));
+    assert_eq!(s.stats["watertight"], json!(true));
+}
+
+#[test]
 fn vector_polygon_path_builds_island_free_plate_and_detail_adds_triangles() {
     let mut e = Engine::new();
     let id = e.add_image(test_png()).unwrap()["id"]
