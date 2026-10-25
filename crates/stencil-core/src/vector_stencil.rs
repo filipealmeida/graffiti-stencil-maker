@@ -581,7 +581,7 @@ fn build_once(
         let flare_parts = if p.min_first_layer_width_mm > 0.0 && !p.flip {
             first_layer_flare_parts(&material, &plate, p.min_first_layer_width_mm)
         } else {
-            Vec::new()
+            Flare::new(&[])
         };
         let bottom = first_layer_flare_section(&material, &flare_parts, &plate, 1.0);
         if raised {

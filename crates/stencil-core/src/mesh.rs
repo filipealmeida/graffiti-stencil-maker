@@ -176,6 +176,37 @@ impl Mesh {
             .filter(|t| t[0] != t[1] && t[1] != t[2] && t[0] != t[2])
             .collect();
         self.v = v;
+        self.drop_cancelling_pairs();
+    }
+
+    /// Welding the two sides of a sliver thinner than single precision leaves a zero-thickness fin: a triangle and
+    /// its exact reverse. They enclose nothing, so each such pair is removed.
+    fn drop_cancelling_pairs(&mut self) {
+        let mut seen: std::collections::HashMap<[usize; 3], Vec<(usize, bool)>> =
+            Default::default();
+        for (i, t) in self.t.iter().enumerate() {
+            let mut key = *t;
+            key.sort_unstable();
+            // the winding is even when the sorted order is a rotation of the triangle
+            let forward = (0..3).any(|r| [t[r], t[(r + 1) % 3], t[(r + 2) % 3]] == key);
+            seen.entry(key).or_default().push((i, forward));
+        }
+        let mut gone = vec![false; self.t.len()];
+        for list in seen.values() {
+            let mut fwd: Vec<usize> = list.iter().filter(|e| e.1).map(|e| e.0).collect();
+            let mut rev: Vec<usize> = list.iter().filter(|e| !e.1).map(|e| e.0).collect();
+            while let (Some(a), Some(b)) = (fwd.pop(), rev.pop()) {
+                gone[a] = true;
+                gone[b] = true;
+            }
+        }
+        if gone.iter().any(|&g| g) {
+            let mut i = 0;
+            self.t.retain(|_| {
+                i += 1;
+                !gone[i - 1]
+            });
+        }
     }
 
     /// Up to `limit` edges that break watertightness, as (from, to, times used, times reversed used).
@@ -383,6 +414,22 @@ fn tri_box(v: &[P3; 3], c: P3, h: P3) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn quantizing_drops_zero_thickness_fins() {
+        let mut m = Mesh::cuboid([0.0; 3], [10.0, 10.0, 4.0]);
+        let n = m.v.len();
+        m.v.push([20.0, 0.0, 0.0]);
+        m.v.push([20.0, 1.0, 0.0]);
+        m.v.push([20.0, 0.0, 1.0]);
+        // two triangles that are exact reverses of each other, attached to nothing
+        m.t.push([n, n + 1, n + 2]);
+        m.t.push([n, n + 2, n + 1]);
+        let whole = m.t.len() - 2;
+        m.quantize_f32();
+        assert_eq!(m.t.len(), whole);
+        assert!(m.is_watertight());
+    }
 
     #[test]
     fn box_boolean_roundtrip() {
