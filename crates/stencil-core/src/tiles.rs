@@ -14,6 +14,11 @@ pub const POCKET_DEPTH_MM: f64 = 10.0;
 pub fn rod_length(depth: f64) -> f64 {
     2.0 * depth - 1.0
 }
+
+/// Adds the seam gap to the rod while retaining the same total glue clearance.
+pub fn rod_length_with_gap(depth: f64, gap: f64) -> f64 {
+    rod_length(depth) + gap
+}
 /// Tiles narrower than this cannot hold pockets of the given depth.
 pub fn min_tile(depth: f64) -> f64 {
     depth / 0.4
@@ -33,6 +38,8 @@ pub struct TileParams {
     /// How deep a connector sinks into each of the two tiles (mm).
     pub depth: f64,
     pub clearance: f64,
+    /// Total material removed at each internal seam, split evenly between adjacent tiles (mm).
+    pub seam_gap: f64,
     pub segments: usize,
     /// Plate thickness without raised pads; 0 uses the mesh height.
     pub thickness: f64,
@@ -285,7 +292,11 @@ pub(crate) fn rod(shape: Shape, r: f64, len: f64, segments: usize, axis: usize) 
 }
 
 pub fn connector_rod(shape: Shape, d: f64, depth: f64, segments: usize) -> Mesh {
-    let len = rod_length(depth);
+    connector_rod_with_gap(shape, d, depth, 0.0, segments)
+}
+
+pub fn connector_rod_with_gap(shape: Shape, d: f64, depth: f64, gap: f64, segments: usize) -> Mesh {
+    let len = rod_length_with_gap(depth, gap);
     let mut m = rod(shape, d / 2.0, len, segments, 2);
     m.translate([0.0, 0.0, len / 2.0]);
     m
@@ -322,6 +333,9 @@ fn overlaps(a: &Hole, b: &Hole) -> bool {
 
 /// Tiles the solid. With no seams the plate comes back whole and nothing is drilled.
 pub fn tile(solid: &Mesh, p: &TileParams) -> Result<Tiled, String> {
+    if !p.seam_gap.is_finite() || !(0.0..=1.0).contains(&p.seam_gap) {
+        return Err("seam clearance must be between 0 and 1 mm".into());
+    }
     let (lo, hi) = solid.bounds();
     let (w, h, top) = (hi[0] - lo[0], hi[1] - lo[1], hi[2]);
     let t = if p.thickness > 0.0 { p.thickness } else { top };
@@ -363,6 +377,7 @@ pub fn tile(solid: &Mesh, p: &TileParams) -> Result<Tiled, String> {
     }
     let zs = row_heights(p.shape, p.diameter + p.clearance, t);
     let r_hole = (p.diameter + p.clearance) / 2.0;
+    let pocket_len = 2.0 * p.depth + p.seam_gap;
 
     // (axis the hole runs along, seam coordinate, u range along the seam)
     let mut seams: Vec<(usize, f64, f64, f64)> = Vec::new();
@@ -418,7 +433,7 @@ pub fn tile(solid: &Mesh, p: &TileParams) -> Result<Tiled, String> {
                             m.translate(if axis == 0 { [s, u, z] } else { [u, s, z] });
                             m
                         };
-                        let guard = at(r_hole + wall, 2.0 * p.depth);
+                        let guard = at(r_hole + wall, pocket_len);
                         let (gl, gh) = guard.bounds();
                         let near = Hole {
                             lo: [
@@ -446,7 +461,7 @@ pub fn tile(solid: &Mesh, p: &TileParams) -> Result<Tiled, String> {
                         if !strip.box_inside(gl, gh) {
                             continue;
                         }
-                        cutters.append(&at(r_hole, 2.0 * p.depth));
+                        cutters.append(&at(r_hole, pocket_len));
                         holes.push(body);
                         thin += (wall < WALL_MM) as usize;
                         placed_here += 1;
@@ -472,7 +487,7 @@ pub fn tile(solid: &Mesh, p: &TileParams) -> Result<Tiled, String> {
                 let mut best: Option<(f64, f64)> = None;
                 let mut u = ha + reach;
                 while u <= hb - reach + 1e-9 {
-                    let mut m = rod(p.shape, reach, 2.0 * p.depth, p.segments, axis);
+                    let mut m = rod(p.shape, reach, pocket_len, p.segments, axis);
                     m.translate(if axis == 0 { [s, u, z] } else { [u, s, z] });
                     let (gl, gh) = m.bounds();
                     let near = Hole {
@@ -497,7 +512,7 @@ pub fn tile(solid: &Mesh, p: &TileParams) -> Result<Tiled, String> {
                     continue;
                 };
                 let at = |r: f64| -> Mesh {
-                    let mut m = rod(p.shape, r, 2.0 * p.depth, p.segments, axis);
+                    let mut m = rod(p.shape, r, pocket_len, p.segments, axis);
                     m.translate(if axis == 0 { [s, u, z] } else { [u, s, z] });
                     m
                 };
@@ -541,13 +556,18 @@ pub fn tile(solid: &Mesh, p: &TileParams) -> Result<Tiled, String> {
     let cut = |&(i, j): &(usize, usize)| -> Result<Option<Tile>, String> {
         let xa = if i > 0 { xs[i] } else { xs[i] - 1.0 };
         let xb = if i < nx - 1 {
-            xs[i + 1]
+            xs[i + 1] - p.seam_gap / 2.0
         } else {
             xs[i + 1] + 1.0
         };
-        let ya = if j > 0 { ys[j] } else { ys[j] - 1.0 };
+        let xa = if i > 0 { xa + p.seam_gap / 2.0 } else { xa };
+        let ya = if j > 0 {
+            ys[j] + p.seam_gap / 2.0
+        } else {
+            ys[j] - 1.0
+        };
         let yb = if j < ny - 1 {
-            ys[j + 1]
+            ys[j + 1] - p.seam_gap / 2.0
         } else {
             ys[j + 1] + 1.0
         };
@@ -670,7 +690,7 @@ pub fn tile(solid: &Mesh, p: &TileParams) -> Result<Tiled, String> {
     let info = serde_json::json!({
         "tiles": tiles.len(), "grid": [nx, ny], "connectors": holes.len(), "rows": zs.len(),
         "bridged_tiles": bridged.load(std::sync::atomic::Ordering::Relaxed), "welded_tiles": welded.load(std::sync::atomic::Ordering::Relaxed), "dropped_specks": dropped.load(std::sync::atomic::Ordering::Relaxed), "thin_wall_holes": thin, "positions_without_room": missed,
-        "hole_depth_mm": p.depth, "rod_length_mm": rod_length(p.depth), "seams_shifted": moved,
+        "hole_depth_mm": p.depth, "seam_gap_mm": p.seam_gap, "rod_length_mm": rod_length_with_gap(p.depth, p.seam_gap), "seams_shifted": moved,
         "reinforced_seams": reinforced, "added_material_mm3": added_volume,
     });
     let seam_list = seams
@@ -683,7 +703,9 @@ pub fn tile(solid: &Mesh, p: &TileParams) -> Result<Tiled, String> {
         .collect();
     Ok(Tiled {
         tiles,
-        rod: Some(connector_rod(p.shape, p.diameter, p.depth, p.segments)),
+        rod: Some(connector_rod_with_gap(
+            p.shape, p.diameter, p.depth, p.seam_gap, p.segments,
+        )),
         info,
         seams: seam_list,
         connectors,
@@ -707,6 +729,7 @@ mod tests {
             diameter: 3.0,
             depth: POCKET_DEPTH_MM,
             clearance: 0.2,
+            seam_gap: 0.0,
             segments: 32,
             thickness: 0.0,
             bridge: None,
@@ -733,6 +756,7 @@ mod tests {
             diameter: 3.0,
             depth,
             clearance: 0.2,
+            seam_gap: 0.0,
             segments: 32,
             thickness: 0.0,
             bridge: None,
@@ -751,6 +775,34 @@ mod tests {
         let v = |t: &Tiled| t.tiles.iter().map(|x| x.mesh.volume()).sum::<f64>();
         assert!(v(&a) > v(&b));
         assert!(a.tiles.iter().all(|x| x.mesh.is_watertight()));
+    }
+
+    #[test]
+    fn seam_clearance_is_split_evenly_and_connector_rods_span_it() {
+        let plate = Mesh::cuboid([0.0, 0.0, 0.0], [100.0, 60.0, 6.0]);
+        let mut p = plain(60.0, 0.0, false);
+        p.seam_gap = 0.3;
+        let tiled = tile(&plate, &p).unwrap();
+        assert_eq!(tiled.info["seam_gap_mm"], 0.3);
+        assert_eq!(tiled.info["hole_depth_mm"], p.depth);
+        assert_eq!(tiled.info["rod_length_mm"], rod_length(p.depth) + 0.3);
+        let (_, left_hi) = tiled.tiles[0].mesh.bounds();
+        let (right_lo, _) = tiled.tiles[1].mesh.bounds();
+        let gap = tiled.tiles[1].origin[0] + right_lo[0] - tiled.tiles[0].origin[0] - left_hi[0];
+        assert!((gap - 0.3).abs() < 1e-5, "{gap}");
+        assert!(tiled.tiles.iter().all(|t| t.mesh.is_watertight()));
+        let (rod_lo, rod_hi) = tiled.rod.unwrap().bounds();
+        assert!((rod_hi[2] - rod_lo[2] - (rod_length(p.depth) + 0.3)).abs() < 1e-6);
+    }
+
+    #[test]
+    fn seam_clearance_is_bounded() {
+        let plate = Mesh::cuboid([0.0, 0.0, 0.0], [100.0, 60.0, 6.0]);
+        for seam_gap in [-0.1, 1.1, f64::NAN] {
+            let mut p = plain(60.0, 0.0, false);
+            p.seam_gap = seam_gap;
+            assert!(tile(&plate, &p).is_err());
+        }
     }
 
     fn split_plate() -> Mesh {
@@ -775,6 +827,7 @@ mod tests {
             diameter: 3.0,
             depth: POCKET_DEPTH_MM,
             clearance: 0.2,
+            seam_gap: 0.0,
             segments: 32,
             thickness: 6.0,
             shift_mm: 0.0,
@@ -821,6 +874,7 @@ mod tests {
             diameter: 3.0,
             depth: POCKET_DEPTH_MM,
             clearance: 0.2,
+            seam_gap: 0.0,
             segments: 32,
             thickness: 0.0,
             bridge: None,
@@ -839,6 +893,7 @@ mod tests {
             diameter: 3.0,
             depth: POCKET_DEPTH_MM,
             clearance: 0.2,
+            seam_gap: 0.0,
             segments: 32,
             thickness: 0.0,
             bridge: None,

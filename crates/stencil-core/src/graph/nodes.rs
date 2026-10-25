@@ -544,6 +544,7 @@ pub(super) fn run_export(_: &Engine, i: &HashMap<String, Value>, p: &P) -> Resul
         diameter: p.s("connector_d").parse().unwrap_or(3.0),
         depth: p.f("depth"),
         clearance: p.f("clearance"),
+        seam_gap: p.f("seam_gap"),
         segments: p.f("segments") as usize,
         thickness: s.stats["thickness_mm"].as_f64().unwrap_or(0.0),
         shift_mm: 0.0,
@@ -705,6 +706,7 @@ pub(super) fn run_tiles(_: &Engine, i: &HashMap<String, Value>, p: &P) -> Result
         diameter: p.s("connector_d").parse().unwrap_or(3.0),
         depth: p.f("depth"),
         clearance: p.f("clearance"),
+        seam_gap: p.f("seam_gap"),
         segments: p.f("segments") as usize,
         thickness,
         shift_mm: p.f("seam_shift"),
@@ -836,6 +838,12 @@ pub(super) fn run_pads(_: &Engine, i: &HashMap<String, Value>, p: &P) -> Result<
     } else {
         0.0
     };
+    let hole_r = hole_d / 2.0;
+    let mount_boss_r = if mount && !flip {
+        (hole_r + 1.5 + height).min(margin / 2.0)
+    } else {
+        hole_r
+    };
     let mut warnings = vec![];
     let hole_spacing = if mount && margin < hole_d + 3.0 {
         warnings.push(format!(
@@ -863,7 +871,7 @@ pub(super) fn run_pads(_: &Engine, i: &HashMap<String, Value>, p: &P) -> Result<
             p.f("long_edge"),
             spacing,
             pad_r,
-            hole_d / 2.0,
+            mount_boss_r,
             fixed,
             &keep,
         )
@@ -875,7 +883,6 @@ pub(super) fn run_pads(_: &Engine, i: &HashMap<String, Value>, p: &P) -> Result<
     let mut joins: Vec<Json> = vec![];
     let mut off = p.f("joiner_offset");
     if mount && off > 0.0 && hole_spacing > 0.0 {
-        let hole_r = hole_d / 2.0;
         let c = margin / 2.0;
         let tol = 0.5;
         // one offset serves every joiner plate, so widen it until the connectors at the seams are cleared
@@ -902,18 +909,16 @@ pub(super) fn run_pads(_: &Engine, i: &HashMap<String, Value>, p: &P) -> Result<
                     }
                     let pt = |t: f64| if s[0] == 0.0 { (t, band) } else { (band, t) };
                     let (a, b) = (pt(across - off), pt(across + off));
-                    let ok = [a, b].iter().all(|&q| {
-                        !keep.hits(q.0, q.1, hole_r + 1.5)
-                            && layout
-                                .holes
-                                .iter()
-                                .chain(&holes)
-                                .all(|o| (q.0 - o.0).hypot(q.1 - o.1) >= 2.0 * hole_r + 1.5)
-                            && layout
-                                .pads
-                                .iter()
-                                .all(|o| (q.0 - o.0).hypot(q.1 - o.1) >= hole_r + pad_r + 1.5)
-                    });
+                    let ok =
+                        [a, b].iter().all(|&q| {
+                            !keep.hits(q.0, q.1, mount_boss_r + 1.5)
+                                && layout.holes.iter().chain(&holes).all(|o| {
+                                    (q.0 - o.0).hypot(q.1 - o.1) >= 2.0 * mount_boss_r + 1.5
+                                })
+                                && layout.pads.iter().all(|o| {
+                                    (q.0 - o.0).hypot(q.1 - o.1) >= mount_boss_r + pad_r + 1.5
+                                })
+                        });
                     if ok {
                         holes.push(a);
                         holes.push(b);
@@ -969,7 +974,7 @@ pub(super) fn run_pads(_: &Engine, i: &HashMap<String, Value>, p: &P) -> Result<
     };
     for (list, r, what) in [
         (&layout.pads, pad_r, "pad"),
-        (&layout.holes, hole_d / 2.0, "hole"),
+        (&layout.holes, mount_boss_r, "hole"),
     ] {
         for &c in list {
             if !tiles.iter().any(|t| inside(t, c, r)) {
@@ -994,16 +999,28 @@ pub(super) fn run_pads(_: &Engine, i: &HashMap<String, Value>, p: &P) -> Result<
             };
             let (ps, hs) = (
                 local(&layout.pads, pad_r),
-                local(&layout.holes, hole_d / 2.0),
+                local(&layout.holes, mount_boss_r),
             );
             if ps.is_empty() && hs.is_empty() {
                 return Ok(((name.clone(), data.clone()), false));
             }
             let mut m = crate::mesh::Mesh::from_stl(data)?;
+            let plate_top = m.bounds().1[2];
             if !ps.is_empty() {
                 m = hw::add_pads_at(&m, &ps, &pp, pad_r, layer)?;
             }
             if !hs.is_empty() {
+                if !flip {
+                    m = hw::add_mount_bosses(
+                        &m,
+                        &hs,
+                        hole_r,
+                        height,
+                        margin,
+                        mp.segments,
+                        plate_top,
+                    )?;
+                }
                 m = hw::drill_at(&m, &hs, &mp)?;
             }
             m.quantize_f32();

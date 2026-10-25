@@ -218,6 +218,7 @@ Every parameter `--set NODE.PARAM=VALUE` accepts. Generated with `stencil --list
 |---|---|---|---|---|
 | `max_x` | Largest tile width (mm) | float | `0.0` | 0.0 to 2000.0 |
 | `max_y` | Largest tile height (mm) | float | `0.0` | 0.0 to 2000.0 |
+| `seam_gap` | Seam clearance (mm, total) | float | `0.0` | 0.0 to 1.0 |
 | `connector` | Connector shape | choice | `"hex"` | hex \| round |
 | `connector_d` | Connector diameter (mm) | choice | `"3"` | 2.5 \| 3 \| 4 \| 5 \| 6 |
 | `depth` | Connector depth into each tile (mm) | float | `10.0` | 4.0 to 20.0 |
@@ -240,6 +241,7 @@ Every parameter `--set NODE.PARAM=VALUE` accepts. Generated with `stencil --list
 | `max_x` | Largest tile width (mm) | float | `200.0` | 20.0 to 2000.0 |
 | `max_y` | Largest tile height (mm) | float | `200.0` | 20.0 to 2000.0 |
 | `seam_shift` | Seam may move up to (mm) | float | `5.0` | 0.0 to 30.0 |
+| `seam_gap` | Seam clearance (mm, total) | float | `0.0` | 0.0 to 1.0 |
 | `reinforce` | Add material where no connector fits | bool | `true` | true \| false |
 | `connector` | Connector shape | choice | `"hex"` | hex \| round |
 | `connector_d` | Connector diameter (mm) | choice | `"3"` | 2.5 \| 3 \| 4 \| 5 \| 6 |
@@ -257,7 +259,7 @@ Every parameter `--set NODE.PARAM=VALUE` accepts. Generated with `stencil --list
 | Parameter | Label | Type | Default | Range or choices |
 |---|---|---|---|---|
 | `pad_thread` | Pad thread | choice | `"M4"` | none \| M3 \| M4 \| M5 \| M6 \| M8 \| M10 |
-| `pad_height` | Pad height above the plate (mm) | float | `4.0` | 1.0 to 20.0 |
+| `pad_height` | Pad & mounting height above the plate (mm) | float | `4.0` | 1.0 to 20.0 |
 | `thread_clearance` | Pad thread clearance (mm, radial) | float | `0.2` | 0.0 to 0.6 |
 | `long_edge` | Add pads along edges longer than (mm) | float | `300.0` | 0.0 to 2000.0 |
 | `mount_screw` | Mounting hole screw | choice | `"M4"` | none \| M3 \| M4 \| M5 \| M6 \| M8 \| M10 |

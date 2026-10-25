@@ -114,6 +114,63 @@ pub fn cylinder(r: f64, z0: f64, z1: f64, n: usize) -> Mesh {
     Mesh::prism_z(n.max(12), r, z0, z1)
 }
 
+fn tapered_cylinder(r0: f64, r1: f64, z0: f64, z1: f64, n: usize) -> Mesh {
+    let n = n.max(12);
+    let mut mesh = Mesh::default();
+    for (z, r) in [(z0, r0), (z1, r1)] {
+        for i in 0..n {
+            let a = TAU * i as f64 / n as f64;
+            mesh.v.push([r * a.cos(), r * a.sin(), z]);
+        }
+    }
+    for i in 0..n {
+        let j = (i + 1) % n;
+        mesh.t.push([i, j, n + j]);
+        mesh.t.push([i, n + j, n + i]);
+    }
+    for i in 1..n - 1 {
+        mesh.t.push([0, i + 1, i]);
+        mesh.t.push([n, n + i, n + i + 1]);
+    }
+    mesh
+}
+
+/// Tapered mounting-hole bosses that grow from the plate toward the screw head.
+pub fn add_mount_bosses(
+    solid: &Mesh,
+    points: &[(f64, f64)],
+    hole_radius: f64,
+    height: f64,
+    margin: f64,
+    segments: usize,
+    plate_top: f64,
+) -> Result<Mesh, String> {
+    if points.is_empty() || height <= 0.0 {
+        return Ok(solid.clone());
+    }
+    let top_radius = hole_radius + 1.5;
+    let base_radius = (top_radius + height).min(margin / 2.0);
+    if base_radius < top_radius {
+        return Err(format!(
+            "margin too small for mounting-point support: needs at least {:.1} mm",
+            2.0 * top_radius
+        ));
+    }
+    let z0 = plate_top - 0.2;
+    let z1 = plate_top + height;
+    let bosses = union_all(
+        points
+            .iter()
+            .map(|&(x, y)| {
+                let mut boss = tapered_cylinder(base_radius, top_radius, z0, z1, segments.max(24));
+                boss.translate([x, y, 0.0]);
+                boss
+            })
+            .collect(),
+    );
+    solid.union(&bosses)
+}
+
 pub fn hexagon(across_corners: f64, z0: f64, z1: f64) -> Mesh {
     Mesh::prism_z(6, across_corners / 2.0, z0, z1)
 }
@@ -788,6 +845,31 @@ mod tests {
         )
         .unwrap();
         assert!(drilled.is_watertight() && !m.points.is_empty(), "{i}");
+    }
+
+    #[test]
+    fn mounting_hole_bosses_connect_to_the_plate_and_keep_the_hole_open() {
+        let plate = Mesh::cuboid([0.0, 0.0, 0.0], [100.0, 80.0, 6.0]);
+        let bosses = add_mount_bosses(&plate, &[(50.0, 40.0)], 2.2, 4.0, 16.0, 48, 6.0).unwrap();
+        let drilled = drill_at(
+            &bosses,
+            &[(50.0, 40.0)],
+            &MountParams {
+                screw: "M4".into(),
+                clearance: 0.4,
+                threaded: false,
+                offset: 0.0,
+                segments: 48,
+            },
+        )
+        .unwrap();
+        let (_, hi) = drilled.bounds();
+        assert!((hi[2] - 10.0).abs() < 1e-6);
+        assert!(drilled.is_watertight());
+        assert!(drilled.box_inside([54.0, 39.5, 6.5], [54.5, 40.0, 7.0]));
+        assert!(drilled.box_inside([55.5, 39.5, 6.1], [56.0, 40.0, 6.3]));
+        assert!(!drilled.box_inside([55.5, 39.5, 9.8], [56.0, 40.0, 9.9]));
+        assert!(!drilled.box_inside([49.8, 39.8, 8.0], [50.2, 40.2, 9.0]));
     }
 
     #[test]

@@ -95,6 +95,9 @@ struct Args {
     connector_d: Option<String>,
     #[arg(long)]
     connector_clearance: Option<f64>,
+    /// Total gap removed at each tile seam (mm; split evenly between both tiles)
+    #[arg(long)]
+    seam_clearance: Option<f64>,
     /// Round segments for connectors, holes and threads
     #[arg(long)]
     segments: Option<f64>,
@@ -458,6 +461,7 @@ fn pipeline(a: &Args, image: &str) -> Json {
         ("max_x", a.tile_width),
         ("max_y", a.tile_height),
         ("clearance", a.connector_clearance),
+        ("seam_gap", a.seam_clearance),
         ("segments", a.segments),
         ("pad_count", a.pads),
         ("pad_height", a.pad_height),

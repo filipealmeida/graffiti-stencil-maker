@@ -307,6 +307,7 @@ pub(super) fn catalogue() -> Vec<NodeDef> {
             params: vec![
                 num("max_x", "Largest tile width (mm)", 0.0, 0.0, 2000.0, 5.0, Some("Tiles"), false),
                 num("max_y", "Largest tile height (mm)", 0.0, 0.0, 2000.0, 5.0, Some("Tiles"), false),
+                num("seam_gap", "Seam clearance (mm, total)", 0.0, 0.0, 1.0, 0.05, Some("Tiles"), false),
                 choice("connector", "Connector shape", "hex", &["hex", "round"], Some("Tiles")),
                 choice("connector_d", "Connector diameter (mm)", "3", &["2.5", "3", "4", "5", "6"], Some("Connectors")),
                 num("depth", "Connector depth into each tile (mm)", 10.0, 4.0, 20.0, 0.5, Some("Connectors"), false),
@@ -335,6 +336,7 @@ pub(super) fn catalogue() -> Vec<NodeDef> {
                 num("max_x", "Largest tile width (mm)", 200.0, 20.0, 2000.0, 5.0, Some("Tiles"), false),
                 num("max_y", "Largest tile height (mm)", 200.0, 20.0, 2000.0, 5.0, Some("Tiles"), false),
                 num("seam_shift", "Seam may move up to (mm)", 5.0, 0.0, 30.0, 0.5, Some("Tiles"), false),
+                num("seam_gap", "Seam clearance (mm, total)", 0.0, 0.0, 1.0, 0.05, Some("Tiles"), false),
                 flag("reinforce", "Add material where no connector fits", true, Some("Tiles")),
                 choice("connector", "Connector shape", "hex", &["hex", "round"], Some("Connectors")),
                 choice("connector_d", "Connector diameter (mm)", "3", &["2.5", "3", "4", "5", "6"], Some("Connectors")),
@@ -347,7 +349,7 @@ pub(super) fn catalogue() -> Vec<NodeDef> {
                 flag("raised_bridges", "Raised bridges", true, Some("Bridges")),
                 choice("z_bridging", "Z bridging", "easy", &["easy", "steps"], Some("Bridges")),
             ],
-            doc: "Cuts the plate into tiles no larger than the given size, as evenly as it can, and joins them with glued connector rods in blind holes at the seams. A seam may move a few millimetres to cross more material, so the connectors have room. When a cut leaves a piece of a tile hanging free, bridges tie it to its tile, so no tile has islands.",
+            doc: "Cuts the plate into tiles no larger than the given size, as evenly as it can, and joins them with glued connector rods in blind holes at the seams. Seam clearance removes the specified total width from each seam, evenly split between its two tiles; 0 keeps the current flush fit. Connector pockets and rods extend across the gap while keeping the configured pocket depth in each tile. A seam may move a few millimetres to cross more material, so the connectors have room. When a cut leaves a piece of a tile hanging free, bridges tie it to its tile, so no tile has islands.",
             run: run_tiles,
         },
         NodeDef {
@@ -358,7 +360,7 @@ pub(super) fn catalogue() -> Vec<NodeDef> {
             outputs: vec![("parts", "parts")],
             params: vec![
                 choice("pad_thread", "Pad thread", "M4", &["none", "M3", "M4", "M5", "M6", "M8", "M10"], Some("Pads")),
-                num("pad_height", "Pad height above the plate (mm)", 4.0, 1.0, 20.0, 0.5, Some("Pads"), false),
+                num("pad_height", "Pad & mounting height above the plate (mm)", 4.0, 1.0, 20.0, 0.5, Some("Pads"), false),
                 num("thread_clearance", "Pad thread clearance (mm, radial)", 0.2, 0.0, 0.6, 0.05, Some("Pads"), false),
                 num("long_edge", "Add pads along edges longer than (mm)", 300.0, 0.0, 2000.0, 10.0, Some("Pads"), false),
                 choice("mount_screw", "Mounting hole screw", "M4", &["none", "M3", "M4", "M5", "M6", "M8", "M10"], Some("Mounting holes")),
@@ -369,7 +371,7 @@ pub(super) fn catalogue() -> Vec<NodeDef> {
                 num("extend", "Extender plate: distance between the two rows of holes (mm)", 25.0, 10.0, 120.0, 1.0, Some("Mounting holes"), false),
                 num("segments", "Round segments", 48.0, 24.0, 128.0, 4.0, None, true),
             ],
-            doc: "Adds threaded pads for fixing the stencil to a frame, wall or board, and optional through-holes, to the tiles from a Tiles node. Set the pad thread to none for a plate without pads. Pads sit on the middle of the margin band at the corners and, on edges longer than the limit, evenly between them. Holes are spaced along the band. A spot that would fall on a seam or a connector slides along its edge until it is clear, so every pad and hole sits in one tile. Printed flipped, pads are plain threaded holes. Needs a margin of at least the pad diameter (thread + 4 mm). When there are mounting holes either side of a seam it also outputs the plates that screw the tiles together: joiner_<screw>.stl (two holes, on the two mounting holes either side of a seam) and extender_<screw>.stl (four holes, a second row the set reach further out), as thick as the pads are high, with the mounting holes' clearance and thread. Print one joiner per seam crossing.",
+            doc: "Adds threaded pads for fixing the stencil to a frame, wall or board, and optional through-holes, to the tiles from a Tiles node. Set the pad thread to none for a plate without pads. Pads sit on the middle of the margin band at the corners and, on edges longer than the limit, evenly between them. Holes are spaced along the band. Unflipped mounting holes have centered, chamfered support bosses that rise from the plate; their height is set by Pad & mounting height, and their flared base stays within the margin and tile. The through-hole remains open. A spot that would fall on a seam or a connector slides along its edge until it is clear, so every pad and hole sits in one tile. Printed flipped, pads are plain threaded holes. Needs a margin of at least the pad diameter (thread + 4 mm). When there are mounting holes either side of a seam it also outputs the plates that screw the tiles together: joiner_<screw>.stl (two holes, on the two mounting holes either side of a seam) and extender_<screw>.stl (four holes, a second row the set reach further out), as thick as the pads are high, with the mounting holes' clearance and thread. Print one joiner per seam crossing.",
             run: run_pads,
         },
         NodeDef {
