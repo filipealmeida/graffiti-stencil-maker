@@ -161,7 +161,7 @@ self.onmessage = async (ev: MessageEvent<Req>) => {
     if (m.op === 'imageinfo') return self.postMessage({ id: m.id, ok: JSON.parse(e.image_info(m.imageId, m.resolution)) })
     if (m.op === 'image') return self.postMessage({ id: m.id, ok: JSON.parse(e.add_image(new Uint8Array(m.bytes))) })
     if (m.op === 'cancel') { runToken++; return }
-    if (m.op === 'threads') return self.postMessage({ id: m.id, ok: { n: threads, why } })
+    if (m.op === 'threads') return self.postMessage({ id: m.id, ok: { n: threads, why, version: e.version() } })
     self.postMessage({ id: m.id, ...(await runGraph(m)) })
   } catch (err) {
     self.postMessage({ id: m.id, error: String((err as any)?.message ?? err) })

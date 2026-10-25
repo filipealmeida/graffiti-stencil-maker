@@ -148,6 +148,20 @@ function Canvas() {
     };
   }, []);
 
+  // the first console line says exactly which build is running
+  useEffect(() => {
+    if (announced) return;
+    announced = true;
+    api.threads().then((e) => {
+      const b = __BUILD__;
+      const engine = e.version === b.version ? `engine ${e.version}` : `engine ${e.version} (page ${b.version}: stale cache?)`;
+      const threads = e.n > 1 ? `${e.n} threads` : `single thread (${e.why})`;
+      const msg = `Graffiti stencil studio v${b.version} · build ${b.build} (${b.commit}) · built ${b.time} · ${engine} · ${threads}`;
+      console.info(msg);
+      s.addLogs([{ ts: new Date().toISOString().slice(0, 23), ms: null, t: Date.now(), level: "info", node: "", type: "studio", msg }]);
+    }).catch(() => {});
+  }, []);
+
   useEffect(() => {
     Promise.all([api.nodeTypes(), api.restoreImages()]).then(([t]) => {
       s.setTypes(t);
@@ -728,6 +742,8 @@ const FORMER_NAMES: Record<string, string> = {
   pads: "Pads & mounting holes",
   hardware: "Screws, nuts & fit test",
 };
+
+let announced = false;
 
 export default function App() {
   return (

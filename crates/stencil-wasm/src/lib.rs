@@ -93,6 +93,11 @@ impl Engine {
         }
     }
 
+    /// The version of the engine this module was built from.
+    pub fn version(&self) -> String {
+        env!("CARGO_PKG_VERSION").to_string()
+    }
+
     pub fn node_types(&self) -> String {
         stencil_core::graph::node_types().to_string()
     }

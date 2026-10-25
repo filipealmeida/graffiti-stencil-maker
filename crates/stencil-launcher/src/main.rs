@@ -67,7 +67,10 @@ fn main() {
         std::thread::sleep(Duration::from_millis(100));
     }
     let url = format!("http://127.0.0.1:{port}/");
-    println!("Stencil studio is running at {url}\nClose this window (or press Ctrl+C) to stop it.");
+    println!(
+        "Stencil studio {} is running at {url}\nClose this window (or press Ctrl+C) to stop it.",
+        env!("CARGO_PKG_VERSION")
+    );
     if let Err(e) = open::that(&url) {
         println!("Could not open the browser ({e}): open {url} yourself.");
     }

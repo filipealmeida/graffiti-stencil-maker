@@ -1016,3 +1016,11 @@ test('the status text lives in a footer, so the toolbar buttons never move while
   expect(after.x).toBe(before.x)
   expect(after.y).toBe(before.y)
 })
+
+test('the console opens with the version and build of the studio', async ({ page }) => {
+  await page.goto('/')
+  const line = page.locator('.console-lines').getByText(/Graffiti stencil studio v\d+\.\d+\.\d+ · build \d+ \(/)
+  await expect(line).toBeVisible({ timeout: 60_000 })
+  await expect(line).toContainText('engine ')
+  await expect(line).not.toContainText('stale cache')
+})
