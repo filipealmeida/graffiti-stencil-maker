@@ -169,6 +169,8 @@ pub fn bridge_mesh(
         radius,
         &mut rise,
         bp.per_island.clamp(1, 5),
+        0.0,
+        4.0,
         Some(&avoid_mask),
     );
     if carved == 0 {

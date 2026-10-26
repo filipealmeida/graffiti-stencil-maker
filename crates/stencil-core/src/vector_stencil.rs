@@ -11,6 +11,7 @@ use i_triangle::int::unchecked::IntUncheckedTriangulatable;
 use std::collections::HashMap;
 
 mod repair;
+mod spread;
 #[cfg(test)]
 mod tests;
 use repair::*;
@@ -50,6 +51,16 @@ fn closest_on_segment(p: Pt, a: Pt, b: Pt) -> Pt {
         0.0
     };
     [a[0] + t * d[0], a[1] + t * d[1]]
+}
+
+/// The direction of the link a to b as a unit vector; a zero-length link points nowhere, so it conflicts with nothing.
+fn unit_direction(a: Pt, b: Pt) -> Pt {
+    let length = distance_sq(a, b).sqrt();
+    if length < 1e-9 {
+        [0.0, 0.0]
+    } else {
+        [(b[0] - a[0]) / length, (b[1] - a[1]) / length]
+    }
 }
 
 fn distance_sq(a: Pt, b: Pt) -> f64 {
@@ -506,6 +517,8 @@ fn build_once(
     let mut bridges = Vec::new();
     let mut links: Vec<(Pt, Pt)> = Vec::new();
     let per_island = p.bridges_per_island.clamp(1, 5) as usize;
+    let spread = p.bridge_min_angle_deg > 0.0;
+    let mut pending: Vec<spread::Island> = Vec::new();
     let mut keep = vec![true; material.len()];
     for i in 0..material.len() {
         if i == main {
@@ -518,6 +531,13 @@ fn build_once(
         }
         let outline = outer_contour(&material[i]).ok_or("vector island has no outline")?;
         let outline = to_mm(outline);
+        if spread {
+            pending.push(spread::Island {
+                outline,
+                contours: material[i].iter().map(|c| to_mm(c)).collect(),
+            });
+            continue;
+        }
         let (a, b) = closest_pair(&outline, &frame).ok_or("frame has no boundary")?;
         let (a, b) = slide(a, b, nudge, p.bridge_mm);
         bridges.push(to_int(&bridge_polygon(a, b, p.bridge_mm)));
@@ -546,6 +566,12 @@ fn build_once(
                 bridges.push(to_int(&bridge_polygon(from, to, p.bridge_mm)));
                 links.push((from, to));
             }
+        }
+    }
+    if !pending.is_empty() {
+        for (a, b) in spread::plan(&pending, &main_boundaries, &frame, p, nudge, per_island)? {
+            bridges.push(to_int(&bridge_polygon(a, b, p.bridge_mm)));
+            links.push((a, b));
         }
     }
     material = material

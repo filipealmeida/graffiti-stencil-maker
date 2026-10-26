@@ -48,6 +48,13 @@ pub struct Params {
     pub bridge_mm: f64,
     /// Bridges from every island to the rest of the plate (1-5).
     pub bridges_per_island: u32,
+    /// Each further bridge of an island must leave at least this angle (degrees, 0-90) from the earlier ones; 0
+    /// takes the shortest links whatever their direction.
+    pub bridge_min_angle_deg: f64,
+    /// With an angle: the longest a bridge may be, as a multiple of the island's shortest link (1-16).
+    pub bridge_max_length: f64,
+    /// With an angle: how many passes the islands are bridged in (1-8).
+    pub bridge_passes: u32,
     /// Pixels on the longest side of the traced image.
     pub resolution: u32,
     pub threshold: Option<u8>,
@@ -106,6 +113,9 @@ impl Default for Params {
             margin_mm: 8.0,
             bridge_mm: 1.6,
             bridges_per_island: 1,
+            bridge_min_angle_deg: 0.0,
+            bridge_max_length: 4.0,
+            bridge_passes: 4,
             resolution: 600,
             threshold: None,
             invert: false,
@@ -238,6 +248,8 @@ pub fn stencil_from_paint(
         radius,
         &mut rise,
         p.bridges_per_island.clamp(1, 5) as usize,
+        p.bridge_min_angle_deg,
+        p.bridge_max_length,
         p.frame_largest,
     );
 
@@ -340,6 +352,15 @@ pub(crate) fn validate(p: &Params) -> Result<(), String> {
             "layer height must be 0.05-5 mm, got {}",
             p.layer_height_mm
         ));
+    }
+    if !p.bridge_min_angle_deg.is_finite() || !(0.0..=90.0).contains(&p.bridge_min_angle_deg) {
+        return Err("minimum angle between bridges must be 0-90 degrees".into());
+    }
+    if !p.bridge_max_length.is_finite() || !(1.0..=16.0).contains(&p.bridge_max_length) {
+        return Err("longest bridge must be 1-16 times the shortest link".into());
+    }
+    if !(1..=8).contains(&p.bridge_passes) {
+        return Err("bridging passes must be 1-8".into());
     }
     if !p.min_contact_mm.is_finite() || p.min_contact_mm < 0.0 {
         return Err("minimum surface contact must be 0 or more".into());
@@ -596,6 +617,26 @@ mod tests {
                 o.stats.bridge_pixels
             );
             last = o.stats.bridge_pixels;
+        }
+    }
+
+    #[test]
+    fn spread_bridges_keep_the_count_and_stay_island_free() {
+        for n in [2, 3, 5] {
+            let run = |angle| {
+                let p = Params {
+                    resolution: 120,
+                    bridges_per_island: n,
+                    bridge_min_angle_deg: angle,
+                    ..Params::default()
+                };
+                make_stencil(&ring(), &p).unwrap()
+            };
+            let (closest, spread) = (run(0.0), run(45.0));
+            assert_eq!(spread.stats.islands_remaining, 0);
+            assert!(spread.stats.watertight);
+            assert!(spread.stats.bridge_pixels > 0);
+            assert!(closest.stats.bridge_pixels > 0);
         }
     }
 

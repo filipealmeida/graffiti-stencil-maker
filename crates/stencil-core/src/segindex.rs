@@ -62,6 +62,44 @@ impl SegIndex {
         }
     }
 
+    /// The distance along the unit direction `d` from `o` to the first segment crossed between `min_t` and `max_t`.
+    pub(crate) fn first_hit(&self, o: Pt, d: Pt, min_t: f64, max_t: f64) -> Option<f64> {
+        let mut seen: Vec<u32> = Vec::new();
+        let step = self.cell * 0.5;
+        let mut t = 0.0;
+        let mut last = None;
+        while t <= max_t + step {
+            let at = t.min(max_t);
+            let key = (
+                ((o[0] + d[0] * at) / self.cell).floor() as i32,
+                ((o[1] + d[1] * at) / self.cell).floor() as i32,
+            );
+            if last != Some(key) {
+                last = Some(key);
+                if let Some(list) = self.cells.get(&key) {
+                    seen.extend(list);
+                }
+            }
+            t += step;
+        }
+        seen.sort_unstable();
+        seen.dedup();
+        seen.into_iter()
+            .filter_map(|k| {
+                let (a, b) = self.segs[k as usize];
+                let e = [b[0] - a[0], b[1] - a[1]];
+                let den = d[0] * e[1] - d[1] * e[0];
+                if den.abs() < 1e-12 {
+                    return None;
+                }
+                let w = [a[0] - o[0], a[1] - o[1]];
+                let t = (w[0] * e[1] - w[1] * e[0]) / den;
+                let u = (w[0] * d[1] - w[1] * d[0]) / den;
+                ((min_t..=max_t).contains(&t) && (0.0..=1.0).contains(&u)).then_some(t)
+            })
+            .min_by(f64::total_cmp)
+    }
+
     /// The closest point of any indexed segment to `q`, with its squared distance.
     pub(crate) fn nearest(&self, q: Pt) -> Option<(f64, Pt)> {
         if self.segs.is_empty() {
@@ -114,6 +152,16 @@ impl SegIndex {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_ray_finds_the_first_segment_it_crosses() {
+        let square = vec![[0.0, 0.0], [10.0, 0.0], [10.0, 10.0], [0.0, 10.0]];
+        let idx = SegIndex::new(&[square], 2.0);
+        let t = idx.first_hit([5.0, 5.0], [1.0, 0.0], 1e-6, 50.0).unwrap();
+        assert!((t - 5.0).abs() < 1e-9);
+        assert!(idx.first_hit([5.0, 5.0], [1.0, 0.0], 1e-6, 4.0).is_none());
+        assert!(idx.first_hit([20.0, 5.0], [1.0, 0.0], 1e-6, 50.0).is_none());
+    }
 
     #[test]
     fn nearest_matches_a_scan() {

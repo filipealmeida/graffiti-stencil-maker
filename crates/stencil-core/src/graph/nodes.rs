@@ -133,6 +133,13 @@ pub(super) fn stencil_params_from(p: &P) -> Params {
         margin_mm: p.f("margin_mm"),
         bridge_mm: p.f("bridge_mm"),
         bridges_per_island: p.f("bridges_per_island") as u32,
+        bridge_min_angle_deg: if p.s("bridge_spacing") == "spread" {
+            p.f("bridge_min_angle_deg")
+        } else {
+            0.0
+        },
+        bridge_max_length: p.f("bridge_max_length"),
+        bridge_passes: p.f("bridge_passes") as u32,
         flip: p.b("flip"),
         raised_bridges: p.b("raised_bridges"),
         z_bridging: if p.s("z_bridging") == "easy" {

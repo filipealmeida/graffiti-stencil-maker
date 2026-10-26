@@ -18,6 +18,7 @@ Examples:
 stencil logo.png -o logo.stl
 stencil artwork.svg --width 120 --thickness 3 --margin 10 --bridge 2 -o plate.stl
 stencil artwork.svg --vector --bridges-per-island 3 -o plate.stl   # three bridges for every island
+stencil artwork.svg --vector --bridges-per-island 2 --bridge-spread -o plate.stl   # the second bridge leaves at 45° or more from the first (--bridge-min-angle DEG)
 stencil portrait.jpg --threshold 110 --invert
 stencil logo.png --vector --detail 4
 stencil tiled.png --tile-width 60 --tile-height 60 --connector hex --pads 4 --pad-thread M6

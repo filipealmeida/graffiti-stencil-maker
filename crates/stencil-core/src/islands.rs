@@ -223,6 +223,8 @@ pub(crate) fn bridge_islands(
     radius: i64,
     rise: &mut [f32],
     per_island: usize,
+    min_angle: f64,
+    max_length: f64,
     largest_frame: bool,
 ) -> usize {
     let (islands, label) = label_islands(g);
@@ -238,9 +240,12 @@ pub(crate) fn bridge_islands(
     } else {
         label[0]
     };
-    bridge_labelled(g, &label, frame, radius, rise, per_island, None)
+    bridge_labelled(
+        g, &label, frame, radius, rise, per_island, min_angle, max_length, None,
+    )
 }
 
+#[allow(clippy::too_many_arguments)]
 /// Like `bridge_islands`, for pieces already labelled by the caller (0 = empty) and a chosen frame piece. Pixels in
 /// `avoid` are crossed only when nothing else connects a piece.
 pub(crate) fn bridge_labelled(
@@ -250,6 +255,8 @@ pub(crate) fn bridge_labelled(
     radius: i64,
     rise: &mut [f32],
     per_island: usize,
+    min_angle: f64,
+    max_length: f64,
     avoid: Option<&[bool]>,
 ) -> usize {
     let (w, h) = (g.w, g.h);
@@ -314,7 +321,8 @@ pub(crate) fn bridge_labelled(
     }
     if per_island > 1 {
         carved += extra_bridges(
-            g, &original, label, frame, radius, rise, &primary, per_island, avoid,
+            g, &original, label, frame, radius, rise, &primary, per_island, min_angle, max_length,
+            avoid,
         );
     }
     carved
@@ -367,6 +375,23 @@ fn mark_near(set: &mut [bool], px: &[usize], r: i64, w: usize, h: usize) {
     }
 }
 
+/// The unit direction from the first to the last pixel of a path; a path that goes nowhere conflicts with nothing.
+fn chord(path: &[usize], w: usize) -> [f64; 2] {
+    let (Some(&a), Some(&b)) = (path.first(), path.last()) else {
+        return [0.0, 0.0];
+    };
+    let (dx, dy) = (
+        (b % w) as f64 - (a % w) as f64,
+        (b / w) as f64 - (a / w) as f64,
+    );
+    let n = dx.hypot(dy);
+    if n < 1e-9 {
+        [0.0, 0.0]
+    } else {
+        [dx / n, dy / n]
+    }
+}
+
 /// Up to `per_island - 1` more bridges for every island: each is the shortest hole path to the frame that stays
 /// clear of every other bridge and leaves the island away from its own bridges, so they run in different directions.
 #[allow(clippy::too_many_arguments)]
@@ -379,6 +404,8 @@ fn extra_bridges(
     rise: &mut [f32],
     primary: &[(u32, Vec<usize>)],
     per_island: usize,
+    min_angle: f64,
+    max_length: f64,
     avoid: Option<&[bool]>,
 ) -> usize {
     let (w, h) = (g.w, g.h);
@@ -397,56 +424,85 @@ fn extra_bridges(
     let mut carved = 0;
     for (l, holes) in primary {
         let Some(src) = pixels.get(l) else { continue };
-        let limit = 4 * holes.len().max(radius as usize) + 4 * radius as usize;
+        let spread = min_angle > 0.0;
+        let factor = if spread { max_length } else { 4.0 };
+        let limit =
+            (factor * holes.len().max(radius as usize) as f64) as usize + 4 * radius as usize;
         let mut own = vec![false; w * h];
         mark_near(&mut own, holes, 2 * radius + 2, w, h);
-        for _ in 1..per_island {
-            gen += 1;
-            let mut frontier: Vec<usize> = src.clone();
-            for &i in &frontier {
-                stamp[i] = gen;
-                parent[i] = u32::MAX;
-            }
-            let mut hit = None;
-            let mut layer = 0;
-            'bfs: while !frontier.is_empty() && layer < limit {
-                layer += 1;
-                let mut next = Vec::new();
+        let mut dirs = vec![chord(holes, w)];
+        // the wanted angle is relaxed in steps, so an island never gets fewer bridges than without it
+        let tiers: Vec<f64> = if spread {
+            vec![min_angle, min_angle * 2.0 / 3.0, min_angle / 3.0, 0.0]
+        } else {
+            vec![0.0]
+        };
+        'island: for _ in 1..per_island {
+            let mut path = Vec::new();
+            for &tier in &tiers {
+                let widest = tier.to_radians().cos();
+                gen += 1;
+                let mut frontier: Vec<usize> = src.clone();
                 for &i in &frontier {
-                    let (x, y) = ((i % w) as i64, (i / w) as i64);
-                    for (dx, dy) in [(1, 0), (-1, 0), (0, 1), (0, -1)] {
-                        let (nx, ny) = (x + dx, y + dy);
-                        if nx < 0 || ny < 0 || nx >= w as i64 || ny >= h as i64 {
-                            continue;
-                        }
-                        let j = ny as usize * w + nx as usize;
-                        if stamp[j] == gen {
-                            continue;
-                        }
-                        if original[j] {
-                            if label[j] == frame && parent[i] != u32::MAX {
-                                hit = Some(i);
-                                break 'bfs;
+                    stamp[i] = gen;
+                    parent[i] = u32::MAX;
+                }
+                let mut hit = None;
+                let mut layer = 0;
+                'bfs: while !frontier.is_empty() && layer < limit {
+                    layer += 1;
+                    let mut next = Vec::new();
+                    for &i in &frontier {
+                        let (x, y) = ((i % w) as i64, (i / w) as i64);
+                        for (dx, dy) in [(1, 0), (-1, 0), (0, 1), (0, -1)] {
+                            let (nx, ny) = (x + dx, y + dy);
+                            if nx < 0 || ny < 0 || nx >= w as i64 || ny >= h as i64 {
+                                continue;
                             }
-                        } else if !g.m[j] && !blocked[j] && !own[j] {
-                            stamp[j] = gen;
-                            parent[j] = i as u32;
-                            next.push(j);
+                            let j = ny as usize * w + nx as usize;
+                            if stamp[j] == gen {
+                                continue;
+                            }
+                            if original[j] {
+                                if label[j] == frame && parent[i] != u32::MAX {
+                                    let mut candidate = Vec::new();
+                                    let mut k = i;
+                                    while parent[k] != u32::MAX {
+                                        candidate.push(k);
+                                        k = parent[k] as usize;
+                                    }
+                                    candidate.reverse();
+                                    let d = chord(&candidate, w);
+                                    if tier <= 0.0
+                                        || dirs
+                                            .iter()
+                                            .all(|e| (d[0] * e[0] + d[1] * e[1]).abs() <= widest)
+                                    {
+                                        hit = Some(candidate);
+                                        break 'bfs;
+                                    }
+                                }
+                            } else if !g.m[j] && !blocked[j] && !own[j] {
+                                stamp[j] = gen;
+                                parent[j] = i as u32;
+                                next.push(j);
+                            }
                         }
                     }
+                    frontier = next;
                 }
-                frontier = next;
+                if let Some(found) = hit {
+                    path = found;
+                    break;
+                }
             }
-            let Some(mut i) = hit else { break };
-            let mut path = Vec::new();
-            while parent[i] != u32::MAX {
-                path.push(i);
-                i = parent[i] as usize;
+            if path.is_empty() {
+                break 'island;
             }
-            path.reverse();
             let added = carve(g, original, rise, &path, radius);
             mark_near(&mut blocked, &added, radius + 1, w, h);
             mark_near(&mut own, &path, 2 * radius + 2, w, h);
+            dirs.push(chord(&path, w));
             carved += added.len();
         }
     }

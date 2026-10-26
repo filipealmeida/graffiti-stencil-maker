@@ -65,6 +65,7 @@ fn random_shapes_always_build_island_free_watertight_plates() {
                 width_mm: 80.0,
                 margin_mm: 4.0,
                 bridges_per_island: 1 + (seed as u32 % 5),
+                bridge_min_angle_deg: if seed % 2 == 0 { 45.0 } else { 0.0 },
                 raised_bridges: raised,
                 z_bridging: z,
                 ..Params::default()
@@ -111,6 +112,78 @@ fn extra_bridges_leave_an_island_in_different_directions() {
         build(&shapes, 2.0, &p).unwrap().stats.bridge_pixels
     };
     assert_eq!((count(1), count(3), count(5)), (1, 3, 5));
+}
+
+#[test]
+fn spread_passes_bridge_every_island_for_any_pass_count() {
+    let tp = TraceParams {
+        smooth_px: 1.0,
+        corner_deg: 60.0,
+        tolerance_px: 0.4,
+        min_area_px: 4.0,
+    };
+    let n = 120;
+    // many small blobs on a grid, each an island once the frame is cut around them
+    let mask: Vec<bool> = (0..n * n)
+        .map(|i| {
+            let (x, y) = (i % n, i / n);
+            (x % 12 < 5 && y % 12 < 5 && x > 6 && y > 6 && x < 110 && y < 110)
+                || (x as f64 - 60.0).hypot(y as f64 - 60.0) > 52.0
+        })
+        .collect();
+    let shapes = trace(&mask, n, n, &tp);
+    for passes in [1, 2, 4, 8] {
+        for per in [1, 3] {
+            let p = Params {
+                width_mm: 100.0,
+                margin_mm: 4.0,
+                bridges_per_island: per,
+                bridge_min_angle_deg: 60.0,
+                bridge_passes: passes,
+                ..Params::default()
+            };
+            let o = build(&shapes, 2.0, &p).unwrap();
+            assert_eq!(o.stats.islands_remaining, 0, "{passes} passes, {per} each");
+            assert!(o.stats.watertight, "{passes} passes, {per} each");
+        }
+    }
+}
+
+#[test]
+fn spread_bridges_never_cost_an_island_a_bridge() {
+    let tp = TraceParams {
+        smooth_px: 1.0,
+        corner_deg: 60.0,
+        tolerance_px: 0.4,
+        min_area_px: 4.0,
+    };
+    let n = 120;
+    let mask: Vec<bool> = (0..n * n)
+        .map(|i| {
+            let (x, y) = ((i % n) as f64 - 60.0, (i / n) as f64 - 60.0);
+            (30.0..40.0).contains(&x.hypot(y)) || (8.0..14.0).contains(&x.hypot(y))
+        })
+        .collect();
+    let shapes = trace(&mask, n, n, &tp);
+    for k in 1..=4 {
+        let run = |angle| {
+            let p = Params {
+                width_mm: 80.0,
+                margin_mm: 4.0,
+                bridges_per_island: k,
+                bridge_min_angle_deg: angle,
+                ..Params::default()
+            };
+            build(&shapes, 2.0, &p).unwrap()
+        };
+        let (closest, spread) = (run(0.0), run(60.0));
+        assert_eq!(
+            closest.stats.bridge_pixels, spread.stats.bridge_pixels,
+            "{k}"
+        );
+        assert_eq!(spread.stats.islands_remaining, 0);
+        assert!(spread.stats.watertight);
+    }
 }
 
 #[test]

@@ -150,6 +150,10 @@ Every parameter `--set NODE.PARAM=VALUE` accepts. Generated with `stencil --list
 | `flip` | Print upside down | bool | `false` | true \| false |
 | `bridge_mm` | Bridge width (mm) | float | `1.6` | 0.6 to 50.0 |
 | `bridges_per_island` | Bridges per island | int | `1.0` | 1.0 to 5.0 |
+| `bridge_spacing` | Bridge spacing | choice | `"closest"` | closest \| spread |
+| `bridge_min_angle_deg` | Minimum angle between bridges (deg) | float | `45.0` | 15.0 to 90.0 |
+| `bridge_max_length` | Longest bridge in spread mode (x shortest) | float | `4.0` | 1.0 to 16.0 |
+| `bridge_passes` | Bridging passes in spread mode | int | `4.0` | 1.0 to 8.0 |
 | `raised_bridges` | Raised bridges | bool | `true` | true \| false |
 | `z_bridging` | Z bridging | choice | `"easy"` | easy \| steps |
 | `layer_height_mm` | Layer height (mm) | float | `0.2` | 0.05 to 5.0 |
@@ -171,6 +175,10 @@ Every parameter `--set NODE.PARAM=VALUE` accepts. Generated with `stencil --list
 | `flip` | Print upside down | bool | `false` | true \| false |
 | `bridge_mm` | Bridge width (mm) | float | `1.6` | 0.6 to 50.0 |
 | `bridges_per_island` | Bridges per island | int | `1.0` | 1.0 to 5.0 |
+| `bridge_spacing` | Bridge spacing | choice | `"closest"` | closest \| spread |
+| `bridge_min_angle_deg` | Minimum angle between bridges (deg) | float | `45.0` | 15.0 to 90.0 |
+| `bridge_max_length` | Longest bridge in spread mode (x shortest) | float | `4.0` | 1.0 to 16.0 |
+| `bridge_passes` | Bridging passes in spread mode | int | `4.0` | 1.0 to 8.0 |
 | `raised_bridges` | Raised bridges | bool | `true` | true \| false |
 | `z_bridging` | Z bridging | choice | `"easy"` | easy \| steps |
 | `layer_height_mm` | Layer height (mm) | float | `0.2` | 0.05 to 5.0 |

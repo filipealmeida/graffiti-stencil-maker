@@ -47,6 +47,9 @@ pub fn make(
         margin_mm,
         bridge_mm,
         bridges_per_island: 1,
+        bridge_min_angle_deg: 0.0,
+        bridge_max_length: 4.0,
+        bridge_passes: 4,
         resolution,
         threshold: if (0..=255).contains(&threshold) {
             Some(threshold as u8)

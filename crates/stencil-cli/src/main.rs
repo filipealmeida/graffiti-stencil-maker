@@ -51,6 +51,18 @@ struct Args {
     /// Bridges from every island to the plate (1-5)
     #[arg(long)]
     bridges_per_island: Option<f64>,
+    /// Place the further bridges of an island at an angle to the earlier ones, not just on the shortest links
+    #[arg(long)]
+    bridge_spread: bool,
+    /// Smallest angle between two bridges of an island in degrees (default 45); implies --bridge-spread
+    #[arg(long)]
+    bridge_min_angle: Option<f64>,
+    /// With --bridge-spread: longest bridge as a multiple of the shortest link (1-16, default 4)
+    #[arg(long)]
+    bridge_max_length: Option<f64>,
+    /// With --bridge-spread: how many passes the islands are bridged in (1-8, default 4)
+    #[arg(long)]
+    bridge_passes: Option<f64>,
     /// Widen any strip of material thinner than this (mm); 0 is off
     #[arg(long)]
     min_contact: Option<f64>,
@@ -452,6 +464,12 @@ fn pipeline(a: &Args, image: &str) -> Json {
             st.insert(k.into(), json!(true));
         }
     }
+    if a.bridge_spread || a.bridge_min_angle.is_some() {
+        st.insert("bridge_spacing".into(), json!("spread"));
+    }
+    set(&mut st, "bridge_min_angle_deg", a.bridge_min_angle);
+    set(&mut st, "bridge_max_length", a.bridge_max_length);
+    set(&mut st, "bridge_passes", a.bridge_passes);
     if let Some(z) = &a.z_bridging {
         st.insert("z_bridging".into(), json!(z));
     }
