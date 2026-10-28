@@ -443,6 +443,8 @@ pub fn drill_at(solid: &Mesh, pts: &[(f64, f64)], p: &MountParams) -> Result<Mes
 /// What the layout keeps clear: seams (`[axis, pos, from, to]`) and connector footprints (`[x0, y0, x1, y1]`), absolute mm.
 pub struct Keepout<'a> {
     pub seams: &'a [[f64; 4]],
+    /// Slanted seams as lines `[x0, y0, x1, y1]`.
+    pub lines: &'a [[f64; 4]],
     pub boxes: &'a [[f64; 4]],
 }
 
@@ -451,6 +453,15 @@ impl Keepout<'_> {
         self.seams.iter().any(|s| {
             let (across, along) = if s[0] == 0.0 { (x, y) } else { (y, x) };
             (across - s[1]).abs() < r && along > s[2] - r && along < s[3] + r
+        }) || self.lines.iter().any(|l| {
+            let d = [l[2] - l[0], l[3] - l[1]];
+            let len2 = d[0] * d[0] + d[1] * d[1];
+            let t = if len2 > 0.0 {
+                (((x - l[0]) * d[0] + (y - l[1]) * d[1]) / len2).clamp(0.0, 1.0)
+            } else {
+                0.0
+            };
+            (x - (l[0] + t * d[0])).hypot(y - (l[1] + t * d[1])) < r
         }) || self
             .boxes
             .iter()
@@ -877,6 +888,7 @@ mod tests {
         let seams = [[0.0, 50.0, 0.0, 400.0]];
         let keep = Keepout {
             seams: &seams,
+            lines: &[],
             boxes: &[],
         };
         // the nominal midpoint of the 400 mm bottom edge is x = 200; a seam at 50 only matters for the corner pad
@@ -905,6 +917,7 @@ mod tests {
         let seams = [[0.0, 7.0, 0.0, 100.0]];
         let near = Keepout {
             seams: &seams,
+            lines: &[],
             boxes: &[],
         };
         let l = frame_layout(

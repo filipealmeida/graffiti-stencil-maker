@@ -337,6 +337,7 @@ pub(super) fn catalogue() -> Vec<NodeDef> {
                 num("max_y", "Largest tile height (mm)", 200.0, 20.0, 2000.0, 5.0, Some("Tiles"), false),
                 num("seam_shift", "Seam may move up to (mm)", 5.0, 0.0, 30.0, 0.5, Some("Tiles"), false),
                 num("seam_gap", "Seam clearance (mm, total)", 0.0, 0.0, 1.0, 0.05, Some("Tiles"), false),
+                num("seam_angle_deg", "Seam angle (deg, 0 = straight)", 0.0, 0.0, 60.0, 1.0, Some("Tiles"), false),
                 flag("reinforce", "Add material where no connector fits", true, Some("Tiles")),
                 choice("connector", "Connector shape", "hex", &["hex", "round"], Some("Connectors")),
                 choice("connector_d", "Connector diameter (mm)", "3", &["2.5", "3", "4", "5", "6"], Some("Connectors")),

@@ -250,6 +250,7 @@ Every parameter `--set NODE.PARAM=VALUE` accepts. Generated with `stencil --list
 | `max_y` | Largest tile height (mm) | float | `200.0` | 20.0 to 2000.0 |
 | `seam_shift` | Seam may move up to (mm) | float | `5.0` | 0.0 to 30.0 |
 | `seam_gap` | Seam clearance (mm, total) | float | `0.0` | 0.0 to 1.0 |
+| `seam_angle_deg` | Seam angle (deg, 0 = straight) | float | `0.0` | 0.0 to 60.0 |
 | `reinforce` | Add material where no connector fits | bool | `true` | true \| false |
 | `connector` | Connector shape | choice | `"hex"` | hex \| round |
 | `connector_d` | Connector diameter (mm) | choice | `"3"` | 2.5 \| 3 \| 4 \| 5 \| 6 |

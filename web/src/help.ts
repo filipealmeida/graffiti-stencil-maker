@@ -39,6 +39,7 @@ export const PARAM_HELP: Record<string, string> = {
   max_y: 'Largest tile height. 0 = no cutting.',
   connector_d: 'Diameter of the rods that join tiles. Print the fit-test strip first to pick the clearance.',
   seam_shift: 'How far a seam may move off the even grid to cross less artwork. It never makes a tile larger than the largest size, so there is no room to move when the plate divides exactly.',
+  seam_angle_deg: 'Turns every seam clockwise by this angle so the cuts run diagonally instead of at 90 degrees (0 = straight grid). Tiles become parallelograms, the connector rods stay horizontal in the pockets, and the clearance is still measured across the seam face. A tile\'s bounding box can exceed the largest width/height, corner tiles may be small, and seam shifting does not apply.',
   seam_gap: 'Total gap removed at each seam, split evenly between the two tiles. Connector pockets keep their full depth and the rods extend across the gap. 0 keeps the current flush fit; start around 0.2-0.4 mm and tune for your printer.',
   spacing: 'Distance between connectors along a seam.',
   connector: 'Shape of the connector rod: hex or round.',

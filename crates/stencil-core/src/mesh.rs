@@ -277,6 +277,19 @@ impl Mesh {
         }
     }
 
+    /// A prism over the convex quadrilateral `c` (counter-clockwise in plan), extruded along z from `z0` to `z1`.
+    pub fn quad_prism(c: [[f64; 2]; 4], z0: f64, z1: f64) -> Mesh {
+        let mut v: Vec<P3> = c.iter().map(|p| [p[0], p[1], z0]).collect();
+        v.extend(c.iter().map(|p| [p[0], p[1], z1]));
+        let mut t = vec![[0, 2, 1], [0, 3, 2], [4, 5, 6], [4, 6, 7]];
+        for k in 0..4 {
+            let n = (k + 1) % 4;
+            t.push([k, n, n + 4]);
+            t.push([k, n + 4, k + 4]);
+        }
+        Mesh { v, t }
+    }
+
     /// Prism with a regular n-gon profile (circumradius r), extruded along z from z0 to z1.
     pub fn prism_z(n: usize, r: f64, z0: f64, z1: f64) -> Mesh {
         let mut v = Vec::new();
@@ -351,8 +364,20 @@ impl Mesh {
     }
 
     fn op(&self, o: &Mesh, op: OpType) -> Result<Mesh, String> {
-        let r = compute_boolean(&self.manifold()?, &o.manifold()?, op)?;
-        Ok(Mesh::from_manifold(&r))
+        // the boolean engine rejects empty inputs; the result is known without it
+        if self.t.is_empty() || o.t.is_empty() {
+            return Ok(match op {
+                OpType::Add if self.t.is_empty() => o.clone(),
+                OpType::Add | OpType::Subtract if !self.t.is_empty() => self.clone(),
+                _ => Mesh::default(),
+            });
+        }
+        match compute_boolean(&self.manifold()?, &o.manifold()?, op) {
+            Ok(r) => Ok(Mesh::from_manifold(&r)),
+            // the engine reports a result with no geometry as an error
+            Err(e) if e.contains("empty pos matrix") => Ok(Mesh::default()),
+            Err(e) => Err(e),
+        }
     }
 
     pub fn subtract(&self, o: &Mesh) -> Result<Mesh, String> {

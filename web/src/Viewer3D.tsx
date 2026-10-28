@@ -13,6 +13,7 @@ export interface PlateMeta {
   pads?: { x: number; y: number; r: number }[]
   holes?: { x: number; y: number; r: number }[]
   joins?: { a: [number, number]; b: [number, number] }[]
+  seam_lines?: [number, number, number, number][]
 }
 interface Scene3D {
   meshes: THREE.Mesh[]
@@ -313,7 +314,19 @@ export default function Viewer3D({ parts, plate }: { parts: Part[]; plate?: Plat
         [!near(oy, loy), [0, 0], [w, 0]], [!near(oy + h, hiy), [0, h], [w, h]],
         [!near(ox, lox), [0, 0], [0, h]], [!near(ox + w, hix), [w, 0], [w, h]],
       ]
-      edges.forEach(([on, a, b]) => on && add(seg(a, b, z, seamMat)))
+      const slanted = (plate.seam_lines?.length ?? 0) > 0
+      if (!slanted) edges.forEach(([on, a, b]) => on && add(seg(a, b, z, seamMat)))
+      // slanted seams are lines across the plate; each tile shows the part inside its bounding box
+      for (const l of plate.seam_lines ?? []) {
+        let t0 = 0, t1 = 1
+        for (const [k, lo, hi] of [[0, ox, ox + w], [1, oy, oy + h]] as const) {
+          const d = l[2 + k] - l[k]
+          if (Math.abs(d) < 1e-9) { if (l[k] < lo || l[k] > hi) t1 = -1; continue }
+          const [u, v] = [(lo - l[k]) / d, (hi - l[k]) / d]
+          t0 = Math.max(t0, Math.min(u, v)); t1 = Math.min(t1, Math.max(u, v))
+        }
+        if (t0 < t1) add(seg([l[0] + (l[2] - l[0]) * t0 - ox, l[1] + (l[3] - l[1]) * t0 - oy], [l[0] + (l[2] - l[0]) * t1 - ox, l[1] + (l[3] - l[1]) * t1 - oy], z, seamMat))
+      }
       const inside = (x: number, y: number) => x >= ox && x <= ox + w && y >= oy && y <= oy + h
       for (const c of plate.connectors ?? []) {
         const x0 = Math.max(c[0], ox), y0 = Math.max(c[1], oy), x1 = Math.min(c[2], ox + w), y1 = Math.min(c[3], oy + h)

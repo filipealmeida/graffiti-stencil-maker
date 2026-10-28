@@ -110,6 +110,9 @@ struct Args {
     /// Total gap removed at each tile seam (mm; split evenly between both tiles)
     #[arg(long)]
     seam_clearance: Option<f64>,
+    /// Turn the tile seams clockwise by this angle (0-60 degrees) so they cut diagonally; 0 is the straight grid
+    #[arg(long)]
+    seam_angle: Option<f64>,
     /// Round segments for connectors, holes and threads
     #[arg(long)]
     segments: Option<f64>,
@@ -480,6 +483,7 @@ fn pipeline(a: &Args, image: &str) -> Json {
         ("max_y", a.tile_height),
         ("clearance", a.connector_clearance),
         ("seam_gap", a.seam_clearance),
+        ("seam_angle_deg", a.seam_angle),
         ("segments", a.segments),
         ("pad_count", a.pads),
         ("pad_height", a.pad_height),
