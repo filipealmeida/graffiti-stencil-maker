@@ -300,6 +300,12 @@ Every parameter `--set NODE.PARAM=VALUE` accepts. Generated with `stencil --list
 | `hole_spacing` | Hole every (mm) | float | `120.0` | 20.0 to 1000.0 |
 | `segments` | Round segments | int | `48.0` | 24.0 to 128.0 |
 
+### Remove fragments (`fragments`)
+
+| Parameter | Label | Type | Default | Range or choices |
+|---|---|---|---|---|
+| `keep` | Fragments to keep per tile | int | `1.0` | 1.0 to 20.0 |
+
 ### Colour set (`colour_set`)
 
 | Parameter | Label | Type | Default | Range or choices |

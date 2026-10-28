@@ -403,6 +403,18 @@ pub(super) fn catalogue() -> Vec<NodeDef> {
             run: run_ring,
         },
         NodeDef {
+            id: "fragments",
+            label: "Remove fragments",
+            stage: "post",
+            inputs: vec![("parts", "parts", true)],
+            outputs: vec![("parts", "parts")],
+            params: vec![
+                num("keep", "Fragments to keep per tile", 1.0, 1.0, 20.0, 1.0, Some("Fragments"), true),
+            ],
+            doc: "Looks at every tile of the parts and finds the solids that are not connected to each other, such as small pieces a seam cuts off or specks a bridge could not reach. Only the biggest ones, by volume, are kept: the number set by Fragments to keep per tile, 1 by default, and the others are removed. Tiles already within that number are left as they are, and connector rods and other files pass through unchanged. The report lists, for each tile cleaned, how many pieces and how much volume were removed, so you can see if something sizeable went. Every cleaned tile is checked watertight. Put it after Split volume (and before Add pads & mounting holes).",
+            run: fragments::run_fragments,
+        },
+        NodeDef {
             id: "colour_set",
             label: "Colour set",
             stage: "post",

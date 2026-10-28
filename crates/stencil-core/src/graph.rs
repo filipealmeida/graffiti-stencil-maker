@@ -8,6 +8,7 @@ use std::rc::Rc;
 
 mod catalogue;
 mod colour_set;
+mod fragments;
 mod nodes;
 use catalogue::{catalogue, split_outputs, NodeDef, Outputs};
 use nodes::*;

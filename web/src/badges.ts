@@ -24,6 +24,8 @@ export function badgesFor(type: string, params: Record<string, unknown>, info: I
   if (info?.kind === 'parts') {
     for (const w of info.meta?.pads?.warnings ?? []) out.push({ level: 'warn', text: String(w) })
     const t = info.meta?.tiling
+    const fr = info.meta?.fragments
+    if (n(fr?.pieces_removed) > 0) out.push({ level: 'info', text: `${n(fr.pieces_removed)} fragment${n(fr.pieces_removed) > 1 ? 's' : ''} removed from ${n(fr.tiles_cleaned)} tile${n(fr.tiles_cleaned) > 1 ? 's' : ''} (${n(fr.volume_removed_mm3).toFixed(0)} mm³)` })
     if (n(t?.reinforced_seams) > 0) out.push({ level: 'info', text: `${n(t.reinforced_seams)} seams reinforced` })
     for (const f of t?.fallback_tiles ?? []) out.push({ level: 'info', text: `${f.tile}: ${f.note}` })
     if (n(t?.dropped_specks) > 0) out.push({ level: 'warn', text: `${n(t.dropped_specks)} tiny pieces dropped` })
