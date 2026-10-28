@@ -277,10 +277,10 @@ impl Mesh {
         }
     }
 
-    /// A prism over the convex quadrilateral `c` (counter-clockwise in plan), extruded along z from `z0` to `z1`.
-    pub fn quad_prism(c: [[f64; 2]; 4], z0: f64, z1: f64) -> Mesh {
-        let mut v: Vec<P3> = c.iter().map(|p| [p[0], p[1], z0]).collect();
-        v.extend(c.iter().map(|p| [p[0], p[1], z1]));
+    /// A hexahedron between two convex quadrilaterals (counter-clockwise in plan): `c0` at height `z0` and `c1` at `z1`.
+    pub fn loft_quads(c0: [[f64; 2]; 4], z0: f64, c1: [[f64; 2]; 4], z1: f64) -> Mesh {
+        let mut v: Vec<P3> = c0.iter().map(|p| [p[0], p[1], z0]).collect();
+        v.extend(c1.iter().map(|p| [p[0], p[1], z1]));
         let mut t = vec![[0, 2, 1], [0, 3, 2], [4, 5, 6], [4, 6, 7]];
         for k in 0..4 {
             let n = (k + 1) % 4;

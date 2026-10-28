@@ -20,9 +20,6 @@ pub fn rod_length_with_gap(depth: f64, gap: f64) -> f64 {
     rod_length(depth) + gap
 }
 /// Tiles narrower than this cannot hold pockets of the given depth.
-/// A slanted seam that crosses only a corner of the plate shorter than this gets no connectors.
-const MIN_SLANT_SEAM_MM: f64 = 12.0;
-
 pub fn min_tile(depth: f64) -> f64 {
     depth / 0.4
 }
@@ -43,8 +40,7 @@ pub struct TileParams {
     pub clearance: f64,
     /// Total material removed at each internal seam, split evenly between adjacent tiles (mm).
     pub seam_gap: f64,
-    /// Turns every seam line clockwise by this angle (degrees, 0-60) instead of cutting along x and y; 0 keeps the
-    /// straight grid.
+    /// Tilt of every seam face from vertical (degrees); 0 cuts straight down, a larger angle cuts a bevel.
     pub seam_angle_deg: f64,
     pub segments: usize,
     /// Plate thickness without raised pads; 0 uses the mesh height.
@@ -71,10 +67,8 @@ pub struct Tiled {
     pub tiles: Vec<Tile>,
     pub rod: Option<Mesh>,
     pub info: serde_json::Value,
-    /// Seam segments `[axis, position, from, to]`; axis 0 is a line of constant x. Empty when the seams are slanted.
+    /// Seam segments `[axis, position, from, to]`; axis 0 is a line of constant x.
     pub seams: Vec<[f64; 4]>,
-    /// Slanted seams as lines `[x0, y0, x1, y1]`; empty when the seams are straight.
-    pub seam_lines: Vec<[f64; 4]>,
     /// Plan footprints `[x0, y0, x1, y1]` of the connector holes.
     pub connectors: Vec<[f64; 4]>,
 }
@@ -103,6 +97,30 @@ fn weld_pieces(
             let v = m.v[vi];
             if (v[2] - plane).abs() < 1e-3 {
                 on_plane[o].push([v[0], v[1]]);
+            }
+        }
+    }
+    // A piece cut by a leaning seam can start above the plane (a wedge); it is then linked from the face nearest it.
+    for (c, pts) in on_plane.iter_mut().enumerate() {
+        if !pts.is_empty() {
+            continue;
+        }
+        let near = |z: f64| if bp.flip { z } else { -z };
+        let best =
+            m.t.iter()
+                .zip(of)
+                .filter(|(_, &o)| o == c)
+                .flat_map(|(t, _)| t.iter().map(|&vi| m.v[vi]))
+                .map(|v| near(v[2]))
+                .fold(f64::MAX, f64::min);
+        for (t, &o) in m.t.iter().zip(of) {
+            if o == c {
+                pts.extend(
+                    t.iter()
+                        .map(|&vi| m.v[vi])
+                        .filter(|v| near(v[2]) < best + 0.5)
+                        .map(|v| [v[0], v[1]]),
+                );
             }
         }
     }
@@ -350,36 +368,7 @@ pub fn tile(solid: &Mesh, p: &TileParams) -> Result<Tiled, String> {
     let (lo, hi) = solid.bounds();
     let (w, h, top) = (hi[0] - lo[0], hi[1] - lo[1], hi[2]);
     let t = if p.thickness > 0.0 { p.thickness } else { top };
-    let slant = p.seam_angle_deg > 0.0;
-    let tan = p.seam_angle_deg.to_radians().tan();
-    let secant = 1.0 / p.seam_angle_deg.to_radians().cos();
-    let centre = [(lo[0] + hi[0]) / 2.0, (lo[1] + hi[1]) / 2.0];
-    // Seams are the lines u = const and v = const of a skewed frame; with no angle it is the plain x, y frame.
-    let to_uv = |x: f64, y: f64| [x - tan * (y - centre[1]), y + tan * (x - centre[0])];
-    let from_uv = |u: f64, v: f64| {
-        let (a, b) = (u - tan * centre[1], v + tan * centre[0]);
-        let d = 1.0 + tan * tan;
-        [(a + tan * b) / d, (b - tan * a) / d]
-    };
-    let (ulo, uhi, vlo, vhi) = if slant {
-        let c = [
-            (lo[0], lo[1]),
-            (hi[0], lo[1]),
-            (lo[0], hi[1]),
-            (hi[0], hi[1]),
-        ]
-        .map(|(x, y)| to_uv(x, y));
-        let span = |k: usize| {
-            (
-                c.iter().map(|q| q[k]).fold(f64::MAX, f64::min),
-                c.iter().map(|q| q[k]).fold(f64::MIN, f64::max),
-            )
-        };
-        (span(0).0, span(0).1, span(1).0, span(1).1)
-    } else {
-        (lo[0], hi[0], lo[1], hi[1])
-    };
-    let (gx, gy) = (grid(uhi - ulo, p.max_x), grid(vhi - vlo, p.max_y));
+    let (gx, gy) = (grid(w, p.max_x), grid(h, p.max_y));
     let (nx, ny) = (gx.len() - 1, gy.len() - 1);
     if nx * ny == 1 {
         return Ok(Tiled {
@@ -392,22 +381,12 @@ pub fn tile(solid: &Mesh, p: &TileParams) -> Result<Tiled, String> {
             rod: None,
             info: serde_json::json!({"tiles": 1, "connectors": 0}),
             seams: Vec::new(),
-            seam_lines: Vec::new(),
             connectors: Vec::new(),
         });
     }
-    let (xs, ys) = if slant {
-        (
-            gx.iter().map(|g| ulo + g).collect(),
-            gy.iter().map(|g| vlo + g).collect(),
-        )
-    } else {
-        (
-            shift_seams(solid, 0, lo[0], &gx, p.max_x, p)?,
-            shift_seams(solid, 1, lo[1], &gy, p.max_y, p)?,
-        )
-    };
-    let moved = [(&xs, &gx, ulo), (&ys, &gy, vlo)]
+    let xs = shift_seams(solid, 0, lo[0], &gx, p.max_x, p)?;
+    let ys = shift_seams(solid, 1, lo[1], &gy, p.max_y, p)?;
+    let moved = [(&xs, &gx, lo[0]), (&ys, &gy, lo[1])]
         .iter()
         .map(|(a, g, l)| {
             a.iter()
@@ -417,10 +396,17 @@ pub fn tile(solid: &Mesh, p: &TileParams) -> Result<Tiled, String> {
         })
         .sum::<usize>();
     check(p, t)?;
+    let zs = row_heights(p.shape, p.diameter + p.clearance, t);
     let r_hole = (p.diameter + p.clearance) / 2.0;
-    // Through a slanted face the pocket must reach `depth` past the farthest rim of the hole too; the gap is
-    // measured across the face, so along the rod it is longer.
-    let depth = p.depth + r_hole * tan;
+    // A seam face leans by `lean` mm per mm of height, about the mid-thickness. A horizontal rod meets it at an
+    // angle, so each pocket must reach `r_hole * lean` further, and the gap measured across the face is longer
+    // along the rod.
+    let lean = p.seam_angle_deg.to_radians().tan();
+    let secant = 1.0 / p.seam_angle_deg.to_radians().cos();
+    let z_mid = t / 2.0;
+    let depth = p.depth + r_hole * lean;
+    let gap_along = p.seam_gap * secant;
+    let pocket_len = 2.0 * depth + gap_along;
     for c in [&xs, &ys] {
         if c.len() > 2 && c.windows(2).any(|v| v[1] - v[0] < min_tile(depth) - 1e-6) {
             return Err(format!(
@@ -429,15 +415,13 @@ pub fn tile(solid: &Mesh, p: &TileParams) -> Result<Tiled, String> {
             ));
         }
     }
-    let zs = row_heights(p.shape, p.diameter + p.clearance, t);
-    let gap_along = p.seam_gap * secant;
-    let pocket_len = 2.0 * depth + gap_along;
-    // where the seam `s` of `axis` passes at `u` along it, at height z
+    // where the seam `s` of `axis` passes at height z, as a point on the plate
     let on_seam = |axis: usize, s: f64, u: f64, z: f64| -> P3 {
+        let s = s + lean * (z - z_mid);
         if axis == 0 {
-            [s + tan * (u - centre[1]), u, z]
+            [s, u, z]
         } else {
-            [u, s - tan * (u - centre[0]), z]
+            [u, s, z]
         }
     };
 
@@ -445,35 +429,12 @@ pub fn tile(solid: &Mesh, p: &TileParams) -> Result<Tiled, String> {
     let mut seams: Vec<(usize, f64, f64, f64)> = Vec::new();
     for &s in &xs[1..nx] {
         for j in 0..ny {
-            if slant {
-                let (a, b) = (from_uv(s, ys[j])[1], from_uv(s, ys[j + 1])[1]);
-                // only the part of the line that crosses the plate is a seam
-                let (a, b) = (
-                    a.max(lo[1]).max(centre[1] + (lo[0] - s) / tan),
-                    b.min(hi[1]).min(centre[1] + (hi[0] - s) / tan),
-                );
-                if b - a > MIN_SLANT_SEAM_MM {
-                    seams.push((0, s, a, b));
-                }
-            } else {
-                seams.push((0, s, ys[j], ys[j + 1]));
-            }
+            seams.push((0, s, ys[j], ys[j + 1]));
         }
     }
     for &s in &ys[1..ny] {
         for i in 0..nx {
-            if slant {
-                let (a, b) = (from_uv(xs[i], s)[0], from_uv(xs[i + 1], s)[0]);
-                let (a, b) = (
-                    a.max(lo[0]).max(centre[0] + (s - hi[1]) / tan),
-                    b.min(hi[0]).min(centre[0] + (s - lo[1]) / tan),
-                );
-                if b - a > MIN_SLANT_SEAM_MM {
-                    seams.push((1, s, a, b));
-                }
-            } else {
-                seams.push((1, s, xs[i], xs[i + 1]));
-            }
+            seams.push((1, s, xs[i], xs[i + 1]));
         }
     }
 
@@ -484,21 +445,14 @@ pub fn tile(solid: &Mesh, p: &TileParams) -> Result<Tiled, String> {
     let (mut reinforced, mut added_volume) = (0usize, 0.0f64);
     for &(axis, s, a, b) in &seams {
         // work on the strip around the seam only: cheaper booleans
-        let (pa, pb) = (on_seam(axis, s, a, 0.0), on_seam(axis, s, b, 0.0));
-        let reach_across = depth + 1.0;
+        let reach = depth + 1.0 + lean * (top + 2.0) / 2.0;
         let (cl, ch): (P3, P3) = if axis == 0 {
-            (
-                [pa[0].min(pb[0]) - reach_across, a - 1.0, -1.0],
-                [pa[0].max(pb[0]) + reach_across, b + 1.0, top + 1.0],
-            )
+            ([s - reach, a - 1.0, -1.0], [s + reach, b + 1.0, top + 1.0])
         } else {
-            (
-                [a - 1.0, pa[1].min(pb[1]) - reach_across, -1.0],
-                [b + 1.0, pa[1].max(pb[1]) + reach_across, top + 1.0],
-            )
+            ([a - 1.0, s - reach, -1.0], [b + 1.0, s + reach, top + 1.0])
         };
         let strip = solid.intersect(&Mesh::cuboid(cl, ch))?;
-        let n = (((b - a) * secant / SPACING_TARGET_MM - 1e-9).ceil() as usize).max(1);
+        let n = (((b - a) / SPACING_TARGET_MM - 1e-9).ceil() as usize).max(1);
         let cell = (b - a) / n as f64;
         let mut placed_here = 0;
         for k in 0..n {
@@ -614,8 +568,7 @@ pub fn tile(solid: &Mesh, p: &TileParams) -> Result<Tiled, String> {
                 placed_here += 1;
             }
         }
-        // the short stretch of a slanted seam that clips a plate corner may have no room, and that is fine
-        if placed_here == 0 && !(slant && b - a < 4.0 * MIN_SLANT_SEAM_MM) {
+        if placed_here == 0 {
             return Err(format!("no room for a connector hole on the {} seam at {:.1} mm: use a smaller connector, larger tiles or a thicker plate", if axis == 0 { "vertical" } else { "horizontal" }, s));
         }
     }
@@ -642,57 +595,33 @@ pub fn tile(solid: &Mesh, p: &TileParams) -> Result<Tiled, String> {
     let dropped = std::sync::atomic::AtomicUsize::new(0);
     let welded = std::sync::atomic::AtomicUsize::new(0);
     let cut = |&(i, j): &(usize, usize)| -> Result<Option<Tile>, String> {
-        let xa = if i > 0 { xs[i] } else { xs[i] - 1.0 };
-        let xb = if i < nx - 1 {
-            xs[i + 1] - p.seam_gap / 2.0
-        } else {
-            xs[i + 1] + 1.0
+        // each internal side is a plane leaning by `lean`, set back by half the gap measured across the face
+        let inset = p.seam_gap / 2.0 * secant;
+        let rect = |z: f64| -> [[f64; 2]; 4] {
+            let d = lean * (z - z_mid);
+            let xa = if i > 0 {
+                xs[i] + inset + d
+            } else {
+                xs[i] - 1.0
+            };
+            let xb = if i < nx - 1 {
+                xs[i + 1] - inset + d
+            } else {
+                xs[i + 1] + 1.0
+            };
+            let ya = if j > 0 {
+                ys[j] + inset + d
+            } else {
+                ys[j] - 1.0
+            };
+            let yb = if j < ny - 1 {
+                ys[j + 1] - inset + d
+            } else {
+                ys[j + 1] + 1.0
+            };
+            [[xa, ya], [xb, ya], [xb, yb], [xa, yb]]
         };
-        let xa = if i > 0 { xa + p.seam_gap / 2.0 } else { xa };
-        let ya = if j > 0 {
-            ys[j] + p.seam_gap / 2.0
-        } else {
-            ys[j] - 1.0
-        };
-        let yb = if j < ny - 1 {
-            ys[j + 1] - p.seam_gap / 2.0
-        } else {
-            ys[j + 1] + 1.0
-        };
-        let bbox = if slant {
-            // the cell is a parallelogram of the skewed frame; each cut side is moved in by half the gap measured
-            // across the face
-            let inset = p.seam_gap / 2.0 * secant;
-            let (ua, ub) = (
-                if i > 0 { xs[i] + inset } else { xs[i] - 2.0 },
-                if i < nx - 1 {
-                    xs[i + 1] - inset
-                } else {
-                    xs[i + 1] + 2.0
-                },
-            );
-            let (va, vb) = (
-                if j > 0 { ys[j] + inset } else { ys[j] - 2.0 },
-                if j < ny - 1 {
-                    ys[j + 1] - inset
-                } else {
-                    ys[j + 1] + 2.0
-                },
-            );
-            let corner = |u, v| from_uv(u, v);
-            Mesh::quad_prism(
-                [
-                    corner(ua, va),
-                    corner(ub, va),
-                    corner(ub, vb),
-                    corner(ua, vb),
-                ],
-                -1.0,
-                top + 1.0,
-            )
-        } else {
-            Mesh::cuboid([xa, ya, -1.0], [xb, yb, top + 1.0])
-        };
+        let bbox = Mesh::loft_quads(rect(-1.0), -1.0, rect(top + 1.0), top + 1.0);
         let mut m = drilled.intersect(&bbox)?;
         if m.t.is_empty() {
             return Ok(None);
@@ -700,15 +629,9 @@ pub fn tile(solid: &Mesh, p: &TileParams) -> Result<Tiled, String> {
         if let Some(bp) = &p.bridge {
             if crate::tile_bridge::components(&m).0 > 1 {
                 let (ml, mh) = m.bounds();
-                // bridges stay inside the tile: its bounding box, and for a slanted cut its parallelogram too
-                let clip = {
-                    let boxed = Mesh::cuboid([ml[0], ml[1], -1.0], [mh[0], mh[1], top + 1.0]);
-                    if slant {
-                        boxed.intersect(&bbox)?
-                    } else {
-                        boxed
-                    }
-                };
+                // bridges stay within the tile: its bounding box and its (leaning) sides
+                let clip = Mesh::cuboid([ml[0], ml[1], -1.0], [mh[0], mh[1], top + 1.0])
+                    .intersect(&bbox)?;
                 let avoid: Vec<(P3, P3)> = holes
                     .iter()
                     .filter(|h| {
@@ -792,20 +715,13 @@ pub fn tile(solid: &Mesh, p: &TileParams) -> Result<Tiled, String> {
                 }
             }
         }
-        // a slanted tile sits at the corner of its own bounding box
-        let (origin, size) = if slant {
-            let (tl, th) = m.bounds();
-            ([tl[0], tl[1]], [th[0] - tl[0], th[1] - tl[1]])
-        } else {
-            ([xs[i], ys[j]], [xs[i + 1] - xs[i], ys[j + 1] - ys[j]])
-        };
-        m.translate([-origin[0], -origin[1], 0.0]);
+        m.translate([-xs[i], -ys[j], 0.0]);
         m.quantize_f32();
         Ok(Some(Tile {
             name: format!("stencil_r{}c{}", ny - j, i + 1),
             mesh: m,
-            origin,
-            size,
+            origin: [xs[i], ys[j]],
+            size: [xs[i + 1] - xs[i], ys[j + 1] - ys[j]],
         }))
     };
     #[cfg(not(target_arch = "wasm32"))]
@@ -831,17 +747,6 @@ pub fn tile(solid: &Mesh, p: &TileParams) -> Result<Tiled, String> {
         .iter()
         .map(|&(a, s, f, t)| [a as f64, s, f, t])
         .collect();
-    let seam_lines = if slant {
-        seams
-            .iter()
-            .map(|&(axis, s, a, b)| {
-                let (pa, pb) = (on_seam(axis, s, a, 0.0), on_seam(axis, s, b, 0.0));
-                [pa[0], pa[1], pb[0], pb[1]]
-            })
-            .collect()
-    } else {
-        Vec::new()
-    };
     let connectors = holes
         .iter()
         .map(|h| [h.lo[0], h.lo[1], h.hi[0], h.hi[1]])
@@ -852,8 +757,7 @@ pub fn tile(solid: &Mesh, p: &TileParams) -> Result<Tiled, String> {
             p.shape, p.diameter, depth, gap_along, p.segments,
         )),
         info,
-        seams: if slant { Vec::new() } else { seam_list },
-        seam_lines,
+        seams: seam_list,
         connectors,
     })
 }
@@ -1055,34 +959,50 @@ mod tests {
     }
 
     #[test]
-    fn slanted_seams_cut_diagonally_and_keep_the_material() {
+    fn a_bevelled_seam_leans_and_the_tiles_still_fit_together() {
         let plate = Mesh::cuboid([0.0, 0.0, 0.0], [120.0, 60.0, 6.0]);
         let mut p = plain(70.0, 0.0, false);
-        p.max_y = 70.0;
-        let straight = tile(&plate, &p).unwrap();
-        assert!(straight.seam_lines.is_empty());
-        p.seam_angle_deg = 20.0;
-        p.seam_gap = 0.4;
+        p.seam_angle_deg = 30.0;
         let t = tile(&plate, &p).unwrap();
-        assert!(t.seams.is_empty() && !t.seam_lines.is_empty());
-        assert!(t.tiles.len() >= 2);
+        assert_eq!(t.tiles.len(), 2);
         assert!(t.tiles.iter().all(|x| x.mesh.is_watertight()));
-        let l = t.seam_lines[0];
-        let ang = (l[2] - l[0]).atan2(l[3] - l[1]).to_degrees().abs();
-        assert!((ang - 20.0).abs() < 1e-6, "{ang}");
-        let pocket_free: f64 = t.tiles.iter().map(|x| x.mesh.volume()).sum();
-        assert!(pocket_free > 0.9 * plate.volume() && pocket_free < plate.volume());
+        // with no clearance the two bevelled tiles add up to the plate less the rod pockets
+        let vol: f64 = t.tiles.iter().map(|x| x.mesh.volume()).sum();
+        assert!(
+            vol < plate.volume() && vol > plate.volume() - 1500.0,
+            "{vol}"
+        );
+        // the cut face leans: the left tile is wider at the top than at the bottom
+        let left = &t.tiles[0].mesh;
+        let width_at = |z: f64| {
+            let s = Mesh::cuboid([-1.0, -1.0, z - 0.01], [200.0, 100.0, z + 0.01]);
+            let b = left.intersect(&s).unwrap().bounds();
+            b.1[0] - b.0[0]
+        };
+        let rise = width_at(5.5) - width_at(0.5);
+        assert!(
+            (rise - 5.0 * 30f64.to_radians().tan()).abs() < 0.2,
+            "{rise}"
+        );
     }
 
     #[test]
-    fn wide_plate_with_steep_slant() {
-        let plate = Mesh::cuboid([0.0, 0.0, 0.0], [1096.0, 220.0, 6.0]);
-        let mut p = plain(300.0, 0.0, false);
-        p.max_y = 300.0;
-        p.seam_angle_deg = 25.0;
-        p.seam_gap = 0.3;
-        let t = tile(&plate, &p).unwrap();
-        assert!(t.tiles.iter().all(|x| x.mesh.is_watertight()));
+    fn a_bevelled_seam_clearance_is_measured_across_the_face() {
+        let plate = Mesh::cuboid([0.0, 0.0, 0.0], [120.0, 60.0, 6.0]);
+        let mut p = plain(70.0, 0.0, false);
+        p.seam_angle_deg = 45.0;
+        let closed = tile(&plate, &p).unwrap();
+        p.seam_gap = 0.4;
+        let bevel = tile(&plate, &p).unwrap();
+        let sum = |t: &Tiled| t.tiles.iter().map(|x| x.mesh.volume()).sum::<f64>();
+        // 0.4 mm across a face that is 6 mm / cos 45 deg tall and 60 mm long
+        let expected = 0.4 * 60.0 * 6.0 / 45f64.to_radians().cos();
+        let lost = sum(&closed) - sum(&bevel);
+        assert!(
+            (lost - expected).abs() < 0.1 * expected,
+            "{lost} {expected}"
+        );
+        assert!(bevel.tiles.iter().all(|x| x.mesh.is_watertight()));
     }
 
     #[test]

@@ -753,7 +753,7 @@ pub(super) fn run_tiles(_: &Engine, i: &HashMap<String, Value>, p: &P) -> Result
         "plate": {
             "w": hi[0] - lo[0], "h": hi[1] - lo[1], "thickness": thickness, "layer": lh,
             "top": st["plate_top_mm"], "flip": st["flip"], "margin": st["margin_mm"],
-            "seams": t.seams, "seam_lines": t.seam_lines, "connectors": t.connectors, "parts": parts,
+            "seams": t.seams, "connectors": t.connectors, "parts": parts,
         },
     });
     Ok(vec![(
@@ -800,7 +800,7 @@ pub(super) fn run_pads(_: &Engine, i: &HashMap<String, Value>, p: &P) -> Result<
             })
             .unwrap_or_default()
     };
-    let (seams, boxes, lines) = (quad("seams"), quad("connectors"), quad("seam_lines"));
+    let (seams, boxes) = (quad("seams"), quad("connectors"));
     let lo = [
         tiles.iter().map(|t| t.1[0]).fold(f64::MAX, f64::min),
         tiles.iter().map(|t| t.1[1]).fold(f64::MAX, f64::min),
@@ -869,7 +869,6 @@ pub(super) fn run_pads(_: &Engine, i: &HashMap<String, Value>, p: &P) -> Result<
     let pad_r = dia / 2.0;
     let keep = hw::Keepout {
         seams: &seams,
-        lines: &lines,
         boxes: &boxes,
     };
     let layout_args = |spacing: f64, fixed: &[(f64, f64)]| {
