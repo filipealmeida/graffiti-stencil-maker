@@ -305,6 +305,16 @@ Every parameter `--set NODE.PARAM=VALUE` accepts. Generated with `stencil --list
 | Parameter | Label | Type | Default | Range or choices |
 |---|---|---|---|---|
 | `keep` | Fragments to keep per tile | int | `1.0` | 1.0 to 20.0 |
+| `only_floating` | Only remove floating fragments | bool | `false` | true \| false |
+
+### Bridge fragments (`bridge_fragments`)
+
+| Parameter | Label | Type | Default | Range or choices |
+|---|---|---|---|---|
+| `bridge_mm` | Bridge width (mm) | float | `1.6` | 0.4 to 6.0 |
+| `bridges_per_island` | Bridges per island | int | `1.0` | 1.0 to 4.0 |
+| `raised_bridges` | Raised bridges | bool | `true` | true \| false |
+| `z_bridging` | Z bridging | choice | `"easy"` | easy \| steps |
 
 ### Colour set (`colour_set`)
 

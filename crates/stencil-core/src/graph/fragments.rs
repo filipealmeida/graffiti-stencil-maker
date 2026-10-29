@@ -17,6 +17,18 @@ fn piece_volumes(m: &Mesh) -> (Vec<f64>, Vec<usize>) {
     (vol.into_iter().map(f64::abs).collect(), of)
 }
 
+/// Whether each piece has a face lying on the build plate (the lowest plane of the tile).
+fn touches_floor(m: &Mesh, of: &[usize], count: usize) -> Vec<bool> {
+    let floor = m.v.iter().map(|v| v[2]).fold(f64::MAX, f64::min);
+    let mut on = vec![false; count];
+    for (t, &o) in m.t.iter().zip(of) {
+        if t.iter().all(|&vi| (m.v[vi][2] - floor).abs() < 1e-3) {
+            on[o] = true;
+        }
+    }
+    on
+}
+
 /// The mesh restricted to the pieces for which `keep` is true.
 fn keep_pieces(m: &Mesh, of: &[usize], keep: &[bool]) -> Mesh {
     let mut out = Mesh::default();
@@ -47,6 +59,7 @@ pub(super) fn run_fragments(
         return Err("nothing is connected to the 'parts' input: connect parts".into());
     };
     let n = (p.f("keep") as usize).max(1);
+    let floating_only = p.b("only_floating");
     // with a plate description only its tiles are cleaned; connector and joiner files are left alone
     let tiles: Option<Vec<String>> = src.meta["plate"]["parts"].as_array().map(|a| {
         a.iter()
@@ -78,6 +91,18 @@ pub(super) fn run_fragments(
         for &c in &order[..n] {
             keep[c] = true;
         }
+        if floating_only {
+            // a piece standing on the build plate is printable, however small: only floating ones go
+            let grounded = touches_floor(&mesh, &of, vol.len());
+            for c in 0..vol.len() {
+                keep[c] |= grounded[c];
+            }
+        }
+        let kept_n = keep.iter().filter(|k| **k).count();
+        if kept_n == vol.len() {
+            files.push((name.clone(), data.clone()));
+            continue;
+        }
         let gone: f64 = (0..vol.len()).filter(|&c| !keep[c]).map(|c| vol[c]).sum();
         let cleaned = keep_pieces(&mesh, &of, &keep);
         if !cleaned.is_watertight() {
@@ -85,12 +110,12 @@ pub(super) fn run_fragments(
                 "verification failed: {name} is not watertight after removing fragments"
             ));
         }
-        pieces_removed += vol.len() - n;
+        pieces_removed += vol.len() - kept_n;
         volume_removed += gone;
         tiles_cleaned += 1;
         removed.push(json!({
-            "file": name, "pieces": vol.len() - n, "volume_mm3": gone,
-            "kept_volume_mm3": order[..n].iter().map(|&c| vol[c]).sum::<f64>(),
+            "file": name, "pieces": vol.len() - kept_n, "volume_mm3": gone,
+            "kept_volume_mm3": (0..vol.len()).filter(|&c| keep[c]).map(|c| vol[c]).sum::<f64>(),
         }));
         files.push((name.clone(), cleaned.to_stl()));
     }
@@ -99,7 +124,7 @@ pub(super) fn run_fragments(
     }
     let mut meta = src.meta.clone();
     meta["fragments"] = json!({
-        "keep": n, "tiles_cleaned": tiles_cleaned, "pieces_removed": pieces_removed,
+        "keep": n, "only_floating": floating_only, "tiles_cleaned": tiles_cleaned, "pieces_removed": pieces_removed,
         "volume_removed_mm3": volume_removed, "removed": removed,
     });
     Ok(vec![(
@@ -131,9 +156,13 @@ mod tests {
     }
 
     fn run(keep: f64) -> Rc<Parts> {
+        run_with(json!({"keep": keep}), parts())
+    }
+
+    fn run_with(params: Json, parts: Parts) -> Rc<Parts> {
         let mut i = HashMap::new();
-        i.insert("parts".to_string(), Value::Parts(Rc::new(parts())));
-        let params = P(serde_json::from_value(json!({"keep": keep})).unwrap());
+        i.insert("parts".to_string(), Value::Parts(Rc::new(parts)));
+        let params = P(serde_json::from_value(params).unwrap());
         let out = run_fragments(&Engine::new(), &i, &params).unwrap();
         match &out[0].1 {
             Value::Parts(p) => p.clone(),
@@ -165,5 +194,21 @@ mod tests {
         assert_eq!(pieces(&p, "stencil_r1c1.stl"), 2);
         assert_eq!(p.meta["fragments"]["pieces_removed"], 1);
         assert_eq!(pieces(&run(5.0), "stencil_r1c1.stl"), 3);
+    }
+
+    #[test]
+    fn only_floating_removes_pieces_that_do_not_touch_the_build_plate() {
+        let mut m = Mesh::cuboid([0.0; 3], [20.0, 20.0, 5.0]);
+        m.append(&Mesh::cuboid([30.0, 0.0, 0.0], [34.0, 4.0, 5.0]));
+        m.append(&Mesh::cuboid([40.0, 0.0, 2.0], [43.0, 3.0, 5.0]));
+        let tile = || Parts {
+            files: vec![("stencil_r1c1.stl".into(), m.to_stl())],
+            meta: json!({"plate": {"parts": [{"file": "stencil_r1c1.stl", "role": "tile"}]}}),
+        };
+        let p = run_with(json!({"keep": 1, "only_floating": true}), tile());
+        assert_eq!(pieces(&p, "stencil_r1c1.stl"), 2);
+        assert_eq!(p.meta["fragments"]["pieces_removed"], 1);
+        let all = run_with(json!({"keep": 1, "only_floating": false}), tile());
+        assert_eq!(pieces(&all, "stencil_r1c1.stl"), 1);
     }
 }

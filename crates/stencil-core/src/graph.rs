@@ -6,6 +6,7 @@ use serde_json::{json, Map, Value as Json};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::rc::Rc;
 
+mod bridge_fragments;
 mod catalogue;
 mod colour_set;
 mod fragments;

@@ -31,6 +31,7 @@ export const PARAM_HELP: Record<string, string> = {
   max_angle: 'Corners sharper than this are rounded. Very pointy tips are fragile to cut and to print.',
   max_area: 'Anything smaller than this is removed.',
   keep: 'How many separate solids to keep in each tile, the biggest by volume. 1 removes every loose piece and leaves the main body of the tile.',
+  only_floating: 'Only remove pieces that float: a piece with a face on the build plate stays however small. The biggest pieces (Fragments to keep) always stay.',
   keep_largest: 'Keep only this many of the biggest shapes; handy to drop noise around a logo. 0 keeps all.',
   smoothing: 'Strength of smoothing across layers: 0 changes nothing, 1 is the most aggressive.',
   decimate: 'Collapse vertices on flat faces and straight edges. Creases and the closed mesh are kept; only the shift below is allowed.',

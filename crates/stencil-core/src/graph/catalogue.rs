@@ -410,9 +410,25 @@ pub(super) fn catalogue() -> Vec<NodeDef> {
             outputs: vec![("parts", "parts")],
             params: vec![
                 num("keep", "Fragments to keep per tile", 1.0, 1.0, 20.0, 1.0, Some("Fragments"), true),
+                flag("only_floating", "Only remove floating fragments", false, Some("Fragments")),
             ],
-            doc: "Looks at every tile of the parts and finds the solids that are not connected to each other, such as small pieces a seam cuts off or specks a bridge could not reach. Only the biggest ones, by volume, are kept: the number set by Fragments to keep per tile, 1 by default, and the others are removed. Tiles already within that number are left as they are, and connector rods and other files pass through unchanged. The report lists, for each tile cleaned, how many pieces and how much volume were removed, so you can see if something sizeable went. Every cleaned tile is checked watertight. Put it after Split volume (and before Add pads & mounting holes).",
+            doc: "Looks at every tile of the parts and finds the solids that are not connected to each other, such as small pieces a seam cuts off or specks a bridge could not reach. Only the biggest ones, by volume, are kept: the number set by Fragments to keep per tile, 1 by default, and the others are removed. With Only remove floating fragments on, a piece that touches the build plate (has a face on the lowest plane of the tile) is kept however small, and only pieces floating above it are removed. Tiles already within that number are left as they are, and connector rods and other files pass through unchanged. The report lists, for each tile cleaned, how many pieces and how much volume were removed, so you can see if something sizeable went. Every cleaned tile is checked watertight. Put it after Split volume (and before Add pads & mounting holes).",
             run: fragments::run_fragments,
+        },
+        NodeDef {
+            id: "bridge_fragments",
+            label: "Bridge fragments",
+            stage: "post",
+            inputs: vec![("parts", "parts", true)],
+            outputs: vec![("parts", "parts")],
+            params: vec![
+                num("bridge_mm", "Bridge width (mm)", 1.6, 0.4, 6.0, 0.1, Some("Bridges"), false),
+                num("bridges_per_island", "Bridges per island", 1.0, 1.0, 4.0, 1.0, Some("Bridges"), true),
+                flag("raised_bridges", "Raised bridges", true, Some("Bridges")),
+                choice("z_bridging", "Z bridging", "easy", &["easy", "steps"], Some("Bridges")),
+            ],
+            doc: "Looks at every tile of the parts and finds the solids that are not connected to the tile's biggest piece (islands), then bridges each one to it on the stencil's top layer, with the same bridge rules as the stencil itself: width, number per island, raised bridges and Z bridging. Bridges keep out of the connector pockets. Tiles in one piece, connector rods and other files pass through unchanged. The report lists the islands found, bridged and left per tile; an island with no top face to carry a bridge, or one that only a connector pocket separates from the rest, is left and flagged. Put it after Split volume (and before Add pads & mounting holes). To drop the fragments instead, use Remove fragments.",
+            run: bridge_fragments::run_bridge_fragments,
         },
         NodeDef {
             id: "colour_set",
