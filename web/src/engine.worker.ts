@@ -164,6 +164,13 @@ self.onmessage = async (ev: MessageEvent<Req>) => {
     if (m.op === 'threads') return self.postMessage({ id: m.id, ok: { n: threads, why, version: e.version() } })
     self.postMessage({ id: m.id, ...(await runGraph(m)) })
   } catch (err) {
+    // a Rust panic surfaces as a WebAssembly.RuntimeError and leaves the module unusable
+    if (err instanceof WebAssembly.RuntimeError) {
+      let reason = ''
+      try { reason = engine?.last_panic() ?? '' } catch { /* the module is already dead */ }
+      const detail = reason || err.message
+      return self.postMessage({ id: m.id, fatal: true, error: 'The engine crashed (' + detail + '). It was restarted; run again.' })
+    }
     self.postMessage({ id: m.id, error: String((err as any)?.message ?? err) })
   }
 }

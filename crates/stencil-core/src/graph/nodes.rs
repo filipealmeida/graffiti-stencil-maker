@@ -867,9 +867,17 @@ pub(super) fn run_pads(_: &Engine, i: &HashMap<String, Value>, p: &P) -> Result<
         0.0
     };
     let pad_r = dia / 2.0;
+    // a bevelled or clear seam face reaches past the seam line at the plate's faces, where pads and bosses stand
+    let reach = {
+        let t = &src.meta["tiling"];
+        let secant = 1.0 / num(&t["seam_angle_deg"]).to_radians().cos();
+        let lean = num(&t["seam_angle_deg"]).to_radians().tan();
+        lean * thick / 2.0 + num(&t["seam_gap_mm"]) / 2.0 * secant
+    };
     let keep = hw::Keepout {
         seams: &seams,
         boxes: &boxes,
+        reach,
     };
     let layout_args = |spacing: f64, fixed: &[(f64, f64)]| {
         hw::frame_layout(

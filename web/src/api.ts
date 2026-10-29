@@ -67,6 +67,16 @@ function call<T>(msg: Record<string, unknown>, transfer: Transferable[] = [], st
       pending.delete(ev.data.id)
       if (ev.data.error !== undefined) p.err(new Error(ev.data.error))
       else p.ok(ev.data.ok)
+      if (ev.data.fatal) {
+        // the crashed module cannot be reused: replace the worker and hand it the pictures again
+        worker?.terminate()
+        worker = null
+        active = null
+        const dead = [...pending.values()]
+        pending.clear()
+        for (const q of dead) q.err(new Error('The engine crashed and was restarted; run again.'))
+        warm = api.restoreImages().finally(() => { warm = null })
+      }
     }
   }
   const id = ++seq

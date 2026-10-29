@@ -357,93 +357,82 @@ fn overlaps(a: &Hole, b: &Hole) -> bool {
     (0..3).all(|k| a.lo[k] < b.hi[k] && b.lo[k] < a.hi[k])
 }
 
-/// Tiles the solid. With no seams the plate comes back whole and nothing is drilled.
-pub fn tile(solid: &Mesh, p: &TileParams) -> Result<Tiled, String> {
-    if !p.seam_gap.is_finite() || !(0.0..=1.0).contains(&p.seam_gap) {
-        return Err("seam clearance must be between 0 and 1 mm".into());
-    }
-    if !p.seam_angle_deg.is_finite() || !(0.0..=60.0).contains(&p.seam_angle_deg) {
-        return Err("seam angle must be between 0 and 60 degrees".into());
-    }
-    let (lo, hi) = solid.bounds();
-    let (w, h, top) = (hi[0] - lo[0], hi[1] - lo[1], hi[2]);
-    let t = if p.thickness > 0.0 { p.thickness } else { top };
-    let (gx, gy) = (grid(w, p.max_x), grid(h, p.max_y));
-    let (nx, ny) = (gx.len() - 1, gy.len() - 1);
-    if nx * ny == 1 {
-        return Ok(Tiled {
-            tiles: vec![Tile {
-                name: "stencil".into(),
-                mesh: solid.clone(),
-                origin: [lo[0], lo[1]],
-                size: [w, h],
-            }],
-            rod: None,
-            info: serde_json::json!({"tiles": 1, "connectors": 0}),
-            seams: Vec::new(),
-            connectors: Vec::new(),
-        });
-    }
-    let xs = shift_seams(solid, 0, lo[0], &gx, p.max_x, p)?;
-    let ys = shift_seams(solid, 1, lo[1], &gy, p.max_y, p)?;
-    let moved = [(&xs, &gx, lo[0]), (&ys, &gy, lo[1])]
-        .iter()
-        .map(|(a, g, l)| {
-            a.iter()
-                .zip(g.iter())
-                .filter(|(a, g)| (**a - l - **g).abs() > 1e-9)
-                .count()
-        })
-        .sum::<usize>();
-    check(p, t)?;
-    let zs = row_heights(p.shape, p.diameter + p.clearance, t);
-    let r_hole = (p.diameter + p.clearance) / 2.0;
-    // A seam face leans by `lean` mm per mm of height, about the mid-thickness. A horizontal rod meets it at an
-    // angle, so each pocket must reach `r_hole * lean` further, and the gap measured across the face is longer
-    // along the rod.
-    let lean = p.seam_angle_deg.to_radians().tan();
-    let secant = 1.0 / p.seam_angle_deg.to_radians().cos();
-    let z_mid = t / 2.0;
-    let depth = p.depth + r_hole * lean;
-    let gap_along = p.seam_gap * secant;
-    let pocket_len = 2.0 * depth + gap_along;
-    for c in [&xs, &ys] {
-        if c.len() > 2 && c.windows(2).any(|v| v[1] - v[0] < min_tile(depth) - 1e-6) {
-            return Err(format!(
-                "tiles must be at least {} mm wide to hold connector holes",
-                min_tile(depth)
-            ));
+/// The numbers every stage of the cut shares.
+#[derive(Clone, Copy)]
+struct Geometry {
+    bevel: Bevel,
+    r_hole: f64,
+    /// Pocket depth on each side of the seam, lengthened to cover the bevel.
+    depth: f64,
+    pocket_len: f64,
+    top: f64,
+}
+
+/// A seam face leans by `lean` mm per mm of height, about the mid-thickness. A horizontal rod meets it at an
+/// angle, so each pocket must reach `r_hole * lean` further, and the gap measured across the face is longer
+/// along the rod.
+#[derive(Clone, Copy)]
+struct Bevel {
+    lean: f64,
+    secant: f64,
+    z_mid: f64,
+}
+
+impl Bevel {
+    fn new(angle_deg: f64, thickness: f64) -> Self {
+        Bevel {
+            lean: angle_deg.to_radians().tan(),
+            secant: 1.0 / angle_deg.to_radians().cos(),
+            z_mid: thickness / 2.0,
         }
     }
-    // where the seam `s` of `axis` passes at height z, as a point on the plate
-    let on_seam = |axis: usize, s: f64, u: f64, z: f64| -> P3 {
-        let s = s + lean * (z - z_mid);
+
+    /// Where the seam `s` of `axis` passes at height z, as a point on the plate.
+    fn on_seam(&self, axis: usize, s: f64, u: f64, z: f64) -> P3 {
+        let s = s + self.lean * (z - self.z_mid);
         if axis == 0 {
             [s, u, z]
         } else {
             [u, s, z]
         }
-    };
-
-    // (axis the hole runs along, seam coordinate, u range along the seam)
-    let mut seams: Vec<(usize, f64, f64, f64)> = Vec::new();
-    for &s in &xs[1..nx] {
-        for j in 0..ny {
-            seams.push((0, s, ys[j], ys[j + 1]));
-        }
     }
-    for &s in &ys[1..ny] {
-        for i in 0..nx {
-            seams.push((1, s, xs[i], xs[i + 1]));
-        }
-    }
+}
 
+/// The connector pockets, reinforcing blocks and the counts of how they went.
+struct Connectors {
+    holes: Vec<Hole>,
+    cutters: Mesh,
+    blocks: Mesh,
+    thin: usize,
+    missed: usize,
+    reinforced: usize,
+    added_volume: f64,
+}
+
+/// Places connector holes along every seam (`(axis the hole runs along, seam coordinate, u range along the seam)`),
+/// reinforcing a seam with a block where none fits.
+fn place_connectors(
+    solid: &Mesh,
+    seams: &[(usize, f64, f64, f64)],
+    zs: &[f64],
+    p: &TileParams,
+    g: &Geometry,
+) -> Result<Connectors, String> {
+    let Geometry {
+        bevel,
+        r_hole,
+        depth,
+        pocket_len,
+        top,
+    } = *g;
+    let lean = bevel.lean;
+    let on_seam = |axis: usize, s: f64, u: f64, z: f64| bevel.on_seam(axis, s, u, z);
     let mut holes: Vec<Hole> = Vec::new();
     let mut cutters = Mesh::default();
     let (mut thin, mut missed) = (0usize, 0usize);
     let mut blocks = Mesh::default();
     let (mut reinforced, mut added_volume) = (0usize, 0.0f64);
-    for &(axis, s, a, b) in &seams {
+    for &(axis, s, a, b) in seams {
         // work on the strip around the seam only: cheaper booleans
         let reach = depth + 1.0 + lean * (top + 2.0) / 2.0;
         let (cl, ch): (P3, P3) = if axis == 0 {
@@ -457,7 +446,7 @@ pub fn tile(solid: &Mesh, p: &TileParams) -> Result<Tiled, String> {
         let mut placed_here = 0;
         for k in 0..n {
             let nominal = a + cell * (k as f64 + 0.5);
-            for &z in &zs {
+            for &z in zs {
                 let reach = (cell / 2.0 - r_hole - WALL_MM).max(0.0);
                 let mut offs: Vec<f64> = vec![0.0];
                 let mut o = 1.5;
@@ -572,29 +561,55 @@ pub fn tile(solid: &Mesh, p: &TileParams) -> Result<Tiled, String> {
             return Err(format!("no room for a connector hole on the {} seam at {:.1} mm: use a smaller connector, larger tiles or a thicker plate", if axis == 0 { "vertical" } else { "horizontal" }, s));
         }
     }
+    Ok(Connectors {
+        holes,
+        cutters,
+        blocks,
+        thin,
+        missed,
+        reinforced,
+        added_volume,
+    })
+}
 
-    crate::progress::step("place connector holes", 0.3);
-    let grown;
-    let solid = if blocks.t.is_empty() {
-        solid
-    } else {
-        grown = solid.union(&blocks)?;
-        &grown
-    };
-    let drilled = if cutters.t.is_empty() {
-        solid.clone()
-    } else {
-        solid.subtract(&cutters)?
-    };
-    crate::progress::step("drill holes", 0.5);
-    let cells: Vec<(usize, usize)> = (0..ny)
-        .rev()
-        .flat_map(|j| (0..nx).map(move |i| (i, j)))
-        .collect();
-    let bridged = std::sync::atomic::AtomicUsize::new(0);
-    let dropped = std::sync::atomic::AtomicUsize::new(0);
-    let welded = std::sync::atomic::AtomicUsize::new(0);
-    let cut = |&(i, j): &(usize, usize)| -> Result<Option<Tile>, String> {
+/// How many tiles needed each kind of repair, counted while the tiles are cut in parallel.
+#[derive(Default)]
+struct Counts {
+    bridged: std::sync::atomic::AtomicUsize,
+    dropped: std::sync::atomic::AtomicUsize,
+    welded: std::sync::atomic::AtomicUsize,
+    loose: std::sync::atomic::AtomicUsize,
+    loose_tiles: std::sync::atomic::AtomicUsize,
+}
+
+/// Cuts one tile out of the drilled plate: the sides (leaning for a bevel), bridges, welds and specks.
+struct Cutter<'a> {
+    p: &'a TileParams,
+    xs: &'a [f64],
+    ys: &'a [f64],
+    bevel: Bevel,
+    top: f64,
+    drilled: &'a Mesh,
+    holes: &'a [Hole],
+    cutters: &'a Mesh,
+    count: Counts,
+}
+
+impl Cutter<'_> {
+    fn cut(&self, &(i, j): &(usize, usize)) -> Result<Option<Tile>, String> {
+        let Cutter {
+            p,
+            xs,
+            ys,
+            bevel,
+            top,
+            drilled,
+            holes,
+            cutters,
+            count,
+        } = self;
+        let (nx, ny, top) = (xs.len() - 1, ys.len() - 1, *top);
+        let (lean, secant, z_mid) = (bevel.lean, bevel.secant, bevel.z_mid);
         // each internal side is a plane leaning by `lean`, set back by half the gap measured across the face
         let inset = p.seam_gap / 2.0 * secant;
         let rect = |z: f64| -> [[f64; 2]; 4] {
@@ -642,9 +657,11 @@ pub fn tile(solid: &Mesh, p: &TileParams) -> Result<Tiled, String> {
                 if let Some(b) = crate::tile_bridge::bridge_mesh(&m, &avoid, bp)? {
                     m = m.union(&b)?.intersect(&clip)?;
                     if !cutters.t.is_empty() {
-                        m = m.subtract(&cutters)?;
+                        m = m.subtract(cutters)?;
                     }
-                    bridged.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    count
+                        .bridged
+                        .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                 }
                 for attempt in 0..3 {
                     if crate::tile_bridge::components(&m).0 < 2 {
@@ -657,7 +674,7 @@ pub fn tile(solid: &Mesh, p: &TileParams) -> Result<Tiled, String> {
                     };
                     m = m.union(&b)?.intersect(&clip)?;
                     if !cutters.t.is_empty() {
-                        m = m.subtract(&cutters)?;
+                        m = m.subtract(cutters)?;
                     }
                 }
                 // Pieces that touch the rest only across a gap finer than the raster never get a bridge of
@@ -673,9 +690,11 @@ pub fn tile(solid: &Mesh, p: &TileParams) -> Result<Tiled, String> {
                     }
                     m = m.union(&welds)?.intersect(&clip)?;
                     if !cutters.t.is_empty() {
-                        m = m.subtract(&cutters)?;
+                        m = m.subtract(cutters)?;
                     }
-                    welded.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    count
+                        .welded
+                        .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                 }
                 let (left, of) = crate::tile_bridge::components(&m);
                 if left > 1 {
@@ -702,7 +721,9 @@ pub fn tile(solid: &Mesh, p: &TileParams) -> Result<Tiled, String> {
                                 .filter(|(_, &o)| o == main)
                                 .map(|(t, _)| *t)
                                 .collect();
-                        dropped.fetch_add(left - 1, std::sync::atomic::Ordering::Relaxed);
+                        count
+                            .dropped
+                            .fetch_add(left - 1, std::sync::atomic::Ordering::Relaxed);
                     }
                 }
                 let left = crate::tile_bridge::components(&m).0;
@@ -717,20 +738,144 @@ pub fn tile(solid: &Mesh, p: &TileParams) -> Result<Tiled, String> {
         }
         m.translate([-xs[i], -ys[j], 0.0]);
         m.quantize_f32();
+        let pieces = crate::tile_bridge::components(&m).0;
+        if pieces > 1 {
+            count
+                .loose
+                .fetch_add(pieces - 1, std::sync::atomic::Ordering::Relaxed);
+            count
+                .loose_tiles
+                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        }
         Ok(Some(Tile {
             name: format!("stencil_r{}c{}", ny - j, i + 1),
             mesh: m,
             origin: [xs[i], ys[j]],
             size: [xs[i + 1] - xs[i], ys[j + 1] - ys[j]],
         }))
+    }
+}
+
+/// Tiles the solid. With no seams the plate comes back whole and nothing is drilled.
+pub fn tile(solid: &Mesh, p: &TileParams) -> Result<Tiled, String> {
+    if !p.seam_gap.is_finite() || !(0.0..=1.0).contains(&p.seam_gap) {
+        return Err("seam clearance must be between 0 and 1 mm".into());
+    }
+    if !p.seam_angle_deg.is_finite() || !(0.0..=60.0).contains(&p.seam_angle_deg) {
+        return Err("seam angle must be between 0 and 60 degrees".into());
+    }
+    let (lo, hi) = solid.bounds();
+    let (w, h, top) = (hi[0] - lo[0], hi[1] - lo[1], hi[2]);
+    let t = if p.thickness > 0.0 { p.thickness } else { top };
+    let (gx, gy) = (grid(w, p.max_x), grid(h, p.max_y));
+    let (nx, ny) = (gx.len() - 1, gy.len() - 1);
+    if nx * ny == 1 {
+        return Ok(Tiled {
+            tiles: vec![Tile {
+                name: "stencil".into(),
+                mesh: solid.clone(),
+                origin: [lo[0], lo[1]],
+                size: [w, h],
+            }],
+            rod: None,
+            info: serde_json::json!({"tiles": 1, "connectors": 0}),
+            seams: Vec::new(),
+            connectors: Vec::new(),
+        });
+    }
+    let xs = shift_seams(solid, 0, lo[0], &gx, p.max_x, p)?;
+    let ys = shift_seams(solid, 1, lo[1], &gy, p.max_y, p)?;
+    let moved = [(&xs, &gx, lo[0]), (&ys, &gy, lo[1])]
+        .iter()
+        .map(|(a, g, l)| {
+            a.iter()
+                .zip(g.iter())
+                .filter(|(a, g)| (**a - l - **g).abs() > 1e-9)
+                .count()
+        })
+        .sum::<usize>();
+    check(p, t)?;
+    let zs = row_heights(p.shape, p.diameter + p.clearance, t);
+    let r_hole = (p.diameter + p.clearance) / 2.0;
+    let bevel = Bevel::new(p.seam_angle_deg, t);
+    let depth = p.depth + r_hole * bevel.lean;
+    let gap_along = p.seam_gap * bevel.secant;
+    let pocket_len = 2.0 * depth + gap_along;
+    for c in [&xs, &ys] {
+        if c.len() > 2 && c.windows(2).any(|v| v[1] - v[0] < min_tile(depth) - 1e-6) {
+            return Err(format!(
+                "tiles must be at least {} mm wide to hold connector holes",
+                min_tile(depth)
+            ));
+        }
+    }
+
+    // (axis the hole runs along, seam coordinate, u range along the seam)
+    let mut seams: Vec<(usize, f64, f64, f64)> = Vec::new();
+    for &s in &xs[1..nx] {
+        for j in 0..ny {
+            seams.push((0, s, ys[j], ys[j + 1]));
+        }
+    }
+    for &s in &ys[1..ny] {
+        for i in 0..nx {
+            seams.push((1, s, xs[i], xs[i + 1]));
+        }
+    }
+
+    let geom = Geometry {
+        bevel,
+        r_hole,
+        depth,
+        pocket_len,
+        top,
+    };
+    let Connectors {
+        holes,
+        cutters,
+        blocks,
+        thin,
+        missed,
+        reinforced,
+        added_volume,
+    } = place_connectors(solid, &seams, &zs, p, &geom)?;
+
+    crate::progress::step("place connector holes", 0.3);
+    let grown;
+    let solid = if blocks.t.is_empty() {
+        solid
+    } else {
+        grown = solid.union(&blocks)?;
+        &grown
+    };
+    let drilled = if cutters.t.is_empty() {
+        solid.clone()
+    } else {
+        solid.subtract(&cutters)?
+    };
+    crate::progress::step("drill holes", 0.5);
+    let cells: Vec<(usize, usize)> = (0..ny)
+        .rev()
+        .flat_map(|j| (0..nx).map(move |i| (i, j)))
+        .collect();
+    let cutter = Cutter {
+        p,
+        xs: &xs,
+        ys: &ys,
+        bevel,
+        top,
+        drilled: &drilled,
+        holes: &holes,
+        cutters: &cutters,
+        count: Counts::default(),
     };
     #[cfg(not(target_arch = "wasm32"))]
     let cut_all: Vec<Result<Option<Tile>, String>> = {
         use rayon::prelude::*;
-        cells.par_iter().map(cut).collect()
+        cells.par_iter().map(|c| cutter.cut(c)).collect()
     };
     #[cfg(target_arch = "wasm32")]
-    let cut_all: Vec<Result<Option<Tile>, String>> = cells.iter().map(cut).collect();
+    let cut_all: Vec<Result<Option<Tile>, String>> = cells.iter().map(|c| cutter.cut(c)).collect();
     let mut tiles = Vec::new();
     for t in cut_all {
         if let Some(t) = t? {
@@ -739,8 +884,9 @@ pub fn tile(solid: &Mesh, p: &TileParams) -> Result<Tiled, String> {
     }
     let info = serde_json::json!({
         "tiles": tiles.len(), "grid": [nx, ny], "connectors": holes.len(), "rows": zs.len(),
-        "bridged_tiles": bridged.load(std::sync::atomic::Ordering::Relaxed), "welded_tiles": welded.load(std::sync::atomic::Ordering::Relaxed), "dropped_specks": dropped.load(std::sync::atomic::Ordering::Relaxed), "thin_wall_holes": thin, "positions_without_room": missed,
+        "bridged_tiles": cutter.count.bridged.load(std::sync::atomic::Ordering::Relaxed), "welded_tiles": cutter.count.welded.load(std::sync::atomic::Ordering::Relaxed), "dropped_specks": cutter.count.dropped.load(std::sync::atomic::Ordering::Relaxed), "thin_wall_holes": thin, "positions_without_room": missed,
         "hole_depth_mm": p.depth, "seam_gap_mm": p.seam_gap, "rod_length_mm": rod_length_with_gap(depth, gap_along), "seams_shifted": moved, "seam_angle_deg": p.seam_angle_deg,
+        "loose_pieces": cutter.count.loose.load(std::sync::atomic::Ordering::Relaxed), "loose_tiles": cutter.count.loose_tiles.load(std::sync::atomic::Ordering::Relaxed),
         "reinforced_seams": reinforced, "added_material_mm3": added_volume,
     });
     let seam_list = seams

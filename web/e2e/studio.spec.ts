@@ -823,11 +823,15 @@ test('the shading menu changes how the mesh is drawn', async ({ page }) => {
   await page.locator('.react-flow__node').filter({ hasText: 'Expand margin' }).first().dispatchEvent('dblclick')
   await expect(page.locator('.v3bar')).toBeVisible({ timeout: 200_000 })
   await page.getByRole('button', { name: 'Iso' }).click()
-  const canvas = page.locator('.v3bar').locator('xpath=ancestor::*[.//canvas][1]').locator('canvas').first()
   const shot = async (mode: string) => {
     await page.locator('.v3bar select').first().selectOption(mode)
     await page.waitForTimeout(1500)
-    return (await canvas.screenshot()).toString('base64')
+    // Element screenshots wait for the canvas to stop moving, which the viewer may never do; clip the page instead.
+    const canvas = page.locator('.v3bar').locator('xpath=ancestor::*[.//canvas][1]').locator('canvas').first()
+    const box = await canvas.boundingBox()
+    expect(box).not.toBeNull()
+    const img = (await page.screenshot({ clip: box! })).toString('base64')
+    return img
   }
   const smooth = await shot('smooth')
   const flat = await shot('flat')
@@ -1023,4 +1027,28 @@ test('the console opens with the version and build of the studio', async ({ page
   await expect(line).toBeVisible({ timeout: 60_000 })
   await expect(line).toContainText('engine ')
   await expect(line).not.toContainText('stale cache')
+})
+
+test('the fragment nodes and the seam bevel angle show their parameters and help', async ({ page }) => {
+  await open(page)
+  await page.getByRole('button', { name: /Templates/ }).click()
+  await page.locator('.menu button').filter({ hasText: 'Tiles, pads & screws' }).click()
+  const node = (t: string) => page.locator('.react-flow__node').filter({ hasText: t }).first()
+
+  await node('Split volume').dispatchEvent('click')
+  await expect(page.locator('aside')).toContainText('Seam bevel angle')
+
+  for (const [query, title, label] of [
+    ['remove fragments', 'Remove fragments', 'Fragments to keep'],
+    ['bridge fragments', 'Bridge fragments', 'Bridges per island'],
+  ]) {
+    await page.getByTitle('Command palette (Ctrl+K)').click()
+    await page.getByRole('textbox', { name: 'Command palette' }).fill(query)
+    await page.locator('.cmdpal-list button').first().click()
+    await expect(node(title)).toBeVisible()
+    await node(title).dispatchEvent('click')
+    await expect(page.locator('aside')).toContainText(label)
+  }
+  await node('Remove fragments').dispatchEvent('click')
+  await expect(page.locator('aside')).toContainText('Only remove floating fragments')
 })

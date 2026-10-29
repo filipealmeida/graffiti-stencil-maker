@@ -80,6 +80,25 @@ pub fn make(
     })
 }
 
+thread_local! {
+    static LAST_PANIC: std::cell::RefCell<String> = const { std::cell::RefCell::new(String::new()) };
+}
+
+#[wasm_bindgen]
+extern "C" {
+    #[wasm_bindgen(js_namespace = console, js_name = error)]
+    fn console_error(msg: &str);
+}
+
+/// Remembers why the engine panicked, so the page can show the reason instead of a bare "unreachable".
+fn install_panic_hook() {
+    std::panic::set_hook(Box::new(|info| {
+        let msg = info.to_string();
+        console_error(&msg);
+        LAST_PANIC.with(|p| *p.borrow_mut() = msg);
+    }));
+}
+
 #[wasm_bindgen]
 pub struct Engine {
     inner: stencil_core::graph::Engine,
@@ -90,10 +109,16 @@ pub struct Engine {
 impl Engine {
     #[wasm_bindgen(constructor)]
     pub fn new() -> Engine {
+        install_panic_hook();
         Engine {
             inner: stencil_core::graph::Engine::new(),
             progress: None,
         }
+    }
+
+    /// The message of the last panic, or an empty string. After a panic the module must be discarded.
+    pub fn last_panic(&self) -> String {
+        LAST_PANIC.with(|p| p.borrow().clone())
     }
 
     /// The version of the engine this module was built from.

@@ -444,13 +444,16 @@ pub fn drill_at(solid: &Mesh, pts: &[(f64, f64)], p: &MountParams) -> Result<Mes
 pub struct Keepout<'a> {
     pub seams: &'a [[f64; 4]],
     pub boxes: &'a [[f64; 4]],
+    /// How far a seam face reaches sideways from the seam line at some height: the bevel's lean over the half
+    /// thickness plus half the clearance. Parts must stay this much further from a seam.
+    pub reach: f64,
 }
 
 impl Keepout<'_> {
     pub fn hits(&self, x: f64, y: f64, r: f64) -> bool {
         self.seams.iter().any(|s| {
             let (across, along) = if s[0] == 0.0 { (x, y) } else { (y, x) };
-            (across - s[1]).abs() < r && along > s[2] - r && along < s[3] + r
+            (across - s[1]).abs() < r + self.reach && along > s[2] - r && along < s[3] + r
         }) || self
             .boxes
             .iter()
@@ -567,7 +570,7 @@ pub fn frame_layout(
 }
 
 fn hull(mut pts: Vec<[f64; 2]>) -> Vec<[f64; 2]> {
-    pts.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    pts.sort_by(|a, b| a[0].total_cmp(&b[0]).then(a[1].total_cmp(&b[1])));
     pts.dedup();
     let cross = |o: [f64; 2], a: [f64; 2], b: [f64; 2]| {
         (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0])
@@ -878,6 +881,7 @@ mod tests {
         let keep = Keepout {
             seams: &seams,
             boxes: &[],
+            reach: 0.0,
         };
         // the nominal midpoint of the 400 mm bottom edge is x = 200; a seam at 50 only matters for the corner pad
         let l = frame_layout(
@@ -906,6 +910,7 @@ mod tests {
         let near = Keepout {
             seams: &seams,
             boxes: &[],
+            reach: 0.0,
         };
         let l = frame_layout(
             [0.0, 0.0],
@@ -921,5 +926,22 @@ mod tests {
         )
         .unwrap();
         assert!(l.pads.iter().all(|p| (p.0 - 7.0).abs() > 5.0));
+    }
+
+    #[test]
+    fn a_seam_reach_keeps_parts_further_from_the_seam() {
+        let seams = [[0.0, 50.0, 0.0, 100.0]];
+        let plain = Keepout {
+            seams: &seams,
+            boxes: &[],
+            reach: 0.0,
+        };
+        let bevelled = Keepout {
+            reach: 4.0,
+            ..plain
+        };
+        assert!(!plain.hits(57.0, 5.0, 5.0));
+        assert!(bevelled.hits(57.0, 5.0, 5.0));
+        assert!(!bevelled.hits(60.0, 5.0, 5.0));
     }
 }

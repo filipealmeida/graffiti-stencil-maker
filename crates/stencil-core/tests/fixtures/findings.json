@@ -237,5 +237,97 @@
         "text": "12 mm of seam where neighbouring tiles differ by more than a layer in height"
       }
     ]
+  },
+  {
+    "name": "fragment nodes",
+    "type": "bridge_fragments",
+    "params": {},
+    "info": {
+      "kind": "parts",
+      "meta": {
+        "bridged_fragments": {
+          "islands_bridged": 23,
+          "tiles_bridged": 5,
+          "warnings": [
+            "stencil_r1c1: 2 islands could not be bridged"
+          ]
+        },
+        "fragments": {
+          "pieces_removed": 18,
+          "tiles_cleaned": 7,
+          "volume_removed_mm3": 258.4
+        }
+      }
+    },
+    "expected": [
+      {
+        "level": "info",
+        "text": "23 islands bridged in 5 tiles"
+      },
+      {
+        "level": "warn",
+        "text": "stencil_r1c1: 2 islands could not be bridged"
+      },
+      {
+        "level": "info",
+        "text": "18 fragments removed from 7 tiles (258 mm³)"
+      }
+    ]
+  },
+  {
+    "name": "single fragment",
+    "type": "fragments",
+    "params": {},
+    "info": {
+      "kind": "parts",
+      "meta": {
+        "fragments": {
+          "pieces_removed": 1,
+          "tiles_cleaned": 1,
+          "volume_removed_mm3": 0.4
+        }
+      }
+    },
+    "expected": [
+      {
+        "level": "info",
+        "text": "1 fragment removed from 1 tile (0 mm³)"
+      }
+    ]
+  },
+  {
+    "name": "loose pieces after a split",
+    "type": "tiles",
+    "params": {},
+    "info": {
+      "kind": "parts",
+      "meta": {
+        "tiling": {
+          "loose_pieces": 41,
+          "loose_tiles": 7
+        }
+      }
+    },
+    "expected": [
+      {
+        "level": "warn",
+        "text": "41 pieces loose in 7 tiles: join them with Bridge fragments or drop them with Remove fragments"
+      }
+    ]
+  },
+  {
+    "name": "loose pieces are only reported by the split itself",
+    "type": "pads",
+    "params": {},
+    "info": {
+      "kind": "parts",
+      "meta": {
+        "tiling": {
+          "loose_pieces": 3,
+          "loose_tiles": 1
+        }
+      }
+    },
+    "expected": []
   }
 ]

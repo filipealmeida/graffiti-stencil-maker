@@ -48,7 +48,7 @@ pub(crate) fn trace(edges: &[Edge], vw: usize) -> Vec<Loop> {
                         let wv = ((d.0 - c.0) as f64, (d.1 - c.1) as f64);
                         (u.0 * wv.1 - u.1 * wv.0).atan2(u.0 * wv.0 + u.1 * wv.1)
                     };
-                    ang(p).partial_cmp(&ang(q)).unwrap()
+                    ang(p).total_cmp(&ang(q))
                 });
             match next {
                 Some(j) if j != s => cur = j,
@@ -349,7 +349,7 @@ pub(crate) fn layered_mesh(
                             || point_in(&loops[o].v, vw, (ptf.0 + 1e-3, ptf.1 - 1e-3))
                             || point_in(&loops[o].v, vw, (ptf.0 - 1e-3, ptf.1 + 1e-3)))
                 })
-                .min_by(|&a, &b| areas[a].partial_cmp(&areas[b]).unwrap());
+                .min_by(|&a, &b| areas[a].total_cmp(&areas[b]));
             holes_of
                 .entry(owner.ok_or("hole without outer loop")?)
                 .or_default()

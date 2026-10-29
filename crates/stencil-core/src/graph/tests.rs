@@ -778,6 +778,51 @@ fn pad_thread_none_adds_no_pads_but_keeps_the_mounting_holes() {
 }
 
 #[test]
+fn pads_stay_clear_of_a_bevelled_seam_face() {
+    let mut e = Engine::new();
+    let id = e.add_image(test_png()).unwrap()["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let mut g = graph(&id, 6.0);
+    g["nodes"][2]["params"] = json!({"thickness_mm": 6.0, "margin_mm": 12.0, "width_mm": 140.0});
+    g["nodes"][3] = json!({"id": "ex", "type": "tiles", "params": {"max_x": 80.0, "max_y": 80.0, "seam_angle_deg": 40.0}});
+    g["nodes"].as_array_mut().unwrap().push(
+        json!({"id": "pd", "type": "pads", "params": {"long_edge": 100.0, "hole_spacing": 60.0}}),
+    );
+    g["edges"]
+        .as_array_mut()
+        .unwrap()
+        .push(json!({"from": ["ex", "parts"], "to": ["pd", "parts"]}));
+    let r = e.run(&g, None, &|| 0.0);
+    assert_eq!(r["nodes"]["pd"]["state"], "done", "{r}");
+    let key = r["nodes"]["pd"]["key"].as_str().unwrap().to_string();
+    let Some(Value::Parts(p)) = e.value(&key, "parts") else {
+        panic!()
+    };
+    let plate = &p.meta["plate"];
+    let reach = 40f64.to_radians().tan() * 6.0 / 2.0;
+    for (list, r) in [("pads", "r"), ("holes", "r")] {
+        for pt in plate[list].as_array().unwrap() {
+            let (x, y, rad) = (
+                pt["x"].as_f64().unwrap(),
+                pt["y"].as_f64().unwrap(),
+                pt[r].as_f64().unwrap(),
+            );
+            for s in plate["seams"].as_array().unwrap() {
+                let (across, along) = if s[0] == 0.0 { (x, y) } else { (y, x) };
+                if along > s[2].as_f64().unwrap() - rad && along < s[3].as_f64().unwrap() + rad {
+                    assert!(
+                        (across - s[1].as_f64().unwrap()).abs() >= rad + reach - 1e-6,
+                        "{list} at ({x}, {y}) is within the bevel's reach of a seam"
+                    );
+                }
+            }
+        }
+    }
+}
+
+#[test]
 fn pads_node_fits_pads_and_holes_clear_of_seams() {
     for flip in [false, true] {
         let mut e = Engine::new();

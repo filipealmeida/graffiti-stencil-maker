@@ -8,7 +8,17 @@ permissions:
   contents: write
 
 jobs:
+  # A tag only ships if the engine's tests pass; the browser tests run in ci.yml.
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo test --release --workspace
+
   build:
+    needs: verify
     defaults:
       run:
         shell: bash

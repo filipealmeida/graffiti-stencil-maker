@@ -81,7 +81,22 @@ pub(super) fn run_bridge_fragments(
             })
             .filter(|(lo, hi)| lo[0] < mh[0] && hi[0] > ml[0] && lo[1] < mh[1] && hi[1] > ml[1])
             .collect();
-        let clip = Mesh::cuboid([ml[0], ml[1], -1.0], [mh[0], mh[1], top + 1.0]);
+        // A bevelled side makes the tile narrower at one face than its bounding box: bridges, which lie on the
+        // bridging plane, must stay inside the outline the tile has there.
+        let plane = if bp.flip { 0.0 } else { bp.plate_top };
+        let (mut fl, mut fh) = ([f64::MAX; 2], [f64::MIN; 2]);
+        for v in m.v.iter().filter(|v| (v[2] - plane).abs() < 1e-3) {
+            for k in 0..2 {
+                fl[k] = fl[k].min(v[k]);
+                fh[k] = fh[k].max(v[k]);
+            }
+        }
+        let (fl, fh) = if fl[0] < fh[0] && fl[1] < fh[1] {
+            (fl, fh)
+        } else {
+            ([ml[0], ml[1]], [mh[0], mh[1]])
+        };
+        let clip = Mesh::cuboid([fl[0], fl[1], -1.0], [fh[0], fh[1], top + 1.0]);
         for _ in 0..3 {
             if components(&m).0 < 2 {
                 break;
@@ -89,7 +104,7 @@ pub(super) fn run_bridge_fragments(
             let Some(b) = bridge_mesh(&m, &avoid, &bp)? else {
                 break;
             };
-            m = m.union(&b)?.intersect(&clip)?;
+            m = m.union(&b.intersect(&clip)?)?;
         }
         // the STL stores f32: round now so what is checked is what is written
         m.quantize_f32();

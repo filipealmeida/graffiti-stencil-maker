@@ -95,6 +95,42 @@ pub fn findings(ty: &str, params: &Json, infos: &[Json]) -> Vec<Finding> {
                 add(Level::Warn, w.as_str().unwrap_or("").to_string());
             }
             let t = &info["meta"]["tiling"];
+            let bf = &info["meta"]["bridged_fragments"];
+            if n(&bf["islands_bridged"]) > 0.0 {
+                add(
+                    Level::Info,
+                    format!(
+                        "{} bridged in {}",
+                        plural(n(&bf["islands_bridged"]), "island", "islands"),
+                        plural(n(&bf["tiles_bridged"]), "tile", "tiles")
+                    ),
+                );
+            }
+            for w in bf["warnings"].as_array().into_iter().flatten() {
+                add(Level::Warn, w.as_str().unwrap_or("").to_string());
+            }
+            let fr = &info["meta"]["fragments"];
+            if n(&fr["pieces_removed"]) > 0.0 {
+                add(
+                    Level::Info,
+                    format!(
+                        "{} removed from {} ({:.0} mm³)",
+                        plural(n(&fr["pieces_removed"]), "fragment", "fragments"),
+                        plural(n(&fr["tiles_cleaned"]), "tile", "tiles"),
+                        n(&fr["volume_removed_mm3"])
+                    ),
+                );
+            }
+            if ty == "tiles" && n(&t["loose_pieces"]) > 0.0 {
+                add(
+                    Level::Warn,
+                    format!(
+                        "{} loose in {}: join them with Bridge fragments or drop them with Remove fragments",
+                        plural(n(&t["loose_pieces"]), "piece", "pieces"),
+                        plural(n(&t["loose_tiles"]), "tile", "tiles")
+                    ),
+                );
+            }
             if n(&t["reinforced_seams"]) > 0.0 {
                 add(
                     Level::Info,

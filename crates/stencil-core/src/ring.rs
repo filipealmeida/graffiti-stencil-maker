@@ -230,7 +230,7 @@ pub fn plan(q: &RingParams) -> Result<Ring, String> {
                     .then_some((along, i))
             })
             .collect();
-        cand.sort_by(|x, y| x.0.partial_cmp(&y.0).unwrap());
+        cand.sort_by(|x, y| x.0.total_cmp(&y.0));
         let mut chosen: Vec<(f64, P, P)> = vec![];
         let group = |h: P| {
             q.prev
