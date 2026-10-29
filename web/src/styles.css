@@ -4,7 +4,7 @@
   --panel: #1d2127;
   --line: #2c323a;
   --fg: #e6e9ee;
-  --mut: #8b94a1;
+  --mut: #9aa4b2;
   --acc: #ff8a1f;
   --trace: #4aa3ff;
   --stencil: #5fd38d;
@@ -1154,25 +1154,6 @@ header > .pal .menu:not(.wide) {
 .inspector legend {
   overflow-wrap: anywhere;
 }
-@media (max-width: 800px) {
-  main {
-    flex-direction: column;
-  }
-  .canvas {
-    flex: 1 1 50%;
-    min-height: 200px;
-  }
-  .resizer {
-    display: none;
-  }
-  .inspector {
-    width: auto;
-    flex: 1 1 50%;
-    min-height: 0;
-    border-left: 0;
-    border-top: 1px solid var(--line);
-  }
-}
 .shared-tag {
   margin-left: 6px;
   padding: 0 5px;
@@ -1249,4 +1230,250 @@ header .btn.icon-btn {
 
 header button {
   position: relative;
+}
+
+/* ---- UI overhaul: legibility, hit targets, hierarchy ---- */
+header h1 {
+  margin: 0;
+  font-size: 15px;
+}
+header .sep {
+  width: 1px;
+  align-self: stretch;
+  margin: 2px 2px;
+  background: var(--line);
+}
+header button.on,
+.tabs .on,
+.help-toggle[aria-pressed="true"] {
+  border-color: var(--trace) !important;
+  color: var(--trace);
+}
+.primary,
+.btn.primary {
+  background: var(--trace);
+  border-color: var(--trace);
+  color: #06121f;
+  font-weight: 600;
+}
+.primary:hover,
+.btn.primary:hover {
+  filter: brightness(1.1);
+}
+.node {
+  font-size: 13px;
+}
+td,
+.err,
+.status-line,
+.menu button small,
+.menu-note {
+  font-size: 13px;
+}
+.tag,
+.shared-tag {
+  font-size: 12px;
+}
+.node-del {
+  min-width: 24px;
+  min-height: 24px;
+  padding: 0 4px;
+  line-height: 20px;
+}
+.console-bar button,
+button.reset,
+.help-toggle {
+  min-height: 24px;
+  min-width: 24px;
+  padding: 2px 8px;
+}
+input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+}
+.row.chk {
+  min-height: 24px;
+}
+.pname {
+  width: 12ch;
+}
+.project {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.dirty {
+  color: var(--acc);
+  font-size: 12px;
+}
+.saved {
+  font-size: 12px;
+}
+header > .pal.project .menu.pmenu {
+  display: flex;
+  left: auto;
+  right: 0;
+  min-width: 280px;
+}
+.empty-card {
+  pointer-events: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 28px 36px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  font-size: 14px;
+  text-align: center;
+}
+.empty-card h2 {
+  margin: 0;
+}
+.empty-card p {
+  margin: 0;
+}
+.toasts {
+  position: fixed;
+  right: 14px;
+  bottom: 44px;
+  z-index: 200;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.toast {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-left: 4px solid var(--trace);
+  border-radius: 8px;
+  box-shadow: 0 6px 24px #0008;
+  font-size: 13px;
+}
+.toast.error {
+  border-left-color: #ff6b6b;
+}
+.toast .x {
+  border: 0;
+  background: transparent;
+  color: var(--mut);
+}
+.findings {
+  margin: 6px 0 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #ffffff06;
+}
+.findings ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.finding {
+  display: flex;
+  gap: 8px;
+  font-size: 13px;
+}
+.finding.error {
+  color: #ff8c8c;
+}
+.finding.warn {
+  color: #ffb020;
+}
+.finding.info {
+  color: var(--mut);
+}
+.finding .fix {
+  color: var(--fg);
+}
+.finding .fix button {
+  margin-left: 4px;
+  min-height: 24px;
+}
+.linkish {
+  border: 0;
+  background: transparent;
+  color: var(--trace);
+  padding: 4px 0;
+  min-height: 24px;
+}
+.presets {
+  align-items: center;
+}
+.presets select {
+  min-width: 8ch;
+  min-height: 28px;
+}
+.presetname {
+  display: flex;
+  gap: 6px;
+  flex: 1;
+}
+.presetname input {
+  flex: 1;
+  min-width: 0;
+}
+.menu-wrap {
+  position: relative;
+}
+.menu-wrap .menu {
+  position: absolute;
+  right: 0;
+  top: 100%;
+  z-index: 30;
+  min-width: 190px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.panel-foot {
+  margin-top: 16px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+  display: flex;
+  justify-content: flex-end;
+}
+.panel-foot .danger {
+  margin: 0;
+}
+.bench-head .close {
+  min-width: 28px;
+  min-height: 28px;
+}
+.actions .btn,
+.actions .danger {
+  font-size: 13px;
+  padding: 4px 10px;
+}
+@media (max-width: 1000px) {
+  .inspector {
+    position: fixed;
+    top: 48px;
+    right: 0;
+    bottom: 0;
+    z-index: 40;
+    width: min(380px, 92vw) !important;
+    box-shadow: -8px 0 30px #000a;
+  }
+  .resizer,
+  .inspector.none {
+    display: none;
+  }
+}
+header {
+  position: relative;
+  z-index: 50;
 }

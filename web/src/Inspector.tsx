@@ -5,7 +5,8 @@ import { useStudio } from './store'
 import ParamForm from './ParamForm'
 import SourceActions from './SourceActions'
 import Presets from './Presets'
-import { NodeActions, downloadFor, runSummary } from './NodeActions'
+import { NodeActions, DeleteNode, downloadFor, runSummary } from './NodeActions'
+import Findings from './Findings'
 
 export default function Inspector() {
   const id = useStudio((s) => s.selected)
@@ -35,19 +36,20 @@ export default function Inspector() {
     if (key && cur) api.info(key, cur.name).then(setInfo).catch(() => setInfo(null))
   }, [key, cur?.name])
 
-  if (!node || !t) return <aside className="inspector"><p className="mut">Select a node to edit its parameters and see its result. Drop a picture on the canvas to start.</p></aside>
+  if (!node || !t) return <aside className="inspector none"><p className="mut">Select a node to edit its parameters and see its result. Drop a picture on the canvas to start.</p></aside>
   const fileInput = t.id === 'source'
   return (
     <aside className="inspector">
       <h2>{t.label} <small className={`tag stage-${t.stage}`}>{t.stage}</small></h2>
       <p className="mut status-line">{runSummary(run, busy)}</p>
+      <Findings id={node.id} />
+      <Presets key={node.id} node={node} />
+      {run?.state === 'error' && <div className="err">{run.error}</div>}
       <ParamForm node={node} type={t} layers={layers} before={<>
       <NodeActions id={node.id} preview download={downloadFor(cur?.type, key, cur?.name, Object.keys(info?.files ?? {}).length)} />
       {fileInput && <><p className="mut">Image: {String(node.data.title ?? node.data.params.image_id)}</p><SourceActions id={node.id} imageId={String(node.data.params.image_id)} title={node.data.title} /></>}
       </>} />
       {fileInput && <ImageInfoPanel imageId={String(node.data.params.image_id)} resolution={Number(node.data.params.resolution ?? 1000)} />}
-      <Presets key={node.id} node={node} />
-      {run?.state === 'error' && <div className="err">{run.error}</div>}
       {key && cur && (
         <div className="result">
           {avail.length > 1 && (
@@ -69,6 +71,7 @@ export default function Inspector() {
           {info?.coverage !== undefined && <p className="mut">{info.width}×{info.height}px · {(info.coverage * 100).toFixed(1)}% paint</p>}
         </div>
       )}
+      <div className="panel-foot"><DeleteNode id={node.id} /></div>
     </aside>
   )
 }

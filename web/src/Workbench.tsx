@@ -5,7 +5,8 @@ import ImageView from './ImageView'
 import ParamForm from './ParamForm'
 import SourceActions from './SourceActions'
 import Presets from './Presets'
-import { NodeActions, downloadFor, runSummary } from './NodeActions'
+import { NodeActions, DeleteNode, downloadFor, runSummary } from './NodeActions'
+import Findings, { useNodeFindings } from './Findings'
 import ImageInfoPanel from './ImageInfo'
 import { useStudio } from './store'
 import { parseEdits, stringify, type LayoutInfo } from './layoutEdit'
@@ -27,6 +28,7 @@ export default function Workbench() {
   const [mode, setMode] = useState<'plate' | 'tiles'>('plate')
   const [info, setInfo] = useState<Record<string, any> | null>(null)
 
+  const problems = useNodeFindings(id).filter((b) => b.level !== 'info').length
   const t = node && types[node.data.type]
   const run = id ? runs[id] : undefined
   const views = (() => {
@@ -67,7 +69,8 @@ export default function Workbench() {
   return (
     <div className="bench">
       <div className="bench-head">
-        <h2>{node.data.title || t.label} <small className={`tag stage-${t.stage}`}>{t.stage}</small></h2>
+        <button className="close" onClick={() => open(null)} aria-label="Close preview" title="Close (Esc)">✕</button>
+        <h2>{node.data.title || t.label} <small className={`tag stage-${t.stage}`}>{t.stage}</small>{problems > 0 && <span className="tb-badge warn" title="Findings on this node">{problems}</span>}</h2>
         <div className="tabs">
           {views.map((x) => <button key={x.id} className={x.id === cur?.id ? 'on' : ''} onClick={() => setView(x.id)}>{x.label}</button>)}
         </div>
@@ -79,18 +82,19 @@ export default function Workbench() {
         )}
         <span className="spacer" />
         <span className="mut">{runSummary(run, busy)}</span>
-        <button onClick={() => open(null)}>Close ✕</button>
       </div>
       {run?.state === 'running' && <div className="bar"><i style={{ width: `${(run.progress ?? 0) * 100}%` }} /></div>}
       <div className="bench-body">
         <aside className="bench-params">
+          <Findings id={node.id} />
+          <Presets key={node.id} node={node} />
+          {run?.state === 'error' && <div className="err">{run.error}</div>}
           <ParamForm node={node} type={t} before={<>
             <NodeActions id={node.id} download={downloadFor(cur?.kind as Kind, cur?.key, cur?.out, Object.keys(info?.files ?? {}).length)} />
             {t.id === 'source' && <SourceActions id={node.id} imageId={String(node.data.params.image_id)} title={node.data.title} />}
           </>} />
           {t.id === 'source' && <ImageInfoPanel imageId={String(node.data.params.image_id)} resolution={Number(node.data.params.resolution ?? 1000)} />}
-          <Presets key={node.id} node={node} />
-          {run?.state === 'error' && <div className="err">{run.error}</div>}
+          <div className="panel-foot"><DeleteNode id={node.id} /></div>
         </aside>
         <section className="bench-view">
           {!cur && <div className="mut center">{run?.state === 'error' ? run.error : 'nothing computed yet'}</div>}

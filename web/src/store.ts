@@ -47,6 +47,9 @@ let clip: { nodes: StudioNode[]; edges: Edge[] } | null = null
 let pasteCount = 0
 const uid = (t: string) => `${t}-${Date.now().toString(36)}${(counter++).toString(36)}`
 
+export interface Toast { id: number; text: string; level: 'info' | 'error'; undo?: () => void }
+let toastId = 1
+
 interface State {
   types: Record<string, NodeType>
   nodes: StudioNode[]
@@ -54,6 +57,16 @@ interface State {
   runs: Record<string, NodeRun>
   selected: string | null
   showHelp: boolean
+  /** Project file name (no extension), the base of every download. */
+  pname: string
+  setPname: (n: string) => void
+  /** Time of the last save to a file; the project counts as unsaved while it differs from the graph. */
+  savedSig: string | null
+  savedAt: string | null
+  markSaved: () => void
+  toasts: Toast[]
+  toast: (text: string, opts?: { undo?: () => void; level?: 'info' | 'error' }) => void
+  dismissToast: (id: number) => void
   setShowHelp: (on: boolean) => void
   busy: boolean
   error: string | null
@@ -108,8 +121,20 @@ export const useStudio = create<State>((set, get) => ({
   canUndo: false, canRedo: false,
   types: {}, nodes: [], edges: [], runs: {}, selected: null,
   showHelp: localStorage.getItem('studio.showHelp') === '1',
+  pname: localStorage.getItem('studio.pname') || 'project',
+  setPname: (n) => { try { localStorage.setItem('studio.pname', n) } catch { /* a convenience only */ } set({ pname: n }) },
+  savedSig: null,
+  savedAt: null,
+  markSaved: () => set({ savedSig: signature(get()), savedAt: new Date().toTimeString().slice(0, 5) }),
+  toasts: [],
+  toast: (text, opts = {}) => {
+    const id = toastId++
+    set((s) => ({ toasts: [...s.toasts.slice(-3), { id, text, level: opts.level ?? 'info', undo: opts.undo }] }))
+    setTimeout(() => get().dismissToast(id), opts.undo ? 8000 : 4000)
+  },
+  dismissToast: (id) => set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) })),
   setShowHelp: (on) => { localStorage.setItem('studio.showHelp', on ? '1' : '0'); set({ showHelp: on }) }, busy: false, error: null,
-  logs: [], usage: loadUsage(), perfOpen: localStorage.getItem('stencil-perf') === '1', consoleOpen: true, reportOpen: false, hv: 0, bench: null, progress: { done: 0, total: 0 }, draft: false,
+  logs: [], usage: loadUsage(), perfOpen: localStorage.getItem('stencil-perf') === '1', consoleOpen: window.innerWidth >= 1000, reportOpen: false, hv: 0, bench: null, progress: { done: 0, total: 0 }, draft: false,
   addLogs: (l) => set((s) => ({ logs: [...s.logs, ...l.map((x, i) => ({ ...x, id: s.logs.length + i + Math.random() }))].slice(-500) })),
   clearLogs: () => set({ logs: [] }),
   setConsole: (consoleOpen) => set({ consoleOpen }),

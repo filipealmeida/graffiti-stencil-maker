@@ -16,6 +16,8 @@ import Console from "./Console";
 import Perf from "./Perf";
 import Report, { useReport } from "./Report";
 import History from "./History";
+import Toasts from "./Toasts";
+import { saveProject, exportEverything, recentProjects, safeName } from "./project";
 import Workbench from "./Workbench";
 import StudioEdge from "./StudioEdge";
 import StudioNodeView, { KIND_COLOR } from "./StudioNode";
@@ -44,7 +46,10 @@ function Canvas() {
   const rep = useReport();
   const rf = useReactFlow();
   const [drag, setDrag] = useState(false);
-  const [pname, setPname] = useState("project");
+  const pname = s.pname;
+  const setPname = s.setPname;
+  const [pmenu, setPmenu] = useState(false);
+  const dirty = s.nodes.length > 0 && s.savedSig !== signature(s);
   const [menu, setMenu] = useState<Stage | "templates" | "all" | null>(null);
   const [cmdOpen, setCmdOpen] = useState(false);
   // wait for the new nodes to be measured, then bring the whole graph into view
@@ -96,6 +101,13 @@ function Canvas() {
         return;
       }
       const t = e.target as HTMLElement;
+      const key = e.key.toLowerCase();
+      if ((e.ctrlKey || e.metaKey) && (key === "s" || key === "o")) {
+        e.preventDefault();
+        if (key === "s") void saveProject();
+        else document.getElementById("open-project")?.click();
+        return;
+      }
       if (
         t.closest?.("input, textarea, select, [contenteditable]") ||
         !(e.ctrlKey || e.metaKey)
@@ -247,7 +259,9 @@ function Canvas() {
     e.preventDefault();
     setDrag(false);
     const f = e.dataTransfer.files[0];
-    if (f) addFile(f, rf.screenToFlowPosition({ x: e.clientX, y: e.clientY }));
+    if (!f) return;
+    if (/\.json$/i.test(f.name)) void open(f);
+    else addFile(f, rf.screenToFlowPosition({ x: e.clientX, y: e.clientY }));
   };
 
   /** Can an output of this kind feed an input of that kind? The same rule as drawing a connection by hand. */
@@ -318,26 +332,14 @@ function Canvas() {
     );
   };
 
-  const save = async () => {
-    const p = await api.exportProject({ nodes: s.nodes, edges: s.edges });
-    const url = URL.createObjectURL(
-      new Blob([JSON.stringify(p)], { type: "application/json" }),
-    );
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `${pname || "project"}.stencil.json`;
-    a.hidden = true;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 10_000);
-  };
   const open = async (f: File) => {
     try {
       const g = await api.importProject(JSON.parse(await f.text()));
       setPname(f.name.replace(/\.stencil\.json$|\.json$/, ""));
       s.load(g.nodes as StudioNode[], g.edges as Edge[]);
+      s.markSaved();
       fit();
+      s.toast(`Opened ${f.name}`);
     } catch (e) {
       useStudio.setState({
         error: `cannot open project: ${e instanceof Error ? e.message : e}`,
@@ -452,7 +454,7 @@ function Canvas() {
       onDrop={onDrop}
     >
       <header>
-        <b>Stencil studio</b>
+        <h1>Stencil studio</h1>
         <div className="palette" ref={bar}>
           {(["trace", "stencil", "post"] as Stage[]).map((st) => (
             <div key={st} className="pal">
@@ -515,9 +517,10 @@ function Canvas() {
             )}
           </div>
         </div>
+        <span className="sep" />
         <label className="btn icon-btn" title="Open image…">
           <Icon name="image" />
-          <span className="sr">Open image…</span>
+          <span>Open image</span>
           <input
             type="file"
             accept=".png,.jpg,.jpeg,.bmp,.svg"
@@ -563,6 +566,7 @@ function Canvas() {
         >
           <Icon name="command" />
         </button>
+        <span className="sep" />
         <History />
         <button title="Undo (Ctrl+Z)" aria-label="Undo" disabled={!s.canUndo} onClick={undo}>
           <Icon name="undo" />
@@ -576,46 +580,55 @@ function Canvas() {
           <Icon name="redo" />
         </button>
         <span className="spacer" />
-        <label className="btn icon-btn" title="Open project…">
-          <Icon name="folder" />
-          <span className="sr">Open project…</span>
+        <div className="pal project">
           <input
+            className="pname"
+            value={pname}
+            onChange={(e) => setPname(e.target.value)}
+            aria-label="Project name"
+          />
+          {dirty && <span className="dirty" title="Changes since the last save" role="img" aria-label="Unsaved changes">●</span>}
+          {!dirty && s.savedAt && <span className="mut saved">Saved {s.savedAt}</span>}
+          <button
+            className={pmenu ? "on" : ""}
+            aria-haspopup="true"
+            aria-expanded={pmenu}
+            onClick={() => setPmenu(!pmenu)}
+            title="Project: save, open, export"
+          >
+            <Icon name="folder" /> Project ▾
+          </button>
+          {pmenu && (
+            <div className="menu pmenu" role="menu" onClick={() => setPmenu(false)}>
+              <button role="menuitem" onClick={() => void saveProject()} title="Save the project file (Ctrl+S)"><b>Save</b><small>{safeName(pname)}.stencil.json · Ctrl+S</small></button>
+              <button role="menuitem" onClick={() => document.getElementById("open-project")?.click()}><b>Open…</b><small>Ctrl+O, or drop a .stencil.json on the canvas</small></button>
+              <button role="menuitem" onClick={() => void exportEverything()}><b>Export everything…</b><small>One zip: project, models, findings</small></button>
+              <button
+                role="menuitem"
+                onClick={() => {
+                  if (!s.nodes.length) return;
+                  s.load([], []);
+                  localStorage.removeItem(STORE_KEY);
+                  s.toast("Started a new project", { undo });
+                }}
+              ><b>New</b><small>Start empty (undo brings the graph back)</small></button>
+              {recentProjects().length > 0 && <small className="menu-note">Recently saved: {recentProjects().join(", ")}</small>}
+            </div>
+          )}
+          <input
+            id="open-project"
             type="file"
             accept=".json"
             hidden
+            aria-label="Open project file"
             onChange={(e) => {
               const f = e.target.files?.[0];
               e.target.value = "";
               if (f) open(f);
             }}
           />
-        </label>
-        <input
-          className="pname"
-          value={pname}
-          onChange={(e) => setPname(e.target.value)}
-          aria-label="Project name"
-        />
-        <button onClick={save} title="Save project" aria-label="Save project">
-          <Icon name="save" />
-        </button>
-        <button
-          title="New project: discard the current graph"
-          aria-label="New"
-          onClick={() => {
-            if (
-              s.nodes.length &&
-              !window.confirm(
-                "Discard the current graph? Save the project first to keep it.",
-              )
-            )
-              return;
-            s.load([], []);
-            localStorage.removeItem(STORE_KEY);
-          }}
-        >
-          <Icon name="new" />
-        </button>
+        </div>
+        <span className="sep" />
         <button
           onClick={rerun}
           disabled={s.busy}
@@ -694,7 +707,18 @@ function Canvas() {
             <MiniMap pannable zoomable />
           </ReactFlow>
           {!s.nodes.length && (
-            <div className="hint">Drop a picture here (png, jpg, bmp, svg)</div>
+            <div className="hint">
+              <div className="empty-card">
+                <h2>Make a stencil</h2>
+                <p>Drop a picture here (png, jpg, bmp, svg) or choose one.</p>
+                <label className="btn primary">
+                  Open image…
+                  <input type="file" accept=".png,.jpg,.jpeg,.bmp,.svg" hidden aria-label="Choose an image" onChange={(e) => e.target.files?.[0] && addFile(e.target.files[0])} />
+                </label>
+                <button onClick={() => document.getElementById("open-project")?.click()}>Open a project…</button>
+                <p className="mut">Start from a template after the image is in: tiles, colours, vector.</p>
+              </div>
+            </div>
           )}
           {drag && <div className="dropzone">Drop to add the image</div>}
         </div>
@@ -702,6 +726,7 @@ function Canvas() {
         <Inspector />
       </main>
       {s.consoleOpen && <Console height={170} />}
+      <Toasts />
       <footer className="statusbar">
         <Status
           onGoto={(id) => {

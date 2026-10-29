@@ -1,25 +1,38 @@
 import { artifactUrl, type Kind, type NodeRun } from './api'
-import { useStudio } from './store'
+import { undo, useStudio } from './store'
+import { safeName } from './project'
 
 /** What a finished output can be downloaded as: one wording and one file name for the side panel and the preview. */
 export function downloadFor(kind: Kind | undefined, key: string | undefined, out: string | undefined, files = 0) {
+  const name = safeName(useStudio.getState().pname)
   if (!kind || !key || !out) return null
   const href = artifactUrl(key, out)
-  if (kind === 'solid') return { href, label: 'Download STL', file: 'stencil.stl' }
-  if (kind === 'shapes') return { href, label: 'Download SVG', file: 'trace.svg' }
-  if (kind === 'parts') return { href, label: files > 1 ? 'Download ZIP' : 'Download STL', file: undefined }
+  if (kind === 'solid') return { href, label: 'Download STL', file: `${name}.stl` }
+  if (kind === 'shapes') return { href, label: 'Download SVG', file: `${name}.svg` }
+  if (kind === 'parts') return { href, label: files > 1 ? 'Download ZIP' : 'Download STL', file: files > 1 ? `${name}-parts.zip` : `${name}.stl` }
   return null
 }
 
-/** The same row of actions for every node: preview (side panel only), download of what is on show, delete. */
+/** The row of actions for every node: preview (side panel only) and the download of what is on show. Delete lives in `NodeFooter`. */
 export function NodeActions({ id, preview, download }: { id: string; preview?: boolean; download: ReturnType<typeof downloadFor> }) {
-  const { removeNode, openBench } = useStudio.getState()
+  const { openBench } = useStudio.getState()
   return (
     <div className="actions">
+      {download && <a className="btn primary" href={download.href} download={download.file}>{download.label}</a>}
       {preview && <button className="btn" onClick={() => openBench(id)} title="Double-click a node to open it">⤢ Open preview</button>}
-      {download && <a className="btn" href={download.href} download={download.file}>{download.label}</a>}
-      <button className="danger" onClick={() => removeNode(id)}>Delete node</button>
     </div>
+  )
+}
+
+/** Delete sits apart from the download, and an undo toast replaces a confirmation. */
+export function DeleteNode({ id }: { id: string }) {
+  return (
+    <button className="danger" onClick={() => {
+      const s = useStudio.getState()
+      const label = s.nodes.find((n) => n.id === id)?.data.title || 'node'
+      s.removeNode(id)
+      s.toast(`Deleted ${label}`, { undo })
+    }}>Delete node</button>
   )
 }
 

@@ -137,7 +137,7 @@ test('the Reshape paint node can be added from the menu and shows its parameters
   await expect(page.locator('.react-flow__node').filter({ hasText: 'Reshape paint' })).toBeVisible()
   await page.locator('.react-flow__node').filter({ hasText: 'Reshape paint' }).dispatchEvent('click')
   await expect(page.locator('aside')).toContainText('Operation')
-  await expect(page.locator('aside select').first()).toHaveValue('open')
+  await expect(page.locator('aside select:not([aria-label=Preset])').first()).toHaveValue('open')
 })
 
 test('the console lists timed sub-steps of the stencil node', async ({ page }) => {
@@ -195,7 +195,7 @@ test('the Crop & rotate node can be added and rotates the picture', async ({ pag
   await expect(node).toBeVisible()
   await node.dispatchEvent('click')
   await expect(page.locator('aside')).toContainText('Crop left')
-  await expect(page.locator('aside select').first()).toHaveValue('0')
+  await expect(page.locator('aside select:not([aria-label=Preset])').first()).toHaveValue('0')
 })
 
 test('the preview image zooms and pans on a bounded canvas', async ({ page }) => {
@@ -416,7 +416,7 @@ test('sliders carry a tooltip and a unit, and the status line is announced', asy
   await page.locator('.react-flow__node').first().dispatchEvent('click')
   await expect(page.locator('aside .help').first()).toBeAttached()
   await expect(page.locator('aside .unit').first()).toBeAttached()
-  await expect(page.locator('[role=status]').first()).toBeVisible()
+  await expect(page.locator('footer [role=status]').first()).toBeVisible()
 })
 
 test('the Colour set template builds a registered multi-colour graph', async ({ page }) => {
@@ -716,8 +716,9 @@ test('presets save the selected node parameters and apply them again', async ({ 
   const level = page.locator('.inspector input[type=range]').first()
   const before = await level.inputValue()
   const lo = await level.getAttribute('min')
-  page.once('dialog', (d) => d.accept('mine'))
   await page.getByRole('button', { name: 'Save as…' }).click()
+  await page.getByLabel('Preset name').fill('mine')
+  await page.getByRole('button', { name: 'Save', exact: true }).click()
   await level.fill(String(Number(lo) + 1))
   await expect(level).not.toHaveValue(before)
   await page.getByLabel('Preset', { exact: true }).selectOption('mine')
@@ -727,9 +728,11 @@ test('presets save the selected node parameters and apply them again', async ({ 
 test('presets export to a file and import again, keeping the ones already there', async ({ page }) => {
   await open(page)
   await page.locator('.react-flow__node').filter({ hasText: 'Threshold' }).first().click()
-  page.once('dialog', (d) => d.accept('shared'))
   await page.getByRole('button', { name: 'Save as…' }).click()
-  const [download] = await Promise.all([page.waitForEvent('download'), page.getByRole('group', { name: 'Presets' }).getByRole('button', { name: 'Export' }).click()])
+  await page.getByLabel('Preset name').fill('shared')
+  await page.getByRole('button', { name: 'Save', exact: true }).click()
+  await page.getByRole('button', { name: 'More preset actions' }).click()
+  const [download] = await Promise.all([page.waitForEvent('download'), page.getByRole('menuitem', { name: /Export presets/ }).click()])
   expect(download.suggestedFilename()).toBe('stencil-presets.json')
   const text = await (await import('node:fs/promises')).readFile((await download.path())!, 'utf8')
   expect(JSON.parse(text).presets.threshold.shared).toBeTruthy()
@@ -738,13 +741,12 @@ test('presets export to a file and import again, keeping the ones already there'
   await page.setInputFiles('label.btn input[type=file] >> nth=0', { name: 'disc.png', mimeType: 'image/png', buffer: png() })
   await expect(page.locator('.react-flow__node').filter({ hasText: 'Threshold' }).first()).toBeVisible()
   await page.locator('.react-flow__node').filter({ hasText: 'Threshold' }).first().click()
-  const said: string[] = []
-  page.on('dialog', (d) => { said.push(d.message()); void d.accept() })
+  const toasts = page.locator('.toasts')
   await page.locator('input[aria-label="Import presets file"]').setInputFiles({ name: 'p.json', mimeType: 'application/json', buffer: Buffer.from(text) })
-  await expect.poll(() => said.join()).toContain('Imported 1 preset')
+  await expect(toasts).toContainText('Imported 1 preset')
   await expect(page.getByLabel('Preset', { exact: true }).locator('option', { hasText: 'shared' })).toHaveCount(1)
   await page.locator('input[aria-label="Import presets file"]').setInputFiles({ name: 'bad.json', mimeType: 'application/json', buffer: Buffer.from('{"nope":1}') })
-  await expect.poll(() => said.join()).toContain('not a presets file')
+  await expect(toasts).toContainText('not a presets file')
 })
 
 test('Rerun and the Report button counts are available', async ({ page }) => {
@@ -782,7 +784,7 @@ test('the Split volume node is named so and Pads accepts "none" as a thread', as
   await expect(page.locator('.react-flow__node').filter({ hasText: 'Split volume' })).toBeVisible()
   await page.locator('.react-flow__node').filter({ hasText: 'Add pads & mounting holes' }).first().dispatchEvent('click')
   await expect(page.locator('aside.inspector').getByText('Pad thread', { exact: true })).toBeVisible()
-  await expect(page.locator('aside.inspector select').first()).toContainText('none')
+  await expect(page.locator('aside.inspector select:not([aria-label=Preset])').first()).toContainText('none')
 })
 
 test('Expand margin can be added from the post menu', async ({ page }) => {
@@ -907,7 +909,7 @@ test('the side panel can be resized with the keyboard and remembers its width', 
   await expect.poll(async () => (await page.locator('aside.inspector').boundingBox())?.width ?? 0).toBeGreaterThan(w0 + 30)
 })
 
-test('a narrow window stacks the panel under the canvas without sideways scrolling', async ({ page }) => {
+test('a narrow window turns the panel into a drawer without sideways scrolling', async ({ page }) => {
   await page.setViewportSize({ width: 700, height: 800 })
   await open(page)
   await page.locator('.react-flow__node').first().dispatchEvent('click')
@@ -915,7 +917,8 @@ test('a narrow window stacks the panel under the canvas without sideways scrolli
   expect(over).toBeLessThanOrEqual(0)
   const a = (await page.locator('aside.inspector').boundingBox())!
   const c = (await page.locator('.canvas').boundingBox())!
-  expect(a.y).toBeGreaterThanOrEqual(c.y + c.height - 2)
+  expect(a.x + a.width).toBeLessThanOrEqual(700)
+  expect(c.height).toBeGreaterThan(400)
 })
 
 test('the shared bolt settings carry a shared tag', async ({ page }) => {
@@ -947,13 +950,14 @@ test('a failed run offers a jump to the node that failed', async ({ page }) => {
 
 test('the toolbar buttons are icons that each carry a tooltip and a name', async ({ page }) => {
   await open(page)
-  for (const name of ['Templates', 'Command palette', 'History', 'Undo', 'Redo', 'Save project', 'New', 'Rerun', 'Report', 'Perf', 'Console']) {
+  for (const name of ['Templates', 'Command palette', 'History', 'Undo', 'Redo', 'Rerun', 'Report', 'Perf', 'Console']) {
     const b = page.locator('header').getByRole('button', { name: new RegExp(`^${name}`) })
     await expect(b, name).toBeVisible()
     await expect(b.locator('svg.icon'), name).toHaveCount(1)
     expect((await b.getAttribute('title')) ?? '', name).not.toBe('')
   }
-  for (const title of ['Open image…', 'Open project…']) await expect(page.locator(`header label[title="${title}"] svg.icon`)).toHaveCount(1)
+  await expect(page.locator('header label[title="Open image…"] svg.icon')).toHaveCount(1)
+  await expect(page.locator('header').getByRole('button', { name: /Project/ })).toBeVisible()
 })
 
 test('a node added while the view is panned away is brought into view', async ({ page }) => {
@@ -1051,4 +1055,79 @@ test('the fragment nodes and the seam bevel angle show their parameters and help
   }
   await node('Remove fragments').dispatchEvent('click')
   await expect(page.locator('aside')).toContainText('Only remove floating fragments')
+})
+
+test('an empty canvas offers a way in, and it goes away with the graph', async ({ page }) => {
+  await page.goto('/')
+  const card = page.locator('.empty-card')
+  await expect(card.getByText('Open image…')).toBeVisible()
+  await card.locator('input[type=file]').setInputFiles({ name: 'disc.png', mimeType: 'image/png', buffer: png() })
+  await expect(page.locator('.react-flow__node').first()).toBeVisible()
+  await expect(card).toHaveCount(0)
+})
+
+test('the Project menu saves under the project name and shows it as saved', async ({ page }) => {
+  await open(page)
+  await page.getByLabel('Project name').fill('My Wall')
+  await expect(page.getByRole('img', { name: 'Unsaved changes' })).toBeVisible()
+  await page.getByRole('button', { name: /Project/ }).click()
+  const [download] = await Promise.all([page.waitForEvent('download'), page.getByRole('menuitem', { name: /Save/ }).click()])
+  expect(download.suggestedFilename()).toBe('My_Wall.stencil.json')
+  await expect(page.getByRole('img', { name: 'Unsaved changes' })).toHaveCount(0)
+  await expect(page.locator('.toasts')).toContainText('Saved My_Wall.stencil.json')
+})
+
+test('Ctrl+S saves the project', async ({ page }) => {
+  await open(page)
+  const [download] = await Promise.all([page.waitForEvent('download'), page.keyboard.press('Control+s')])
+  expect(download.suggestedFilename()).toBe('project.stencil.json')
+})
+
+test('Export everything makes one zip with the project, the models and the findings', async ({ page }) => {
+  test.setTimeout(120_000)
+  await open(page, 'Tiles first')
+  await page.getByLabel('Project name').fill('Wall')
+  await page.getByRole('button', { name: /Project/ }).click()
+  const [download] = await Promise.all([page.waitForEvent('download', { timeout: 90_000 }), page.getByRole('menuitem', { name: /Export everything/ }).click()])
+  expect(download.suggestedFilename()).toBe('Wall-everything.zip')
+  const buf = await (await import('node:fs/promises')).readFile((await download.path())!)
+  const text = buf.toString('latin1')
+  expect(text).toContain('Wall.stencil.json')
+  expect(text).toContain('findings.txt')
+  expect(text).toContain('models/')
+})
+
+test('deleting a node can be taken back from the toast', async ({ page }) => {
+  await open(page)
+  const before = await page.locator('.react-flow__node').count()
+  await page.locator('.react-flow__node').filter({ hasText: 'Threshold' }).first().click()
+  await page.getByRole('button', { name: 'Delete node' }).last().click()
+  await expect(page.locator('.react-flow__node')).toHaveCount(before - 1)
+  await page.locator('.toast').getByRole('button', { name: 'Undo' }).click()
+  await expect(page.locator('.react-flow__node')).toHaveCount(before)
+})
+
+test('the presets row sits above the parameters and the small targets are at least 24 px', async ({ page }) => {
+  await open(page)
+  await page.locator('.react-flow__node').filter({ hasText: 'Threshold' }).first().click()
+  const pre = await page.getByRole('group', { name: 'Presets' }).boundingBox()
+  const first = await page.locator('.inspector input[type=range]').first().boundingBox()
+  expect(pre!.y).toBeLessThan(first!.y)
+  // graph nodes are scaled by the zoom, so check what the style asks for
+  const asked = await page.getByRole('button', { name: 'Duplicate node' }).first().evaluate((e) => parseFloat(getComputedStyle(e).minHeight))
+  expect(asked).toBeGreaterThanOrEqual(24)
+  const help = await page.getByRole('button', { name: /Show help/ }).boundingBox()
+  expect(help!.height).toBeGreaterThanOrEqual(24)
+})
+
+test('at a narrow width the side panel is a drawer that opens with a selected node', async ({ page }) => {
+  await page.setViewportSize({ width: 800, height: 700 })
+  await open(page)
+  await page.locator('.react-flow__node').filter({ hasText: 'Threshold' }).first().click()
+  const box = await page.locator('.inspector').boundingBox()
+  expect(box!.x + box!.width).toBeLessThanOrEqual(800)
+  const canvas = await page.locator('.canvas').boundingBox()
+  expect(canvas!.height).toBeGreaterThan(300)
+  await page.locator('.react-flow__pane').click({ position: { x: 150, y: 150 } })
+  await expect(page.locator('.inspector')).toBeHidden()
 })
