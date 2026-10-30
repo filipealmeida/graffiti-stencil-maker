@@ -130,12 +130,14 @@ fn runs_a_saved_project_in_studio_format() {
         node("t", "threshold", "{}"),
         node("tr", "trace", "{}"),
         node("v", "vector_stencil", r#"{"width_mm":60,"detail":2}"#),
+        node("b", "bridges", "{}"),
     ]
     .join(",");
     let edges = [
         edge("s", "image", "t", "image"),
         edge("t", "mask", "tr", "mask"),
         edge("tr", "shapes", "v", "shapes"),
+        edge("v", "solid", "b", "body"),
     ]
     .join(",");
     let project = format!(
@@ -187,6 +189,7 @@ fn tiled_project(d: &std::path::Path) -> PathBuf {
             r#"{"width_mm":100,"margin_mm":6,"max_x":60,"max_y":60}"#,
         ),
         node("v", "vector_stencil", r#"{"detail":2,"thickness_mm":6}"#),
+        node("bridges", "bridges", "{}"),
     ]
     .join(",");
     let edges = [
@@ -195,6 +198,7 @@ fn tiled_project(d: &std::path::Path) -> PathBuf {
         edge("tr", "shapes", "lay", "shapes"),
         edge("tr", "shapes", "v", "shapes"),
         edge("lay", "tiles", "v", "tiles"),
+        edge("v", "parts", "bridges", "body"),
     ]
     .join(",");
     let path = d.join("tiled.stencil.json");
@@ -218,12 +222,7 @@ fn overrides_layout_and_report_flags_work() {
     let r = bin()
         .args(["--project", path.to_str().unwrap(), "-o"])
         .arg(&out)
-        .args([
-            "--set",
-            "lay.max_x=50",
-            "--set",
-            "vector_stencil.bridge_mm=2.2",
-        ])
+        .args(["--set", "lay.max_x=50", "--set", "bridges.bridge_mm=2.2"])
         .arg("--layout")
         .arg(&layout)
         .arg("--report")

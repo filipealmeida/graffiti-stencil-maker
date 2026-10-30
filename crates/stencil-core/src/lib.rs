@@ -80,6 +80,9 @@ pub struct Params {
     /// Bridge islands to the largest piece instead of the one at the grid's corner: a tile cut out of a plate has
     /// no frame to hold on to.
     pub frame_largest: bool,
+    /// Join islands to the plate with bridges. Off, the islands stay and are counted in the stats, for a
+    /// Bridges node downstream to join.
+    pub bridging: bool,
 }
 
 /// The grid a raster stencil is built on: the margin in cells, the grid size and the cell size in mm. The
@@ -130,6 +133,7 @@ impl Default for Params {
             first_layer_taper_mm: 1.0,
             max_overhang_deg: 0.0,
             frame_largest: false,
+            bridging: true,
         }
     }
 }
@@ -243,15 +247,17 @@ pub fn stencil_from_paint(
     let original = grid.m.clone();
     let radius = ((p.bridge_mm / s).round() as i64).max(1);
     let mut rise = vec![f32::NAN; w * h];
-    stats.bridge_pixels = bridge_islands(
-        &mut grid,
-        radius,
-        &mut rise,
-        p.bridges_per_island.clamp(1, 5) as usize,
-        p.bridge_min_angle_deg,
-        p.bridge_max_length,
-        p.frame_largest,
-    );
+    if p.bridging {
+        stats.bridge_pixels = bridge_islands(
+            &mut grid,
+            radius,
+            &mut rise,
+            p.bridges_per_island.clamp(1, 5) as usize,
+            p.bridge_min_angle_deg,
+            p.bridge_max_length,
+            p.frame_largest,
+        );
+    }
 
     progress::step("bridge islands", 0.4);
     let l = layers as u32;

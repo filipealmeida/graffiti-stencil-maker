@@ -60,9 +60,6 @@ struct Args {
     /// With --bridge-spread: longest bridge as a multiple of the shortest link (1-16, default 4)
     #[arg(long)]
     bridge_max_length: Option<f64>,
-    /// With --bridge-spread: how many passes the islands are bridged in (1-8, default 4)
-    #[arg(long)]
-    bridge_passes: Option<f64>,
     /// Widen any strip of material thinner than this (mm); 0 is off
     #[arg(long)]
     min_contact: Option<f64>,
@@ -139,7 +136,7 @@ struct Args {
     hardware: Option<String>,
 
     /// Set any node parameter: NODE.PARAM=VALUE, where NODE is a node id or a node type used once in the graph
-    /// (for example --set tile_layout.max_x=200 --set vector_stencil.bridge_mm=2). Repeat it for more.
+    /// (for example --set tile_layout.max_x=200 --set bridges.bridge_mm=2). Repeat it for more.
     #[arg(long = "set", value_name = "NODE.PARAM=VALUE")]
     set: Vec<String>,
     /// Write the picture of every tile layout in the graph (paint dark, connector blocks blue, orange where they
@@ -262,7 +259,10 @@ fn main() {
         );
     }
 
-    // every plate a stencil node built has passed the island and watertight checks, or the run would have failed
+    // a stencil leaves its islands for a Bridges node: report the plates as they end up
+    let has_bridges = graph["nodes"]
+        .as_array()
+        .is_some_and(|ns| ns.iter().any(|n| n["type"] == "bridges"));
     for n in graph["nodes"].as_array().into_iter().flatten() {
         let r = &result["nodes"][n["id"].as_str().unwrap_or("")];
         let (Some(key), Some(outs)) = (r["key"].as_str(), r["outputs"].as_object()) else {
@@ -274,8 +274,15 @@ fn main() {
             .flatten()
             .map(|v| v.info())
             .and_then(|i| i.get("stats").cloned())
-            .filter(|_| matches!(n["type"].as_str(), Some("stencil" | "vector_stencil")))
+            .filter(|_| match n["type"].as_str() {
+                Some("bridges") => true,
+                Some("stencil" | "vector_stencil") => !has_bridges,
+                _ => false,
+            })
         {
+            if a.project.is_none() && st["islands_remaining"].as_u64().unwrap_or(0) > 0 {
+                fail("islands are left that no bridge could reach: use a wider --bridge or --raised-bridges");
+            }
             eprintln!(
                 "verified: {} islands found, {} remaining, watertight {}, {} triangles",
                 st["islands_found"], st["islands_remaining"], st["watertight"], st["triangles"]
@@ -447,8 +454,6 @@ fn pipeline(a: &Args, image: &str) -> Json {
         ("width_mm", a.width),
         ("thickness_mm", a.thickness),
         ("margin_mm", a.margin),
-        ("bridge_mm", a.bridge),
-        ("bridges_per_island", a.bridges_per_island),
         ("layer_height_mm", a.layer_height),
         ("extra_top_layers", a.extra_top_layers),
         ("min_island_mm2", a.min_island),
@@ -462,19 +467,23 @@ fn pipeline(a: &Args, image: &str) -> Json {
     if a.vector {
         set(&mut st, "detail", a.detail);
     }
-    for (k, v) in [("flip", a.flip), ("raised_bridges", a.raised_bridges)] {
-        if v {
-            st.insert(k.into(), json!(true));
-        }
+    if a.flip {
+        st.insert("flip".into(), json!(true));
+    }
+    // the stencil nodes leave islands; a Bridges node joins them
+    let mut br = Map::new();
+    set(&mut br, "bridge_mm", a.bridge);
+    set(&mut br, "bridges_per_island", a.bridges_per_island);
+    if a.raised_bridges {
+        br.insert("raised_bridges".into(), json!(true));
     }
     if a.bridge_spread || a.bridge_min_angle.is_some() {
-        st.insert("bridge_spacing".into(), json!("spread"));
+        br.insert("bridge_spacing".into(), json!("spread"));
     }
-    set(&mut st, "bridge_min_angle_deg", a.bridge_min_angle);
-    set(&mut st, "bridge_max_length", a.bridge_max_length);
-    set(&mut st, "bridge_passes", a.bridge_passes);
+    set(&mut br, "bridge_min_angle_deg", a.bridge_min_angle);
+    set(&mut br, "bridge_max_length", a.bridge_max_length);
     if let Some(z) = &a.z_bridging {
-        st.insert("z_bridging".into(), json!(z));
+        br.insert("z_bridging".into(), json!(z));
     }
 
     let mut ex = Map::new();
@@ -520,8 +529,10 @@ fn pipeline(a: &Args, image: &str) -> Json {
         nodes.push(json!({"id": "st", "type": "stencil", "params": st}));
         edges.push(json!({"from": ["thr", "mask"], "to": ["st", "mask"]}));
     }
+    nodes.push(json!({"id": "br", "type": "bridges", "params": br}));
+    edges.push(json!({"from": ["st", "solid"], "to": ["br", "body"]}));
     nodes.push(json!({"id": "ex", "type": "export", "params": ex}));
-    edges.push(json!({"from": ["st", "solid"], "to": ["ex", "solid"]}));
+    edges.push(json!({"from": ["br", "solid"], "to": ["ex", "solid"]}));
     if let Some(screw) = &a.hardware {
         let mut hw = json!({"screw": screw});
         if let Some(c) = &a.connector {
@@ -964,7 +975,7 @@ fn load_project(engine: &mut Engine, path: &Path) -> (Json, String, PathBuf) {
         .map(|s| s.to_string_lossy().to_string())
         .unwrap_or_else(|| "project".into());
     (
-        json!({"nodes": nodes, "edges": edges}),
+        stencil_core::graph::migrate_graph(&json!({"nodes": nodes, "edges": edges})),
         stem,
         path.parent().map(Path::to_path_buf).unwrap_or_default(),
     )

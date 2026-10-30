@@ -666,6 +666,8 @@ struct TileOut {
     fallback: Option<String>,
     top: f64,
     dropped: usize,
+    /// Pieces not joined to the tile's biggest one (left for a Bridges node when bridging is off).
+    loose: usize,
 }
 
 /// The whole plate, bridged as one: the printed mesh and what the build said about it.
@@ -711,7 +713,7 @@ fn cut_tile(
         flip: p.flip,
         ..Default::default()
     };
-    for _ in 0..3 {
+    for _ in 0..if p.bridging { 3 } else { 0 } {
         let Some(b) = crate::tile_bridge::bridge_mesh(&m, &[], &bp)? else {
             break;
         };
@@ -719,7 +721,7 @@ fn cut_tile(
     }
     let mut dropped = 0;
     let (left, of) = crate::tile_bridge::components(&m);
-    if left > 1 {
+    if left > 1 && p.bridging {
         let mut tris = vec![0usize; left];
         let mut lo = vec![[f64::MAX; 2]; left];
         let mut hi = vec![[f64::MIN; 2]; left];
@@ -752,7 +754,7 @@ fn cut_tile(
     let mut stats = out.stats.clone();
     stats.islands_found = loose;
     stats.bridge_pixels = 0;
-    stats.islands_remaining = 0;
+    stats.islands_remaining = left.saturating_sub(1 + dropped);
     stats.watertight = m.is_watertight();
     let o = Output {
         stl: m.to_stl(),
@@ -826,7 +828,7 @@ fn build_tile(
             return Err("this layout was made from a mask: connect it to a Stencil".into())
         }
     };
-    if out.stats.islands_remaining != 0 || !out.stats.watertight {
+    if (p.bridging && out.stats.islands_remaining != 0) || !out.stats.watertight {
         return Err(fail(
             "verification failed: the stencil has islands or is not watertight".into(),
         ));
@@ -860,7 +862,7 @@ fn build_tile(
         return Err(fail("not watertight after drilling the pockets".into()));
     }
     let (pieces, of) = crate::tile_bridge::components(&mesh);
-    if pieces != 1 {
+    if pieces != 1 && p.bridging {
         let mut boxes = vec![[f64::MAX, f64::MAX, f64::MIN, f64::MIN]; pieces];
         for (t, &k) in mesh.t.iter().zip(&of) {
             for &i in t {
@@ -895,6 +897,7 @@ fn build_tile(
         fallback: out.fallback,
         top: out.stats.thickness_mm,
         dropped,
+        loose: pieces - 1,
     })
 }
 
@@ -1048,6 +1051,8 @@ pub fn build(l: &Layout, m: &Method) -> Result<Built, String> {
         "fallback_tiles": fallbacks,
         "tile_method": if matches!(m, Method::Cut(..)) { "cut_whole" } else { "per_tile" },
         "dropped_fragments": outs.iter().map(|o| o.dropped).sum::<usize>(),
+        "loose_pieces": outs.iter().map(|o| o.loose).sum::<usize>(),
+        "loose_tiles": outs.iter().filter(|o| o.loose > 0).count(),
         "seam_step_mm": (seam_steps(l, &outs, p.flip, p.layer_height_mm) * 10.0).round() / 10.0,
         "hole_depth_mm": c.depth, "rod_length_mm": tiles::rod_length(c.depth),
         "paint_under_blocks_mm2": (l.paint_under_blocks_mm2() * 10.0).round() / 10.0,

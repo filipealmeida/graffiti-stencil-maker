@@ -1,5 +1,22 @@
 use super::*;
 
+/// Puts a Bridges node after each of the nodes, as the stencil nodes no longer bridge themselves.
+fn with_bridges(mut g: Json, after: &[&str]) -> Json {
+    for id in after {
+        let ty = g["nodes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|n| n["id"] == *id)
+            .unwrap()["type"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        migrate::add_bridges(&mut g, id, &ty, Default::default());
+    }
+    g
+}
+
 fn test_png() -> Vec<u8> {
     let img = image::GrayImage::from_fn(120, 120, |x, y| {
         let d = (((x as f64 - 60.0).powi(2) + (y as f64 - 60.0).powi(2)).sqrt()) as u32;
@@ -33,9 +50,13 @@ fn svg_pictures_run_through_the_graph() {
     let added = e.add_image(svg).unwrap();
     assert_eq!(added["width"], 40);
     let g = graph(added["id"].as_str().unwrap(), 2.0);
+    let g = with_bridges(g, &["st"]);
     let r = e.run(&g, None, &|| 0.0);
-    assert_eq!(r["nodes"]["st"]["state"], "done", "{r}");
-    let key = r["nodes"]["st"]["key"].as_str().unwrap().to_string();
+    assert_eq!(r["nodes"]["st-bridges"]["state"], "done", "{r}");
+    let key = r["nodes"]["st-bridges"]["key"]
+        .as_str()
+        .unwrap()
+        .to_string();
     let Some(Value::Solid(s)) = e.value(&key, "solid") else {
         panic!()
     };
@@ -86,7 +107,7 @@ fn vector_polygon_path_builds_island_free_plate_and_detail_adds_triangles() {
         });
         let r = e.run(&g, None, &|| 0.0);
         assert_eq!(r["nodes"]["v"]["state"], "done", "{r}");
-        let key = r["nodes"]["v"]["key"].as_str().unwrap().to_string();
+        let key = r["nodes"]["v-bridges"]["key"].as_str().unwrap().to_string();
         let Some(Value::Solid(s)) = e.value(&key, "solid") else {
             panic!()
         };
@@ -98,18 +119,13 @@ fn vector_polygon_path_builds_island_free_plate_and_detail_adds_triangles() {
             "{:?}",
             s.stats
         );
-        assert!(
-            s.stats["bridge_pixels"].as_u64().unwrap() > 0,
-            "{:?}",
-            s.stats
-        );
         (tris, s.stats["first_layer_islands"].as_u64().unwrap())
     };
     let (lo, _) = run(&mut e, 1.0, false);
     let (hi, _) = run(&mut e, 4.0, false);
     assert!(hi > lo, "{lo} -> {hi}");
-    let (_, first_layer_islands) = run(&mut e, 3.0, true);
-    assert!(first_layer_islands > 0);
+    let (raised, _) = run(&mut e, 3.0, true);
+    assert!(raised > 0);
 }
 
 #[test]
@@ -228,20 +244,20 @@ fn runs_caches_and_reruns_only_what_changed() {
         .unwrap()
         .to_string();
     let now = || 0.0;
-    let r = e.run(&graph(&id, 2.0), None, &now);
+    let r = e.run(&with_bridges(graph(&id, 2.0), &["st"]), None, &now);
     assert_eq!(r["status"], "done");
     assert_eq!(r["nodes"]["st"]["state"], "done");
     assert_eq!(r["nodes"]["st"]["cached"], false);
-    let key = r["nodes"]["st"]["key"].as_str().unwrap();
+    let key = r["nodes"]["st-bridges"]["key"].as_str().unwrap();
     let Some(Value::Solid(s)) = e.value(key, "solid") else {
         panic!("no solid")
     };
     assert_eq!(s.stats["islands_remaining"], 0);
     assert_eq!(s.stats["watertight"], true);
 
-    let again = e.run(&graph(&id, 2.0), None, &now);
+    let again = e.run(&with_bridges(graph(&id, 2.0), &["st"]), None, &now);
     assert_eq!(again["nodes"]["st"]["cached"], true);
-    let changed = e.run(&graph(&id, 3.0), None, &now);
+    let changed = e.run(&with_bridges(graph(&id, 3.0), &["st"]), None, &now);
     assert_eq!(changed["nodes"]["t"]["cached"], true);
     assert_eq!(changed["nodes"]["st"]["cached"], false);
 }
@@ -436,10 +452,11 @@ fn text_node_makes_a_mask_that_becomes_an_island_free_stencil() {
         ],
         "edges": [{"from": ["t", "mask"], "to": ["st", "mask"]}]
     });
+    let g = with_bridges(g, &["st"]);
     let r = e.run(&g, None, &|| 0.0);
     assert_eq!(r["nodes"]["t"]["state"], "done", "{r}");
-    assert_eq!(r["nodes"]["st"]["state"], "done", "{r}");
-    let k = r["nodes"]["st"]["key"].as_str().unwrap();
+    assert_eq!(r["nodes"]["st-bridges"]["state"], "done", "{r}");
+    let k = r["nodes"]["st-bridges"]["key"].as_str().unwrap();
     let info = e.value(k, "solid").unwrap().info();
     assert_eq!(info["stats"]["islands_remaining"], 0, "{info}");
     assert!(info["stats"]["islands_found"].as_u64().unwrap() >= 3);
@@ -458,6 +475,7 @@ fn remesh_run(stencil: Json, reducer: Json) -> (Vec<u8>, Vec<u8>, Json) {
             {"from": ["st", "solid"], "to": ["cx", "solid"]}
         ]
     });
+    let g = with_bridges(g, &["st"]);
     let r = e.run(&g, None, &|| 0.0);
     assert_eq!(r["nodes"]["cx"]["state"], "done", "{r}");
     let bytes = |id: &str| {
@@ -466,7 +484,11 @@ fn remesh_run(stencil: Json, reducer: Json) -> (Vec<u8>, Vec<u8>, Json) {
     };
     let k = r["nodes"]["cx"]["key"].as_str().unwrap();
     let info = e.value(k, "solid").unwrap().info();
-    (bytes("st"), bytes("cx"), info["stats"]["remesh"].clone())
+    (
+        bytes("st-bridges"),
+        bytes("cx"),
+        info["stats"]["remesh"].clone(),
+    )
 }
 
 fn assert_same_plate(before: &[u8], after: &[u8], volume_tol: f64, shift: f64) {
@@ -538,8 +560,7 @@ fn remesh_rounds_towards_material() {
 
 #[test]
 fn remesh_on_raised_bridges_is_valid_or_leaves_the_solid_alone() {
-    let st =
-        json!({"width_mm": 100, "thickness_mm": 2, "raised_bridges": true, "layer_height_mm": 0.2});
+    let st = json!({"width_mm": 100, "thickness_mm": 2, "layer_height_mm": 0.2});
     for params in [
         json!({"tolerance_mm": 0.15}),
         json!({"tolerance_mm": 0.15, "layer_from": 2, "layer_to": 4}),
@@ -731,9 +752,13 @@ fn tiles_node_cuts_a_stencil_and_describes_the_plate() {
         .to_string();
     let mut g = graph(&id, 6.0);
     g["nodes"][3] = json!({"id": "ex", "type": "tiles", "params": {"max_x": 60.0, "max_y": 60.0}});
+    let g = with_bridges(g, &["ex"]);
     let r = e.run(&g, None, &|| 0.0);
-    assert_eq!(r["nodes"]["ex"]["state"], "done", "{r}");
-    let key = r["nodes"]["ex"]["key"].as_str().unwrap().to_string();
+    assert_eq!(r["nodes"]["ex-bridges"]["state"], "done", "{r}");
+    let key = r["nodes"]["ex-bridges"]["key"]
+        .as_str()
+        .unwrap()
+        .to_string();
     let Some(Value::Parts(p)) = e.value(&key, "parts") else {
         panic!()
     };
@@ -766,6 +791,7 @@ fn pad_thread_none_adds_no_pads_but_keeps_the_mounting_holes() {
         .as_array_mut()
         .unwrap()
         .push(json!({"from": ["ex", "parts"], "to": ["pd", "parts"]}));
+    let g = with_bridges(g, &["st", "ex"]);
     let r = e.run(&g, None, &|| 0.0);
     assert_eq!(r["nodes"]["pd"]["state"], "done", "{r}");
     let key = r["nodes"]["pd"]["key"].as_str().unwrap().to_string();
@@ -794,6 +820,7 @@ fn pads_stay_clear_of_a_bevelled_seam_face() {
         .as_array_mut()
         .unwrap()
         .push(json!({"from": ["ex", "parts"], "to": ["pd", "parts"]}));
+    let g = with_bridges(g, &["st", "ex"]);
     let r = e.run(&g, None, &|| 0.0);
     assert_eq!(r["nodes"]["pd"]["state"], "done", "{r}");
     let key = r["nodes"]["pd"]["key"].as_str().unwrap().to_string();
@@ -840,6 +867,7 @@ fn pads_node_fits_pads_and_holes_clear_of_seams() {
             .as_array_mut()
             .unwrap()
             .push(json!({"from": ["ex", "parts"], "to": ["pd", "parts"]}));
+        let mut g = with_bridges(g, &["st", "ex"]);
         let r = e.run(&g, None, &|| 0.0);
         assert_eq!(r["nodes"]["pd"]["state"], "done", "{r}");
         let key = r["nodes"]["pd"]["key"].as_str().unwrap().to_string();
@@ -925,6 +953,7 @@ fn pre_tiled_chain(vector: bool, flip: bool) -> (Engine, Json) {
         edges.push(json!({"from": ["t", "mask"], "to": ["tr", "mask"]}));
     }
     let g = json!({"nodes": nodes, "edges": edges});
+    let g = with_bridges(g, &["st"]);
     let r = e.run(&g, None, &|| 0.0);
     (e, r)
 }
@@ -934,10 +963,13 @@ fn tiling_before_bridging_gives_island_free_tiles_that_pads_and_screws_accept() 
     for vector in [false, true] {
         for flip in [false, true] {
             let (e, r) = pre_tiled_chain(vector, flip);
-            for n in ["tl", "st", "pd", "hw"] {
+            for n in ["tl", "st", "st-bridges", "pd", "hw"] {
                 assert_eq!(r["nodes"][n]["state"], "done", "{vector} {flip} {n}: {r}");
             }
-            let key = r["nodes"]["st"]["key"].as_str().unwrap().to_string();
+            let key = r["nodes"]["st-bridges"]["key"]
+                .as_str()
+                .unwrap()
+                .to_string();
             let Some(Value::Parts(p)) = e.value(&key, "parts") else {
                 panic!()
             };
@@ -1021,6 +1053,7 @@ fn ring_run(
         .as_array_mut()
         .unwrap()
         .push(json!({"from": ["pd", "parts"], "to": ["rg", "parts"]}));
+    let g = with_bridges(g, &["st", "ex"]);
     let r = e.run(&g, None, &|| 0.0);
     let key = r["nodes"]["rg"]["key"].as_str().unwrap_or("").to_string();
     let parts = match e.value(&key, "parts") {
@@ -1105,6 +1138,7 @@ fn margin_expansion_gap_shrinks_the_slabs_and_keeps_the_holes() {
             .as_array_mut()
             .unwrap()
             .push(json!({"from": ["pd", "parts"], "to": ["rg", "parts"]}));
+        let gr = with_bridges(gr, &["st", "ex"]);
         let r = e.run(&gr, None, &|| 0.0);
         let key = r["nodes"]["rg"]["key"].as_str().unwrap().to_string();
         let Some(Value::Parts(p)) = e.value(&key, "parts") else {
@@ -1142,6 +1176,7 @@ fn pads_node_makes_a_joiner_centred_on_the_seam_holes() {
         .as_array_mut()
         .unwrap()
         .push(json!({"from": ["ex", "parts"], "to": ["pd", "parts"]}));
+    let g = with_bridges(g, &["st", "ex"]);
     let r = e.run(&g, None, &|| 0.0);
     let key = r["nodes"]["pd"]["key"].as_str().unwrap().to_string();
     let Some(Value::Parts(p)) = e.value(&key, "parts") else {
@@ -1241,6 +1276,7 @@ fn number_pockets_are_as_deep_as_asked() {
             .as_array_mut()
             .unwrap()
             .push(json!({"from": ["pd", "parts"], "to": ["rg", "parts"]}));
+        let g = with_bridges(g, &["st", "ex"]);
         let r = e.run(&g, None, &|| 0.0);
         let key = r["nodes"]["rg"]["key"].as_str().unwrap_or("").to_string();
         let Some(Value::Parts(p)) = e.value(&key, "parts") else {

@@ -148,14 +148,6 @@ Every parameter `--set NODE.PARAM=VALUE` accepts. Generated with `stencil --list
 | `thickness_mm` | Thickness (mm) | float | `5.0` | 0.2 to 100.0 |
 | `margin_mm` | Margin (mm) | float | `8.0` | 0.0 to 500.0 |
 | `flip` | Print upside down | bool | `false` | true \| false |
-| `bridge_mm` | Bridge width (mm) | float | `1.6` | 0.6 to 50.0 |
-| `bridges_per_island` | Bridges per island | int | `1.0` | 1.0 to 5.0 |
-| `bridge_spacing` | Bridge spacing | choice | `"closest"` | closest \| spread |
-| `bridge_min_angle_deg` | Minimum angle between bridges (deg) | float | `45.0` | 15.0 to 90.0 |
-| `bridge_max_length` | Longest bridge in spread mode (x shortest) | float | `4.0` | 1.0 to 16.0 |
-| `bridge_passes` | Bridging passes in spread mode | int | `4.0` | 1.0 to 8.0 |
-| `raised_bridges` | Raised bridges | bool | `true` | true \| false |
-| `z_bridging` | Z bridging | choice | `"easy"` | easy \| steps |
 | `layer_height_mm` | Layer height (mm) | float | `0.2` | 0.05 to 5.0 |
 | `extra_top_layers` | Extra top layers | int | `1.0` | 0.0 to 50.0 |
 | `max_overhang_deg` | Overhang check angle (deg) | float | `0.0` | 0.0 to 89.0 |
@@ -173,14 +165,6 @@ Every parameter `--set NODE.PARAM=VALUE` accepts. Generated with `stencil --list
 | `thickness_mm` | Thickness (mm) | float | `5.0` | 0.2 to 100.0 |
 | `margin_mm` | Margin (mm) | float | `8.0` | 0.0 to 500.0 |
 | `flip` | Print upside down | bool | `false` | true \| false |
-| `bridge_mm` | Bridge width (mm) | float | `1.6` | 0.6 to 50.0 |
-| `bridges_per_island` | Bridges per island | int | `1.0` | 1.0 to 5.0 |
-| `bridge_spacing` | Bridge spacing | choice | `"closest"` | closest \| spread |
-| `bridge_min_angle_deg` | Minimum angle between bridges (deg) | float | `45.0` | 15.0 to 90.0 |
-| `bridge_max_length` | Longest bridge in spread mode (x shortest) | float | `4.0` | 1.0 to 16.0 |
-| `bridge_passes` | Bridging passes in spread mode | int | `4.0` | 1.0 to 8.0 |
-| `raised_bridges` | Raised bridges | bool | `true` | true \| false |
-| `z_bridging` | Z bridging | choice | `"easy"` | easy \| steps |
 | `layer_height_mm` | Layer height (mm) | float | `0.2` | 0.05 to 5.0 |
 | `extra_top_layers` | Extra top layers | int | `1.0` | 0.0 to 50.0 |
 | `max_overhang_deg` | Overhang check angle (deg) | float | `0.0` | 0.0 to 89.0 |
@@ -257,11 +241,6 @@ Every parameter `--set NODE.PARAM=VALUE` accepts. Generated with `stencil --list
 | `depth` | Connector depth into each tile (mm) | float | `10.0` | 4.0 to 20.0 |
 | `clearance` | Connector hole clearance (mm, diametral) | float | `0.2` | 0.0 to 0.6 |
 | `segments` | Round segments | int | `48.0` | 24.0 to 128.0 |
-| `bridge_islands` | Bridge islands a cut creates | bool | `true` | true \| false |
-| `bridge_mm` | Bridge width (mm) | float | `1.6` | 0.4 to 6.0 |
-| `bridges_per_island` | Bridges per island | int | `1.0` | 1.0 to 4.0 |
-| `raised_bridges` | Raised bridges | bool | `true` | true \| false |
-| `z_bridging` | Z bridging | choice | `"easy"` | easy \| steps |
 
 ### Add pads & mounting holes (`pads`)
 

@@ -131,22 +131,9 @@ pub(super) fn stencil_params_from(p: &P) -> Params {
         width_mm: p.f("width_mm"),
         thickness_mm: p.f("thickness_mm"),
         margin_mm: p.f("margin_mm"),
-        bridge_mm: p.f("bridge_mm"),
-        bridges_per_island: p.f("bridges_per_island") as u32,
-        bridge_min_angle_deg: if p.s("bridge_spacing") == "spread" {
-            p.f("bridge_min_angle_deg")
-        } else {
-            0.0
-        },
-        bridge_max_length: p.f("bridge_max_length"),
-        bridge_passes: p.f("bridge_passes") as u32,
+        // islands are joined by a Bridges node
+        bridging: false,
         flip: p.b("flip"),
-        raised_bridges: p.b("raised_bridges"),
-        z_bridging: if p.s("z_bridging") == "easy" {
-            ZBridging::Easy
-        } else {
-            ZBridging::Steps
-        },
         layer_height_mm: p.f("layer_height_mm"),
         extra_top_layers: p.f("extra_top_layers") as u32,
         max_overhang_deg: p.f("max_overhang_deg"),
@@ -159,8 +146,8 @@ pub(super) fn stencil_params_from(p: &P) -> Params {
 }
 
 pub(super) fn finish_solid(o: crate::Output, p: &P) -> Result<Outputs, String> {
-    if o.stats.islands_remaining != 0 || !o.stats.watertight {
-        return Err("verification failed: the stencil has islands or is not watertight".into());
+    if !o.stats.watertight {
+        return Err("verification failed: the stencil is not watertight".into());
     }
     let mut stats: Json = serde_json::from_str(&o.stats.to_json()).map_err(|e| e.to_string())?;
     stats["margin_mm"] = json!(p.f("margin_mm"));
@@ -168,12 +155,8 @@ pub(super) fn finish_solid(o: crate::Output, p: &P) -> Result<Outputs, String> {
     stats["thickness_mm"] = json!(p.f("thickness_mm"));
     stats["layer_height_mm"] = json!(p.f("layer_height_mm"));
     stats["plate_top_mm"] = json!(o.stats.thickness_mm);
-    stats["bridge_mm"] = json!(p.f("bridge_mm"));
-    stats["bridges_per_island"] = json!(p.f("bridges_per_island"));
     stats["min_first_layer_width_mm"] = json!(p.f("min_first_layer_width_mm"));
     stats["first_layer_taper_mm"] = json!(p.f("first_layer_taper_mm"));
-    stats["raised_bridges"] = json!(p.b("raised_bridges"));
-    stats["z_bridging"] = json!(p.s("z_bridging"));
     if let Some(f) = &o.fallback {
         stats["fallback"] = json!(f);
     }
@@ -558,20 +541,7 @@ pub(super) fn run_export(_: &Engine, i: &HashMap<String, Value>, p: &P) -> Resul
         shift_mm: 0.0,
         avoid: Vec::new(),
         reinforce: false,
-        bridge: s.stats["plate_top_mm"].as_f64().map(|top| {
-            let lh = s.stats["layer_height_mm"].as_f64().unwrap_or(0.2);
-            crate::tile_bridge::BridgeParams {
-                bridge_mm: s.stats["bridge_mm"].as_f64().unwrap_or(1.6),
-                per_island: s.stats["bridges_per_island"].as_f64().unwrap_or(1.0) as usize,
-                raised: s.stats["raised_bridges"].as_bool().unwrap_or(false),
-                easy: s.stats["z_bridging"].as_str() == Some("easy"),
-                base_layers: (s.stats["thickness_mm"].as_f64().unwrap_or(top) / lh).round() as u32,
-                layer_height: lh,
-                plate_top: top,
-                flip: s.stats["flip"].as_bool().unwrap_or(false),
-                ..Default::default()
-            }
-        }),
+        bridge: None,
     };
     let (pads, mount) = (p.f("pad_count") as usize, p.s("mount_screw") != "none");
     let tiled = tp.max_x > 0.0 || tp.max_y > 0.0;
@@ -691,20 +661,6 @@ pub(super) fn run_tiles(_: &Engine, i: &HashMap<String, Value>, p: &P) -> Result
         st["layer_height_mm"].as_f64().unwrap_or(0.2),
         st["thickness_mm"].as_f64().unwrap_or(0.0),
     );
-    let bridge = match (p.b("bridge_islands"), st["plate_top_mm"].as_f64()) {
-        (true, Some(top)) => Some(crate::tile_bridge::BridgeParams {
-            bridge_mm: p.f("bridge_mm"),
-            per_island: p.f("bridges_per_island") as usize,
-            raised: p.b("raised_bridges"),
-            easy: p.s("z_bridging") == "easy",
-            base_layers: (thickness / lh).round() as u32,
-            layer_height: lh,
-            plate_top: top,
-            flip: st["flip"].as_bool().unwrap_or(false),
-            ..Default::default()
-        }),
-        _ => None,
-    };
     let tp = tiles::TileParams {
         max_x: p.f("max_x"),
         max_y: p.f("max_y"),
@@ -723,7 +679,7 @@ pub(super) fn run_tiles(_: &Engine, i: &HashMap<String, Value>, p: &P) -> Result
         shift_mm: p.f("seam_shift"),
         avoid: Vec::new(),
         reinforce: p.b("reinforce"),
-        bridge,
+        bridge: None,
     };
     let mesh = crate::mesh::Mesh::from_stl(&s.stl)?;
     crate::progress::step("read plate", 0.05);

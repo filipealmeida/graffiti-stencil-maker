@@ -7,7 +7,6 @@ export const PARAM_HELP: Record<string, string> = {
   bridge_mm: 'Width of the strips that hold floating pieces (islands) to the frame. Wider is stronger but hides more of the picture. Keep it above your nozzle width.',
   bridge_spacing: 'Closest takes the shortest links. Spread places each further bridge of an island at an angle to the earlier ones, so they hold it from different sides; if no such link exists the angle is relaxed, never the number of bridges.',
   bridge_min_angle_deg: 'With Spread: the smallest angle between two bridges of one island (90 is perpendicular).',
-  bridge_passes: 'With Spread: islands are bridged in this many passes. A few well-spaced islands first, then a growing share of the rest; later bridges may land on an island that is already held and leave at a different angle from the bridges around.',
   bridge_max_length: 'With Spread: how much longer than the island\'s shortest link a bridge may be, to reach an angle. 4 keeps bridges short; raise it for more freedom.',
   bridges_per_island: 'More bridges hold an island more firmly, but each one leaves a gap in the painted shape.',
   raised_bridges: 'Lift the bridges off the first layer so the paint flows under them and the artwork stays whole.',

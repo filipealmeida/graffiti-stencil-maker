@@ -24,7 +24,7 @@ stencil logo.png --vector --detail 4
 stencil tiled.png --tile-width 60 --tile-height 60 --connector hex --pads 4 --pad-thread M6
 stencil tiled.png --tile-width 60 --seam-clearance 0.3 -o tiled-parts.zip
 stencil --project saved-studio-graph.json -o output/
-stencil --project tiled.json --set tile_layout.max_x=60 --set vector_stencil.bridge_mm=2.2 --layout layout.png --report --strict
+stencil --project tiled.json --set tile_layout.max_x=60 --set bridges.bridge_mm=2.2 --layout layout.png --report --strict
 ```
 
 Images can be PNG, JPG, BMP, or SVG (at most 100 MB and 100 megapixels). The CLI prints a `verified:` line with the

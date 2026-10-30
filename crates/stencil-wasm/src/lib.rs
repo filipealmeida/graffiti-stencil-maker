@@ -72,6 +72,7 @@ pub fn make(
         first_layer_taper_mm: 1.0,
         max_overhang_deg,
         frame_largest: false,
+        bridging: true,
     };
     let out = make_stencil(bytes, &p).map_err(|e| JsError::new(&e))?;
     Ok(StencilResult {

@@ -1,12 +1,19 @@
 //! Typed node graph: node catalogue, validation and cached evaluation. The web studio and the CLI both run this.
 
 use crate::colour::{self, Pattern, Tone, ToneParams};
-use crate::{otsu, stencil_from_paint, Params, ZBridging};
+use crate::{otsu, stencil_from_paint, Params};
 use serde_json::{json, Map, Value as Json};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::rc::Rc;
 
 mod bridges;
+mod migrate;
+use migrate::migrate;
+
+/// Brings a graph saved by an older version up to the current node set.
+pub fn migrate_graph(graph: &Json) -> Json {
+    migrate(graph)
+}
 mod catalogue;
 mod colour_set;
 mod fragments;
@@ -513,37 +520,6 @@ impl Engine {
 }
 
 /// Validates the graph and returns the nodes to evaluate, parents first.
-/// Projects saved before a node was renamed keep working: "complexity" is now "remesh".
-fn migrate(graph: &Json) -> Json {
-    let mut g = graph.clone();
-    let old: Vec<String> = g["nodes"]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .filter(|n| n["type"] == "bridge_fragments")
-        .filter_map(|n| n["id"].as_str().map(String::from))
-        .collect();
-    for e in g["edges"].as_array_mut().into_iter().flatten() {
-        if e["to"][1] == "parts" && old.iter().any(|i| e["to"][0] == i.as_str()) {
-            e["to"][1] = json!("body");
-        }
-    }
-    if let Some(nodes) = g["nodes"].as_array_mut() {
-        for n in nodes {
-            if n["type"] == "complexity" {
-                n["type"] = json!("remesh");
-            }
-            if n["type"] == "bridge_fragments" {
-                n["type"] = json!("bridges");
-                if n["params"].is_object() {
-                    n["params"]["bridge_spacing"] = json!("closest");
-                }
-            }
-        }
-    }
-    g
-}
-
 fn plan(
     graph: &Json,
     defs: &HashMap<&str, NodeDef>,

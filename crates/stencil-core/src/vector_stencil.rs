@@ -529,6 +529,9 @@ fn build_once(
             deleted += 1;
             continue;
         }
+        if !p.bridging {
+            continue;
+        }
         let outline = outer_contour(&material[i]).ok_or("vector island has no outline")?;
         let outline = to_mm(outline);
         if spread {
@@ -755,7 +758,7 @@ fn build_once(
         }
         crate::progress::step("bridge islands", 0.5);
         let last = runs.last().expect("one run exists");
-        if last.len() != 1 {
+        if p.bridging && last.len() != 1 {
             return Err(format!(
                 "vector bridging left {} disconnected stencil components",
                 last.len()
@@ -784,7 +787,7 @@ fn build_once(
             islands_found,
             islands_deleted: deleted,
             bridge_pixels: bridges.len(),
-            islands_remaining: 0,
+            islands_remaining: last.len() - 1,
             first_layer_islands,
             watertight: true,
             triangles: stack.t.len(),
@@ -815,7 +818,7 @@ fn build_once(
         crate::progress::step("bridge islands", 0.5);
         // A tiny union makes point-touching outlines share a manifold boundary.
         material = repair_point_contacts(&material);
-        if material.len() != 1 {
+        if p.bridging && material.len() != 1 {
             return Err(format!(
                 "vector bridging left {} disconnected stencil components",
                 material.len()
