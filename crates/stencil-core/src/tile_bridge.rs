@@ -15,6 +15,28 @@ pub struct BridgeParams {
     /// Total plate height of the stencil (top of the layered solid).
     pub plate_top: f64,
     pub flip: bool,
+    /// Spread bridging: minimum angle between bridges of one island (0 = closest) and longest bridge.
+    pub min_angle_deg: f64,
+    pub max_length: f64,
+    pub passes: usize,
+}
+
+impl Default for BridgeParams {
+    fn default() -> Self {
+        BridgeParams {
+            bridge_mm: 1.6,
+            per_island: 1,
+            raised: true,
+            easy: true,
+            base_layers: 0,
+            layer_height: 0.2,
+            plate_top: 0.0,
+            flip: false,
+            min_angle_deg: 0.0,
+            max_length: 4.0,
+            passes: 3,
+        }
+    }
 }
 
 /// Connected components over shared vertices: (count, component of every triangle).
@@ -169,8 +191,8 @@ pub fn bridge_mesh(
         radius,
         &mut rise,
         bp.per_island.clamp(1, 5),
-        0.0,
-        4.0,
+        bp.min_angle_deg,
+        bp.max_length,
         Some(&avoid_mask),
     );
     if carved == 0 {

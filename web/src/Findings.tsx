@@ -7,7 +7,7 @@ const ICON = { error: '✖', warn: '▲', info: 'ℹ' } as const
 
 /** What to try for a finding: a line of advice and, when one click can do it, that action. */
 export function hintFor(text: string): { hint: string; add?: string } | null {
-  if (/pieces? loose in/.test(text)) return { hint: 'Join them or drop them.', add: 'bridge_fragments' }
+  if (/pieces? loose in/.test(text)) return { hint: 'Join them or drop them.', add: 'bridges' }
   if (/island.* remain/.test(text)) return { hint: 'Raise the bridge width or the ground height.' }
   if (/not watertight/.test(text)) return { hint: 'Add a Remesh node or lower the smoothing.' }
   if (/^overhang/.test(text)) return { hint: 'Raise the ground height so the paint fills below.' }
@@ -21,7 +21,7 @@ function addAfter(from: string, type: string) {
   const s = useStudio.getState()
   const src = s.nodes.find((n) => n.id === from)
   const out = src && s.types[src.data.type]?.outputs.find((o) => o.type === 'parts')
-  const inp = s.types[type]?.inputs.find((i) => i.type === 'parts')
+  const inp = s.types[type]?.inputs.find((i) => i.type === 'parts' || i.type === 'body')
   if (!src || !out || !inp) return
   const id = s.addNode(type, {}, { x: src.position.x + 320, y: src.position.y + 40 })
   s.connect({ source: from, sourceHandle: out.name, target: id, targetHandle: inp.name })

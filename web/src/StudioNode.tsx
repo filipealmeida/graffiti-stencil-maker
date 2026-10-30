@@ -5,7 +5,7 @@ import { badgesFor } from './badges'
 import { runSummary } from './NodeActions'
 import { etaSeconds, formatEta, nodeStarts, useNow } from './eta'
 
-export const KIND_COLOR: Record<Kind, string> = { image: '#4aa3ff', mask: '#ffa24a', shapes: '#f0d24a', tiles: '#ff7a9c', solid: '#5fd38d', parts: '#c28bff', any: '#8a93a0' }
+export const KIND_COLOR: Record<Kind, string> = { image: '#4aa3ff', mask: '#ffa24a', shapes: '#f0d24a', tiles: '#ff7a9c', solid: '#5fd38d', parts: '#c28bff', any: '#8a93a0', body: '#8a93a0' }
 
 /** What a running node is doing and how long it has left. */
 function RunNote({ id, message, progress, ms }: { id: string; message?: string; progress?: number; ms?: number }) {

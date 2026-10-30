@@ -239,7 +239,18 @@ export const useStudio = create<State>((set, get) => ({
   })),
   // "complexity" is the old name of the Remesh node
   load: (nodes, edges) =>
-    set({ nodes: nodes.map((n) => (n.data.type === 'complexity' ? { ...n, data: { ...n.data, type: 'remesh' } } : n)), edges, runs: {}, selected: null }),
+    set({
+      nodes: nodes.map((n) =>
+        n.data.type === 'complexity'
+          ? { ...n, data: { ...n.data, type: 'remesh' } }
+          : n.data.type === 'bridge_fragments'
+            ? { ...n, data: { ...n.data, type: 'bridges' } }
+            : n,
+      ),
+      edges: edges.map((e) => (e.targetHandle === 'parts' && nodes.some((n) => n.id === e.target && n.data.type === 'bridge_fragments') ? { ...e, targetHandle: 'body' } : e)),
+      runs: {},
+      selected: null,
+    }),
   starter: (imageId, title) => {
     const { addNode, connect } = get()
     set({ nodes: [], edges: [], runs: {}, selected: null })

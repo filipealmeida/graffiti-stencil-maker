@@ -709,6 +709,7 @@ fn cut_tile(
         layer_height: layer,
         plate_top: top,
         flip: p.flip,
+        ..Default::default()
     };
     for _ in 0..3 {
         let Some(b) = crate::tile_bridge::bridge_mesh(&m, &[], &bp)? else {

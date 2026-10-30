@@ -569,6 +569,7 @@ pub(super) fn run_export(_: &Engine, i: &HashMap<String, Value>, p: &P) -> Resul
                 layer_height: lh,
                 plate_top: top,
                 flip: s.stats["flip"].as_bool().unwrap_or(false),
+                ..Default::default()
             }
         }),
     };
@@ -700,6 +701,7 @@ pub(super) fn run_tiles(_: &Engine, i: &HashMap<String, Value>, p: &P) -> Result
             layer_height: lh,
             plate_top: top,
             flip: st["flip"].as_bool().unwrap_or(false),
+            ..Default::default()
         }),
         _ => None,
     };

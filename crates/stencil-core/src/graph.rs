@@ -6,7 +6,7 @@ use serde_json::{json, Map, Value as Json};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::rc::Rc;
 
-mod bridge_fragments;
+mod bridges;
 mod catalogue;
 mod colour_set;
 mod fragments;
@@ -516,10 +516,28 @@ impl Engine {
 /// Projects saved before a node was renamed keep working: "complexity" is now "remesh".
 fn migrate(graph: &Json) -> Json {
     let mut g = graph.clone();
+    let old: Vec<String> = g["nodes"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|n| n["type"] == "bridge_fragments")
+        .filter_map(|n| n["id"].as_str().map(String::from))
+        .collect();
+    for e in g["edges"].as_array_mut().into_iter().flatten() {
+        if e["to"][1] == "parts" && old.iter().any(|i| e["to"][0] == i.as_str()) {
+            e["to"][1] = json!("body");
+        }
+    }
     if let Some(nodes) = g["nodes"].as_array_mut() {
         for n in nodes {
             if n["type"] == "complexity" {
                 n["type"] = json!("remesh");
+            }
+            if n["type"] == "bridge_fragments" {
+                n["type"] = json!("bridges");
+                if n["params"].is_object() {
+                    n["params"]["bridge_spacing"] = json!("closest");
+                }
             }
         }
     }
@@ -559,7 +577,9 @@ fn plan(
             .and_then(|t| defs[t].inputs.iter().find(|(n, _, _)| *n == bi));
         match (out, inp) {
             (Some((_, ot)), Some((_, it, _)))
-                if it == ot || (*it == "any" && (*ot == "image" || *ot == "mask")) => {}
+                if it == ot
+                    || (*it == "any" && (*ot == "image" || *ot == "mask"))
+                    || (*it == "body" && (*ot == "solid" || *ot == "parts")) => {}
             _ => return Err(format!("invalid connection {a}.{ao} -> {b}.{bi}")),
         }
         parents.entry(b).or_default().push(a);

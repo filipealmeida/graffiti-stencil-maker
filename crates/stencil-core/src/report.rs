@@ -125,7 +125,7 @@ pub fn findings(ty: &str, params: &Json, infos: &[Json]) -> Vec<Finding> {
                 add(
                     Level::Warn,
                     format!(
-                        "{} loose in {}: join them with Bridge fragments or drop them with Remove fragments",
+                        "{} loose in {}: join them with Bridges or drop them with Remove fragments",
                         plural(n(&t["loose_pieces"]), "piece", "pieces"),
                         plural(n(&t["loose_tiles"]), "tile", "tiles")
                     ),

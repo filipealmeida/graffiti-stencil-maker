@@ -240,7 +240,7 @@
   },
   {
     "name": "fragment nodes",
-    "type": "bridge_fragments",
+    "type": "bridges",
     "params": {},
     "info": {
       "kind": "parts",
@@ -311,7 +311,7 @@
     "expected": [
       {
         "level": "warn",
-        "text": "41 pieces loose in 7 tiles: join them with Bridge fragments or drop them with Remove fragments"
+        "text": "41 pieces loose in 7 tiles: join them with Bridges or drop them with Remove fragments"
       }
     ]
   },

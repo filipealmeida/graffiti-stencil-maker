@@ -330,7 +330,8 @@ function Canvas() {
       !!o &&
       !!i &&
       (i.type === o.type ||
-        (i.type === "any" && (o.type === "image" || o.type === "mask")))
+        (i.type === "any" && (o.type === "image" || o.type === "mask")) ||
+        (i.type === "body" && (o.type === "solid" || o.type === "parts")))
     );
   };
 

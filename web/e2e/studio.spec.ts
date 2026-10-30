@@ -1045,7 +1045,7 @@ test('the fragment nodes and the seam bevel angle show their parameters and help
 
   for (const [query, title, label] of [
     ['remove fragments', 'Remove fragments', 'Fragments to keep'],
-    ['bridge fragments', 'Bridge fragments', 'Bridges per island'],
+    ['bridges', 'Bridges', 'Bridges per island'],
   ]) {
     await page.getByTitle('Command palette (Ctrl+K)').click()
     await page.getByRole('textbox', { name: 'Command palette' }).fill(query)

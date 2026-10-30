@@ -1041,6 +1041,7 @@ mod tests {
                 layer_height: 0.2,
                 plate_top: 6.0,
                 flip,
+                ..Default::default()
             }),
         }
     }
