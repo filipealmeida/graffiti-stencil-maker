@@ -31,6 +31,7 @@ import {
   runGraph,
   rerun,
   signature,
+  checkpoint,
   STORE_KEY,
   undo,
   useStudio,
@@ -607,6 +608,7 @@ function Canvas() {
                 role="menuitem"
                 onClick={() => {
                   if (!s.nodes.length) return;
+                  checkpoint();
                   s.load([], []);
                   localStorage.removeItem(STORE_KEY);
                   s.toast("Started a new project", { undo });

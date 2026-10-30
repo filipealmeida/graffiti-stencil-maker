@@ -830,6 +830,7 @@ test('the shading menu changes how the mesh is drawn', async ({ page }) => {
     await page.waitForTimeout(1500)
     // Element screenshots wait for the canvas to stop moving, which the viewer may never do; clip the page instead.
     const canvas = page.locator('.v3bar').locator('xpath=ancestor::*[.//canvas][1]').locator('canvas').first()
+    await expect(canvas).toBeVisible()
     const box = await canvas.boundingBox()
     expect(box).not.toBeNull()
     const img = (await page.screenshot({ clip: box! })).toString('base64')

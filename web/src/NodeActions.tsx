@@ -1,5 +1,5 @@
 import { artifactUrl, type Kind, type NodeRun } from './api'
-import { undo, useStudio } from './store'
+import { checkpoint, undo, useStudio } from './store'
 import { safeName } from './project'
 
 /** What a finished output can be downloaded as: one wording and one file name for the side panel and the preview. */
@@ -30,6 +30,7 @@ export function DeleteNode({ id }: { id: string }) {
     <button className="danger" onClick={() => {
       const s = useStudio.getState()
       const label = s.nodes.find((n) => n.id === id)?.data.title || 'node'
+      checkpoint()
       s.removeNode(id)
       s.toast(`Deleted ${label}`, { undo })
     }}>Delete node</button>

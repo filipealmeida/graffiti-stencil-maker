@@ -362,6 +362,8 @@ function commit() {
     flags()
   }
 }
+/** Closes the open undo step, so the edit that follows is undone on its own. */
+export const checkpoint = commit
 export function resetHistory() {
   if (history.timer) clearTimeout(history.timer)
   history.timer = 0
