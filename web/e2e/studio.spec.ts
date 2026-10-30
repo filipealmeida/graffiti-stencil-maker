@@ -829,10 +829,10 @@ test('the shading menu changes how the mesh is drawn', async ({ page }) => {
     await page.locator('.v3bar select').first().selectOption(mode)
     await page.waitForTimeout(1500)
     // Element screenshots wait for the canvas to stop moving, which the viewer may never do; clip the page instead.
-    const canvas = page.locator('.v3bar').locator('xpath=ancestor::*[.//canvas][1]').locator('canvas').first()
-    await expect(canvas).toBeVisible()
+    const canvas = page.locator('.v3host canvas').first()
+    // the viewer can redraw its canvas after a mode change, so ask until it has a size
+    await expect.poll(async () => (await canvas.boundingBox())?.width ?? 0, { timeout: 15_000 }).toBeGreaterThan(50)
     const box = await canvas.boundingBox()
-    expect(box).not.toBeNull()
     const img = (await page.screenshot({ clip: box! })).toString('base64')
     return img
   }
