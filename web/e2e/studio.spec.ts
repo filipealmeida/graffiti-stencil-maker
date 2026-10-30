@@ -1072,7 +1072,7 @@ test('the Project menu saves under the project name and shows it as saved', asyn
   await page.getByLabel('Project name').fill('My Wall')
   await expect(page.getByRole('img', { name: 'Unsaved changes' })).toBeVisible()
   await page.getByRole('button', { name: /Project/ }).click()
-  const [download] = await Promise.all([page.waitForEvent('download'), page.getByRole('menuitem', { name: /Save/ }).click()])
+  const [download] = await Promise.all([page.waitForEvent('download'), page.getByRole('menuitem', { name: /^Save Overwrites/ }).click()])
   expect(download.suggestedFilename()).toBe('My_Wall.stencil.json')
   await expect(page.getByRole('img', { name: 'Unsaved changes' })).toHaveCount(0)
   await expect(page.locator('.toasts')).toContainText('Saved My_Wall.stencil.json')
@@ -1080,8 +1080,9 @@ test('the Project menu saves under the project name and shows it as saved', asyn
 
 test('Ctrl+S saves the project', async ({ page }) => {
   await open(page)
+  const name = await page.getByLabel('Project name').inputValue()
   const [download] = await Promise.all([page.waitForEvent('download'), page.keyboard.press('Control+s')])
-  expect(download.suggestedFilename()).toBe('project.stencil.json')
+  expect(download.suggestedFilename()).toBe(`${name}.stencil.json`)
 })
 
 test('Export everything makes one zip with the project, the models and the findings', async ({ page }) => {
@@ -1131,4 +1132,18 @@ test('at a narrow width the side panel is a drawer that opens with a selected no
   expect(canvas!.height).toBeGreaterThan(300)
   await page.locator('.react-flow__pane').click({ position: { x: 150, y: 150 } })
   await expect(page.locator('.inspector')).toBeHidden()
+})
+
+test('projects get a random docker-style name, New picks another, and New comes first in the menu', async ({ page }) => {
+  await open(page)
+  const box = page.getByLabel('Project name')
+  await expect(box).toHaveValue(/^[a-z]+_[a-z]+$/)
+  const first = await box.inputValue()
+  await page.getByRole('button', { name: /Project/ }).click()
+  await expect(page.getByRole('menuitem').first()).toContainText('New')
+  await page.getByRole('menuitem', { name: /^New/ }).click()
+  await expect(box).toHaveValue(/^[a-z]+_[a-z]+$/)
+  await expect(page.locator('.react-flow__node')).toHaveCount(0)
+  await page.locator('.toast').getByRole('button', { name: 'Undo' }).click()
+  await expect(box).toHaveValue(first)
 })

@@ -25,15 +25,41 @@ const remember = (name: string) => {
   try { localStorage.setItem(RECENT, JSON.stringify([name, ...recentProjects().filter((n) => n !== name)].slice(0, 5))) } catch { /* a convenience only */ }
 }
 
-/** The project as a file named after it; the unsaved mark clears. */
-export async function saveProject() {
+// where the project was last saved, so the next save overwrites that file (browsers that allow it)
+let handle: any = null
+export const forgetFile = () => { handle = null }
+const canPick = () => 'showSaveFilePicker' in window && !navigator.webdriver
+
+/** Saves the project file. With the File System Access API it overwrites the file it was last saved to; elsewhere it downloads. */
+export async function saveProject(asNew = false) {
   const s = useStudio.getState()
   const p = await api.exportProject({ nodes: s.nodes, edges: s.edges })
-  const name = safeName(s.pname)
-  downloadBlob(new Blob([JSON.stringify(p)], { type: 'application/json' }), `${name}.stencil.json`)
+  const blob = new Blob([JSON.stringify(p)], { type: 'application/json' })
+  let name = safeName(s.pname)
+  let where = `${name}.stencil.json`
+  if (canPick()) {
+    try {
+      if (!handle || asNew) {
+        handle = await (window as any).showSaveFilePicker({
+          suggestedName: where,
+          types: [{ description: 'Stencil project', accept: { 'application/json': ['.json'] } }],
+        })
+        name = handle.name.replace(/\.stencil\.json$|\.json$/, '')
+        s.setPname(name)
+      }
+      const w = await handle.createWritable()
+      await w.write(blob)
+      await w.close()
+      where = handle.name
+    } catch (e) {
+      if ((e as DOMException)?.name === 'AbortError') return
+      handle = null
+      downloadBlob(blob, where)
+    }
+  } else downloadBlob(blob, where)
   remember(name)
   s.markSaved()
-  s.toast(`Saved ${name}.stencil.json to your downloads`)
+  s.toast(handle ? `Saved ${where}` : `Saved ${where} to your downloads`)
 }
 
 const fetchBytes = async (url: string) => new Uint8Array(await (await fetch(url)).arrayBuffer())

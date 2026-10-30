@@ -17,7 +17,8 @@ import Perf from "./Perf";
 import Report, { useReport } from "./Report";
 import History from "./History";
 import Toasts from "./Toasts";
-import { saveProject, exportEverything, recentProjects, safeName } from "./project";
+import { randomName } from "./names";
+import { forgetFile, saveProject, exportEverything, recentProjects, safeName } from "./project";
 import Workbench from "./Workbench";
 import StudioEdge from "./StudioEdge";
 import StudioNodeView, { KIND_COLOR } from "./StudioNode";
@@ -336,6 +337,7 @@ function Canvas() {
   const open = async (f: File) => {
     try {
       const g = await api.importProject(JSON.parse(await f.text()));
+      forgetFile();
       setPname(f.name.replace(/\.stencil\.json$|\.json$/, ""));
       s.load(g.nodes as StudioNode[], g.edges as Edge[]);
       s.markSaved();
@@ -601,19 +603,22 @@ function Canvas() {
           </button>
           {pmenu && (
             <div className="menu pmenu" role="menu" onClick={() => setPmenu(false)}>
-              <button role="menuitem" onClick={() => void saveProject()} title="Save the project file (Ctrl+S)"><b>Save</b><small>{safeName(pname)}.stencil.json · Ctrl+S</small></button>
-              <button role="menuitem" onClick={() => document.getElementById("open-project")?.click()}><b>Open…</b><small>Ctrl+O, or drop a .stencil.json on the canvas</small></button>
-              <button role="menuitem" onClick={() => void exportEverything()}><b>Export everything…</b><small>One zip: project, models, findings</small></button>
               <button
                 role="menuitem"
                 onClick={() => {
-                  if (!s.nodes.length) return;
+                  const old = pname;
                   checkpoint();
                   s.load([], []);
+                  forgetFile();
+                  setPname(randomName());
                   localStorage.removeItem(STORE_KEY);
-                  s.toast("Started a new project", { undo });
+                  s.toast("Started a new project", { undo: () => { undo(); setPname(old); } });
                 }}
               ><b>New</b><small>Start empty (undo brings the graph back)</small></button>
+              <button role="menuitem" onClick={() => void saveProject()} title="Save the project file (Ctrl+S)"><b>Save</b><small>Overwrites {safeName(pname)}.stencil.json · Ctrl+S</small></button>
+              <button role="menuitem" onClick={() => void saveProject(true)}><b>Save as…</b><small>Pick a new file name or place</small></button>
+              <button role="menuitem" onClick={() => document.getElementById("open-project")?.click()}><b>Open…</b><small>Ctrl+O, or drop a .stencil.json on the canvas</small></button>
+              <button role="menuitem" onClick={() => void exportEverything()}><b>Export everything…</b><small>One zip: project, models, findings</small></button>
               {recentProjects().length > 0 && <small className="menu-note">Recently saved: {recentProjects().join(", ")}</small>}
             </div>
           )}

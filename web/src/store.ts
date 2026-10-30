@@ -1,3 +1,4 @@
+import { randomName } from './names'
 import { create } from 'zustand'
 import {
   addEdge, applyEdgeChanges, applyNodeChanges,
@@ -121,7 +122,7 @@ export const useStudio = create<State>((set, get) => ({
   canUndo: false, canRedo: false,
   types: {}, nodes: [], edges: [], runs: {}, selected: null,
   showHelp: localStorage.getItem('studio.showHelp') === '1',
-  pname: localStorage.getItem('studio.pname') || 'project',
+  pname: localStorage.getItem('studio.pname') || randomName(),
   setPname: (n) => { try { localStorage.setItem('studio.pname', n) } catch { /* a convenience only */ } set({ pname: n }) },
   savedSig: null,
   savedAt: null,
