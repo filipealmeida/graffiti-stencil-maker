@@ -335,12 +335,12 @@ pub(super) fn catalogue() -> Vec<NodeDef> {
             params: vec![
                 num("max_x", "Largest tile width (mm)", 200.0, 20.0, 2000.0, 5.0, Some("Tiles"), false),
                 num("max_y", "Largest tile height (mm)", 200.0, 20.0, 2000.0, 5.0, Some("Tiles"), false),
-                num("seam_shift", "Seam may move up to (mm)", 5.0, 0.0, 30.0, 0.5, Some("Tiles"), false),
-                num("seam_gap", "Seam clearance (mm, total)", 0.0, 0.0, 1.0, 0.05, Some("Tiles"), false),
+                num("seam_shift", "Seam may move up to (mm)", 10.0, 0.0, 30.0, 0.5, Some("Tiles"), false),
+                num("seam_gap", "Seam clearance (mm, total)", 0.2, 0.0, 1.0, 0.05, Some("Tiles"), false),
                 num("seam_angle_deg", "Seam bevel angle (deg from vertical, 0 = straight)", 0.0, 0.0, 60.0, 1.0, Some("Tiles"), false),
                 flag("reinforce", "Add material where no connector fits", true, Some("Tiles")),
                 choice("connector", "Connector shape", "hex", &["hex", "round"], Some("Connectors")),
-                choice("connector_d", "Connector diameter (mm)", "3", &["2.5", "3", "4", "5", "6"], Some("Connectors")),
+                choice("connector_d", "Connector diameter (mm)", "4", &["2.5", "3", "4", "5", "6"], Some("Connectors")),
                 num("depth", "Connector depth into each tile (mm)", 10.0, 4.0, 20.0, 0.5, Some("Connectors"), false),
                 num("clearance", "Connector hole clearance (mm, diametral)", 0.2, 0.0, 0.6, 0.05, Some("Connectors"), false),
                 num("segments", "Round segments", 48.0, 24.0, 128.0, 4.0, Some("Connectors"), true),
@@ -419,7 +419,7 @@ pub(super) fn catalogue() -> Vec<NodeDef> {
             params: vec![
                 num("bridge_mm", "Bridge width (mm)", 1.6, 0.4, 6.0, 0.1, Some("Bridges"), false),
                 num("bridges_per_island", "Bridges per island", 1.0, 1.0, 5.0, 1.0, Some("Bridges"), true),
-                choice("bridge_spacing", "Bridge spacing", "closest", &["closest", "spread"], Some("Bridges")),
+                choice("bridge_spacing", "Bridge spacing", "spread", &["closest", "spread"], Some("Bridges")),
                 num("bridge_min_angle_deg", "Minimum angle between bridges (deg)", 45.0, 15.0, 90.0, 5.0, Some("Bridges"), false),
                 num("bridge_max_length", "Longest bridge in spread mode (x shortest)", 4.0, 1.0, 16.0, 0.5, Some("Bridges"), false),
                 flag("raised_bridges", "Raised bridges", true, Some("Bridges")),
@@ -491,7 +491,7 @@ pub(super) fn stencil_params(vector: bool) -> Vec<Json> {
         num(
             "thickness_mm",
             "Thickness (mm)",
-            5.0,
+            6.0,
             0.2,
             100.0,
             0.2,

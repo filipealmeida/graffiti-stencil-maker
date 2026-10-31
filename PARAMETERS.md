@@ -145,7 +145,7 @@ Every parameter `--set NODE.PARAM=VALUE` accepts. Generated with `stencil --list
 | Parameter | Label | Type | Default | Range or choices |
 |---|---|---|---|---|
 | `width_mm` | Plate width (mm) | float | `200.0` | 20.0 to 2000.0 |
-| `thickness_mm` | Thickness (mm) | float | `5.0` | 0.2 to 100.0 |
+| `thickness_mm` | Thickness (mm) | float | `6.0` | 0.2 to 100.0 |
 | `margin_mm` | Margin (mm) | float | `8.0` | 0.0 to 500.0 |
 | `flip` | Print upside down | bool | `false` | true \| false |
 | `layer_height_mm` | Layer height (mm) | float | `0.2` | 0.05 to 5.0 |
@@ -162,7 +162,7 @@ Every parameter `--set NODE.PARAM=VALUE` accepts. Generated with `stencil --list
 |---|---|---|---|---|
 | `detail` | Mesh detail | float | `5.0` | 0.5 to 20.0 |
 | `width_mm` | Plate width (mm) | float | `200.0` | 20.0 to 2000.0 |
-| `thickness_mm` | Thickness (mm) | float | `5.0` | 0.2 to 100.0 |
+| `thickness_mm` | Thickness (mm) | float | `6.0` | 0.2 to 100.0 |
 | `margin_mm` | Margin (mm) | float | `8.0` | 0.0 to 500.0 |
 | `flip` | Print upside down | bool | `false` | true \| false |
 | `layer_height_mm` | Layer height (mm) | float | `0.2` | 0.05 to 5.0 |
@@ -232,12 +232,12 @@ Every parameter `--set NODE.PARAM=VALUE` accepts. Generated with `stencil --list
 |---|---|---|---|---|
 | `max_x` | Largest tile width (mm) | float | `200.0` | 20.0 to 2000.0 |
 | `max_y` | Largest tile height (mm) | float | `200.0` | 20.0 to 2000.0 |
-| `seam_shift` | Seam may move up to (mm) | float | `5.0` | 0.0 to 30.0 |
-| `seam_gap` | Seam clearance (mm, total) | float | `0.0` | 0.0 to 1.0 |
+| `seam_shift` | Seam may move up to (mm) | float | `10.0` | 0.0 to 30.0 |
+| `seam_gap` | Seam clearance (mm, total) | float | `0.2` | 0.0 to 1.0 |
 | `seam_angle_deg` | Seam bevel angle (deg from vertical, 0 = straight) | float | `0.0` | 0.0 to 60.0 |
 | `reinforce` | Add material where no connector fits | bool | `true` | true \| false |
 | `connector` | Connector shape | choice | `"hex"` | hex \| round |
-| `connector_d` | Connector diameter (mm) | choice | `"3"` | 2.5 \| 3 \| 4 \| 5 \| 6 |
+| `connector_d` | Connector diameter (mm) | choice | `"4"` | 2.5 \| 3 \| 4 \| 5 \| 6 |
 | `depth` | Connector depth into each tile (mm) | float | `10.0` | 4.0 to 20.0 |
 | `clearance` | Connector hole clearance (mm, diametral) | float | `0.2` | 0.0 to 0.6 |
 | `segments` | Round segments | int | `48.0` | 24.0 to 128.0 |
@@ -292,7 +292,7 @@ Every parameter `--set NODE.PARAM=VALUE` accepts. Generated with `stencil --list
 |---|---|---|---|---|
 | `bridge_mm` | Bridge width (mm) | float | `1.6` | 0.4 to 6.0 |
 | `bridges_per_island` | Bridges per island | int | `1.0` | 1.0 to 5.0 |
-| `bridge_spacing` | Bridge spacing | choice | `"closest"` | closest \| spread |
+| `bridge_spacing` | Bridge spacing | choice | `"spread"` | closest \| spread |
 | `bridge_min_angle_deg` | Minimum angle between bridges (deg) | float | `45.0` | 15.0 to 90.0 |
 | `bridge_max_length` | Longest bridge in spread mode (x shortest) | float | `4.0` | 1.0 to 16.0 |
 | `raised_bridges` | Raised bridges | bool | `true` | true \| false |
