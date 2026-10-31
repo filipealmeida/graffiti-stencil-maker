@@ -47,10 +47,10 @@ function shadePockets(g: THREE.BufferGeometry) {
 }
 
 /**
- * Colours every watertight piece apart from the largest one: triangles are grouped by shared (welded) vertices.
+ * Colours every watertight piece apart from the largest one (which keeps the base colour): triangles are grouped by shared (welded) vertices.
  * Returns null when the mesh is a single piece.
  */
-function fragmentColors(g: THREE.BufferGeometry): THREE.BufferAttribute | null {
+function fragmentColors(g: THREE.BufferGeometry, base: THREE.Color): THREE.BufferAttribute | null {
   const pos = g.attributes.position
   const n = pos.count
   const ids = new Map<string, number>()
@@ -77,7 +77,7 @@ function fragmentColors(g: THREE.BufferGeometry): THREE.BufferAttribute | null {
   const col = new Float32Array(n * 3)
   for (let t = 0; t + 2 < n; t += 3) {
     const r = find(vid[t])
-    let c = new THREE.Color(1, 1, 1)
+    let c = base
     if (r !== main) {
       if (!hue.has(r)) hue.set(r, new THREE.Color().setHSL(((k++ * 0.382) % 1) * 0.9, 0.95, 0.5))
       c = hue.get(r)!
@@ -130,6 +130,15 @@ export default function Viewer3D({ parts, plate }: { parts: Part[]; plate?: Plat
   const [interacting, setInteracting] = useState(false)
   const [explode, setExplode] = useState(0)
   const [hidden, setHidden] = useState<Set<string>>(new Set())
+  // the selection to go back to when "only" is clicked a second time on the same part
+  const beforeOnly = useRef<{ name: string; hidden: Set<string> } | null>(null)
+  const only = (name: string) => {
+    const solo = new Set(parts.filter((q) => q.name !== name).map((q) => q.name))
+    const isSolo = hidden.size === solo.size && [...solo].every((n) => hidden.has(n))
+    if (isSolo && beforeOnly.current?.name === name) { setHidden(beforeOnly.current.hidden); beforeOnly.current = null; return }
+    beforeOnly.current = { name, hidden }
+    setHidden(solo)
+  }
   const [clip, setClip] = useState(1)
   const [layout, setLayout] = useState(true)
   const [status, setStatus] = useState('loading…')
@@ -140,7 +149,7 @@ export default function Viewer3D({ parts, plate }: { parts: Part[]; plate?: Plat
   const isTile = (n: string) => tileRe.test(n)
   const tiled = parts.some((p) => isTile(p.name))
   const colorOf = (i: number) => (parts.length > 1 ? new THREE.Color().setHSL((i * 0.137) % 1, 0.55, 0.62) : new THREE.Color(0xffffff))
-  useEffect(() => { setHidden(new Set()); setExplode(tiled ? 12 : 0) }, [urls])
+  useEffect(() => { beforeOnly.current = null; setHidden(new Set()); setExplode(tiled ? 12 : 0) }, [urls])
 
   useEffect(() => {
     const el = host.current!
@@ -263,7 +272,7 @@ export default function Viewer3D({ parts, plate }: { parts: Part[]; plate?: Plat
       const g = s.geos[i]
       if (g.fragOn !== frags) {
         if (g.base === undefined) g.base = g.hi.getAttribute('color') as THREE.BufferAttribute | null
-        if (frags && g.frag === undefined) g.frag = fragmentColors(g.hi)
+        if (frags && g.frag === undefined) g.frag = fragmentColors(g.hi, colorOf(i))
         const use = frags ? g.frag : g.base
         if (use) g.hi.setAttribute('color', use)
         else g.hi.deleteAttribute('color')
@@ -455,7 +464,7 @@ export default function Viewer3D({ parts, plate }: { parts: Part[]; plate?: Plat
                 <label title={p.name}><input type="checkbox" checked={!hidden.has(p.name)} onChange={() => setHidden((h) => { const n = new Set(h); n.has(p.name) ? n.delete(p.name) : n.add(p.name); return n })} />
                   <i style={{ background: `#${colorOf(i).getHexString()}` }} />{p.name.replace(/\.stl$/, '')}</label>
                 {dims.parts[p.name] && <span className="v3size">{dims.parts[p.name]}</span>}
-                <button title="show only this part" onClick={() => setHidden(new Set(parts.filter((q) => q.name !== p.name).map((q) => q.name)))}>only</button>
+                <button title="show only this part" onClick={() => only(p.name)}>only</button>
                 <a className="btn" href={p.url} download={p.name.endsWith('.stl') ? p.name : `${p.name}.stl`} title="download this STL">⬇</a>
               </div>
             ))}
