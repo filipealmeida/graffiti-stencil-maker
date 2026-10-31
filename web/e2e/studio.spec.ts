@@ -143,7 +143,6 @@ test('the Reshape paint node can be added from the menu and shows its parameters
 test('the console lists timed sub-steps of the stencil node', async ({ page }) => {
   await open(page)
   const rows = page.locator('div.info').filter({ hasText: '↳' })
-  await expect(rows.filter({ hasText: 'bridge islands' })).not.toHaveCount(0)
   await expect(rows.filter({ hasText: 'build mesh' }).first()).toContainText(/\d+ ms/)
 })
 
@@ -154,7 +153,7 @@ test('new nodes avoid existing ones and no lane panels are drawn', async ({ page
     await page.locator('.menu button').filter({ hasText: 'Reshape paint' }).click()
   }
   const boxes = await page.locator('.react-flow__node').evaluateAll((l) => l.map((e) => { const r = e.getBoundingClientRect(); return [r.x, r.y, r.width, r.height] }))
-  expect(boxes.length).toBe(6)
+  expect(boxes.length).toBe(7)
   for (let i = 0; i < boxes.length; i++) for (let j = i + 1; j < boxes.length; j++) {
     const [a, b] = [boxes[i], boxes[j]]
     const overlap = a[0] < b[0] + b[2] && b[0] < a[0] + a[2] && a[1] < b[1] + b[3] && b[1] < a[1] + a[3]
@@ -267,13 +266,13 @@ test('copy, paste and duplicate create independent nodes', async ({ page }) => {
   const th = nodes.filter({ hasText: 'Threshold' })
   await th.first().click()
   await page.keyboard.press('Control+d')
-  await expect(nodes).toHaveCount(4)
+  await expect(nodes).toHaveCount(5)
   await expect(th).toHaveCount(2)
   await page.keyboard.press('Control+c')
   await page.keyboard.press('Control+v')
-  await expect(nodes).toHaveCount(5)
-  await th.first().locator('button[title^="Duplicate"]').click()
   await expect(nodes).toHaveCount(6)
+  await th.first().locator('button[title^="Duplicate"]').click()
+  await expect(nodes).toHaveCount(7)
   const boxes = await nodes.evaluateAll((l) => l.map((e) => { const r = e.getBoundingClientRect(); return [r.x, r.y, r.width, r.height] }))
   for (let i = 0; i < boxes.length; i++) for (let j = i + 1; j < boxes.length; j++) {
     const [a, b] = [boxes[i], boxes[j]]
@@ -424,7 +423,7 @@ test('the Colour set template builds a registered multi-colour graph', async ({ 
   await page.getByRole('button', { name: /Templates/ }).click()
   await page.locator('.menu button').filter({ hasText: 'Colour set' }).click()
   await expect(page.locator('.react-flow__node').filter({ hasText: 'Colour set' })).toBeVisible()
-  await expect(page.locator('.react-flow__edge')).toHaveCount(5)
+  await expect(page.locator('.react-flow__edge')).toHaveCount(7)
 })
 
 test('the Tiles, pads & screws template chains tiles, pads and screws', async ({ page }) => {
@@ -433,7 +432,7 @@ test('the Tiles, pads & screws template chains tiles, pads and screws', async ({
   await page.locator('.menu button').filter({ hasText: 'Tiles, pads & screws' }).click()
   for (const t of ['Split volume', 'Add pads & mounting holes', 'Make screws, nuts & plates'])
     await expect(page.locator('.react-flow__node').filter({ hasText: t }).first()).toBeVisible()
-  await expect(page.locator('.react-flow__edge')).toHaveCount(5)
+  await expect(page.locator('.react-flow__edge')).toHaveCount(6)
 })
 
 test('the Tiles first template cuts before bridging and feeds pads', async ({ page }) => {
@@ -442,7 +441,7 @@ test('the Tiles first template cuts before bridging and feeds pads', async ({ pa
   await page.locator('.menu button').filter({ hasText: 'Tiles first' }).click()
   for (const t of ['Tile layout', 'Stencil', 'Add pads & mounting holes'])
     await expect(page.locator('.react-flow__node').filter({ hasText: t }).first()).toBeVisible()
-  await expect(page.locator('.react-flow__edge')).toHaveCount(6)
+  await expect(page.locator('.react-flow__edge')).toHaveCount(7)
   await page.locator('.react-flow__node').filter({ hasText: 'Add pads & mounting holes' }).first().dispatchEvent('dblclick')
   await expect(page.locator('.v3bar label').filter({ hasText: 'layout' }).locator('input')).toBeVisible({ timeout: 80_000 })
 })
@@ -992,14 +991,14 @@ async function dragNodeOntoEdge(page: Page, label: string, edgeIndex: number) {
 
 test('a node dragged onto a compatible edge is placed between its ends', async ({ page }) => {
   await open(page)
-  await expect(page.locator('.react-flow__edge')).toHaveCount(2)
+  await expect(page.locator('.react-flow__edge')).toHaveCount(3)
   await page.getByRole('button', { name: '+ trace' }).click()
   await page.locator('.menu button').filter({ hasText: 'Smooth mask' }).click()
   const drop = await dragNodeOntoEdge(page, 'Smooth mask', 1)
   await expect(page.locator('.react-flow__edge.splice')).toHaveCount(1)
   await drop()
   await expect(page.locator('.react-flow__edge.splice')).toHaveCount(0)
-  await expect(page.locator('.react-flow__edge')).toHaveCount(3)
+  await expect(page.locator('.react-flow__edge')).toHaveCount(4)
 })
 
 test('a node that does not fit the edge leaves it alone', async ({ page }) => {
@@ -1009,7 +1008,7 @@ test('a node that does not fit the edge leaves it alone', async ({ page }) => {
   const drop = await dragNodeOntoEdge(page, 'Threshold', 1)
   await expect(page.locator('.react-flow__edge.splice')).toHaveCount(0)
   await drop()
-  await expect(page.locator('.react-flow__edge')).toHaveCount(2)
+  await expect(page.locator('.react-flow__edge')).toHaveCount(3)
 })
 
 test('the status text lives in a footer, so the toolbar buttons never move while it changes', async ({ page }) => {

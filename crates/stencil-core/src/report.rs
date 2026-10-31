@@ -121,7 +121,7 @@ pub fn findings(ty: &str, params: &Json, infos: &[Json]) -> Vec<Finding> {
                     ),
                 );
             }
-            if ty == "tiles" && n(&t["loose_pieces"]) > 0.0 {
+            if matches!(ty, "tiles" | "stencil" | "vector_stencil") && n(&t["loose_pieces"]) > 0.0 {
                 add(
                     Level::Warn,
                     format!(
@@ -214,7 +214,7 @@ pub fn findings(ty: &str, params: &Json, infos: &[Json]) -> Vec<Finding> {
         }
     }
     let bridge = n(&params["bridge_mm"]);
-    if matches!(ty, "stencil" | "vector_stencil") && bridge > 0.0 && bridge < 1.0 {
+    if ty == "bridges" && bridge > 0.0 && bridge < 1.0 {
         add(
             Level::Warn,
             format!("bridge {bridge} mm is thinner than a nozzle"),
@@ -262,7 +262,7 @@ mod tests {
     #[test]
     fn islands_left_block_and_a_thin_bridge_warns() {
         let info = json!({"kind": "solid", "stats": {"islands_remaining": 2, "watertight": false, "triangles": 3_000_000}});
-        let f = findings("stencil", &json!({"bridge_mm": 0.6}), &[info]);
+        let f = findings("bridges", &json!({"bridge_mm": 0.6}), &[info]);
         let levels: Vec<Level> = f.iter().map(|x| x.level).collect();
         assert_eq!(verdict(&levels), "blocked");
         assert!(f.iter().any(|x| x.text == "2 islands remain"));

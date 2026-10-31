@@ -8,7 +8,7 @@ const ICON = { error: '✖', warn: '▲', info: 'ℹ' } as const
 /** What to try for a finding: a line of advice and, when one click can do it, that action. */
 export function hintFor(text: string): { hint: string; add?: string } | null {
   if (/pieces? loose in/.test(text)) return { hint: 'Join them or drop them.', add: 'bridges' }
-  if (/island.* remain/.test(text)) return { hint: 'Raise the bridge width or the ground height.' }
+  if (/island.* remain/.test(text)) return { hint: 'Join them with a Bridges node, or raise its bridge width.', add: 'bridges' }
   if (/not watertight/.test(text)) return { hint: 'Add a Remesh node or lower the smoothing.' }
   if (/^overhang/.test(text)) return { hint: 'Raise the ground height so the paint fills below.' }
   if (/thinner than a nozzle/.test(text)) return { hint: 'Raise the bridge width to at least the nozzle size.' }
@@ -20,8 +20,10 @@ export function hintFor(text: string): { hint: string; add?: string } | null {
 function addAfter(from: string, type: string) {
   const s = useStudio.getState()
   const src = s.nodes.find((n) => n.id === from)
-  const out = src && s.types[src.data.type]?.outputs.find((o) => o.type === 'parts')
-  const inp = s.types[type]?.inputs.find((i) => i.type === 'parts' || i.type === 'body')
+  const outs = src ? s.types[src.data.type]?.outputs ?? [] : []
+  const made = (o: { name: string }) => s.runs[from]?.outputs?.[o.name]?.available
+  const out = outs.find((o) => o.type === 'parts' && made(o)) ?? outs.find((o) => o.type === 'solid' && made(o)) ?? outs.find((o) => o.type === 'parts')
+  const inp = s.types[type]?.inputs.find((i) => i.type === 'body' || i.type === out?.type)
   if (!src || !out || !inp) return
   const id = s.addNode(type, {}, { x: src.position.x + 320, y: src.position.y + 40 })
   s.connect({ source: from, sourceHandle: out.name, target: id, targetHandle: inp.name })

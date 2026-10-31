@@ -72,7 +72,7 @@ pub(super) fn catalogue() -> Vec<NodeDef> {
                 num("line_spacing", "Line spacing (x)", 1.0, 0.7, 2.0, 0.05, None, false),
                 num("padding", "Padding (px)", 20.0, 0.0, 200.0, 1.0, None, true),
             ],
-            doc: "Letters as a mask, ready for a Stencil node (letters become cut-outs, and the Stencil bridges the islands inside letters like O, A and B). Several lines are centred. To put text on a picture, there is no overlay yet: use it as its own stencil or tile it next to the picture's plate.",
+            doc: "Letters as a mask, ready for a Stencil node (letters become cut-outs, and a Bridges node after the Stencil joins the islands inside letters like O, A and B). Several lines are centred. To put text on a picture, there is no overlay yet: use it as its own stencil or tile it next to the picture's plate.",
             run: run_text,
         },
         NodeDef {
@@ -141,7 +141,7 @@ pub(super) fn catalogue() -> Vec<NodeDef> {
             inputs: vec![("image", "image", true)],
             outputs: vec![("mask", "mask"), ("tones", "image")],
             params: tone_params(),
-            doc: "Ranks the colours of a reduced image by lightness. The darkest becomes solid paint, the lightest stays empty, and the tones between get patterns that thin out step by step. Dots leave islands that the stencil bridges. One tone per colour of the input (up to 10).",
+            doc: "Ranks the colours of a reduced image by lightness. The darkest becomes solid paint, the lightest stays empty, and the tones between get patterns that thin out step by step. Dots leave islands that a Bridges node joins. One tone per colour of the input (up to 10).",
             run: run_tones,
         },
         NodeDef {
@@ -243,7 +243,7 @@ pub(super) fn catalogue() -> Vec<NodeDef> {
             inputs: vec![("mask", "mask", false), ("tiles", "tiles", false)],
             outputs: vec![("solid", "solid"), ("parts", "parts")],
             params: stencil_params(false),
-            doc: "Turns a mask into a watertight, island-free 3D plate with bridges. Raised bridges keep the first layer true to the artwork: islands and all, with the paint filling underneath. Minimum first-layer width adds a tapered flare only at the bed; bridge selection still uses the original outline. Connect a Tile layout instead of a mask to build every tile as a stencil of its own (the Parts output): the width and margin then come from the layout, and a cut never creates an island.",
+            doc: "Turns a mask into a watertight 3D plate. Floating pieces (islands) stay as they are: add a Bridges node after it to join them. Minimum first-layer width adds a tapered flare only at the bed; the Bridges node chooses its links from the original outline. Connect a Tile layout instead of a mask to build every tile as a stencil of its own (the Parts output): the width and margin then come from the layout. Tiles that hold loose pieces are reported; a Bridges node after this joins them.",
             run: run_stencil,
         },
         NodeDef {
@@ -253,7 +253,7 @@ pub(super) fn catalogue() -> Vec<NodeDef> {
             inputs: vec![("shapes", "shapes", false), ("tiles", "tiles", false)],
             outputs: vec![("solid", "solid"), ("parts", "parts")],
             params: stencil_params(true),
-            doc: "Builds the plate directly from vector outlines with polygon booleans, bridges enclosed material islands, and extrudes the result. Mesh detail controls curve flattening accuracy. Raised bridges are built from vectors too, as stepped strips, so curves stay smooth. Minimum first-layer width adds a tapered flare only at the bed; bridge selection still uses the original outline. Connect a Tile layout instead of shapes to build every tile as a stencil of its own (the Parts output); the width and margin then come from the layout.",
+            doc: "Builds the plate directly from vector outlines with polygon booleans and extrudes the result. Floating pieces (islands) stay: add a Bridges node after it. Mesh detail controls curve flattening accuracy. Raised bridges are built from vectors too, as stepped strips, so curves stay smooth. Minimum first-layer width adds a tapered flare only at the bed; bridge selection still uses the original outline. Connect a Tile layout instead of shapes to build every tile as a stencil of its own (the Parts output); the width and margin then come from the layout.",
             run: run_vector_stencil,
         },
         NodeDef {
@@ -276,7 +276,7 @@ pub(super) fn catalogue() -> Vec<NodeDef> {
                 num("segments", "Round segments", 48.0, 24.0, 128.0, 4.0, Some("Connectors"), true),
                 json!({"name": "edits", "label": "Layout edits", "kind": "text", "default": "", "group": null}),
             ],
-            doc: "Divides the plate into tiles before it is built, on an even grid, and reserves a block of material for every connector pocket (at the spot along each seam that covers the least paint). Connect it to a Stencil (from a mask) or a Vector stencil (from shapes) in place of their mask or shapes: each tile is then a stencil of its own, bridged on its own, so cutting never creates an island. The plate width and margin are set here; the stencil node supplies thickness, bridges and the rest. The Parts output goes on to Pads and Screws like the Tiles node's. In the viewer, drag a seam or a connector block to adjust the layout by hand; edits are kept as offsets from the automatic layout and ignored if they stop fitting.",
+            doc: "Divides the plate into tiles before it is built, on an even grid, and reserves a block of material for every connector pocket (at the spot along each seam that covers the least paint). Connect it to a Stencil (from a mask) or a Vector stencil (from shapes) in place of their mask or shapes: each tile is then a stencil of its own, so a cut never splits a tile into floating pieces unseen. The plate width and margin are set here; the stencil node supplies thickness and the rest. Add a Bridges node after it to join islands. The Parts output goes on to Pads and Screws like the Tiles node's. In the viewer, drag a seam or a connector block to adjust the layout by hand; edits are kept as offsets from the automatic layout and ignored if they stop fitting.",
             run: run_tile_layout,
         },
         NodeDef {

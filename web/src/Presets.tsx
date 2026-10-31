@@ -24,8 +24,10 @@ export default function Presets({ node }: { node: StudioNode }) {
   const apply = (name: string) => {
     const p = mine[name] ?? builtIn[name]
     if (!p) return
-    const { setParam } = useStudio.getState()
-    for (const [k, v] of Object.entries(p)) setParam(node.id, k, v)
+    const { setParam, types } = useStudio.getState()
+    // settings a node no longer has (saved by an older version) are skipped
+    const known = new Set((types[type]?.params ?? []).map((x) => x.name))
+    for (const [k, v] of Object.entries(p)) if (known.has(k)) setParam(node.id, k, v)
   }
   const commitName = () => {
     const name = draft?.trim()

@@ -1,7 +1,7 @@
 [
   {
     "name": "islands left, thin bridge, heavy mesh",
-    "type": "stencil",
+    "type": "bridges",
     "params": {
       "bridge_mm": 0.6
     },
@@ -329,5 +329,25 @@
       }
     },
     "expected": []
+  },
+  {
+    "name": "loose pieces in a tile-first stencil",
+    "type": "stencil",
+    "params": {},
+    "info": {
+      "kind": "parts",
+      "meta": {
+        "tiling": {
+          "loose_pieces": 1,
+          "loose_tiles": 1
+        }
+      }
+    },
+    "expected": [
+      {
+        "level": "warn",
+        "text": "1 piece loose in 1 tile: join them with Bridges or drop them with Remove fragments"
+      }
+    ]
   }
 ]

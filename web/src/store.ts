@@ -1,3 +1,4 @@
+import { migrateProject } from './migrate'
 import { randomName } from './names'
 import { create } from 'zustand'
 import {
@@ -237,20 +238,18 @@ export const useStudio = create<State>((set, get) => ({
     selected: s.selected === id ? null : s.selected,
     bench: s.bench === id ? null : s.bench,
   })),
-  // "complexity" is the old name of the Remesh node
-  load: (nodes, edges) =>
-    set({
-      nodes: nodes.map((n) =>
-        n.data.type === 'complexity'
-          ? { ...n, data: { ...n.data, type: 'remesh' } }
-          : n.data.type === 'bridge_fragments'
-            ? { ...n, data: { ...n.data, type: 'bridges' } }
-            : n,
-      ),
-      edges: edges.map((e) => (e.targetHandle === 'parts' && nodes.some((n) => n.id === e.target && n.data.type === 'bridge_fragments') ? { ...e, targetHandle: 'body' } : e)),
-      runs: {},
-      selected: null,
-    }),
+  load: (nodes, edges) => {
+    const m = migrateProject(nodes, edges)
+    // a migrated Bridges node has only the settings it was given; fill in the rest
+    const types = get().types
+    const filled = m.nodes.map((n) => {
+      const t = types[n.data.type]
+      if (!t) return n
+      const defaults = Object.fromEntries(t.params.map((p) => [p.name, p.default]))
+      return { ...n, data: { ...n.data, params: { ...defaults, ...n.data.params } } }
+    })
+    set({ nodes: filled, edges: m.edges, runs: {}, selected: null })
+  },
   starter: (imageId, title) => {
     const { addNode, connect } = get()
     set({ nodes: [], edges: [], runs: {}, selected: null })
@@ -258,7 +257,9 @@ export const useStudio = create<State>((set, get) => ({
     const thr = addNode('threshold', {}, { x: 420, y: 60 })
     const st = addNode('stencil', {}, { x: stageColumn('stencil').x + 30, y: 60 })
     connect({ source: src, sourceHandle: 'image', target: thr, targetHandle: 'image' })
+    const br = addNode('bridges', {}, { x: stageColumn('post').x + 30, y: 60 })
     connect({ source: thr, sourceHandle: 'mask', target: st, targetHandle: 'mask' })
+    connect({ source: st, sourceHandle: 'solid', target: br, targetHandle: 'body' })
     set({ selected: st })
   },
   colourStarter: (imageId, title) => {
@@ -267,10 +268,12 @@ export const useStudio = create<State>((set, get) => ({
     const src = addNode('source', { image_id: imageId }, { x: 40, y: 60 }, title)
     const red = addNode('reduce', { colours: 3 }, { x: 400, y: 60 })
     const tp = addNode('tone_patterns', {}, { x: 760, y: 60 })
-    const st = addNode('stencil', { width_mm: 100, margin_mm: 6, raised_bridges: true, z_bridging: 'easy', layer_height_mm: 0.2 }, { x: stageColumn('stencil').x + 30, y: 60 })
+    const st = addNode('stencil', { width_mm: 100, margin_mm: 6, layer_height_mm: 0.2 }, { x: stageColumn('stencil').x + 30, y: 60 })
     connect({ source: src, sourceHandle: 'image', target: red, targetHandle: 'image' })
     connect({ source: red, sourceHandle: 'image', target: tp, targetHandle: 'image' })
+    const br = addNode('bridges', { raised_bridges: true, z_bridging: 'easy' }, { x: stageColumn('post').x + 30, y: 60 })
     connect({ source: tp, sourceHandle: 'mask', target: st, targetHandle: 'mask' })
+    connect({ source: st, sourceHandle: 'solid', target: br, targetHandle: 'body' })
     set({ selected: tp })
   },
   colourSetStarter: (imageId, title) => {
@@ -279,15 +282,21 @@ export const useStudio = create<State>((set, get) => ({
     const src = addNode('source', { image_id: imageId }, { x: 40, y: 60 }, title)
     const split = addNode('split_colours', { colours: 2 }, { x: 400, y: 60 })
     const sp = stageColumn('stencil')
-    const plate = { width_mm: 100, margin_mm: 10, raised_bridges: true, z_bridging: 'easy' }
+    const plate = { width_mm: 100, margin_mm: 10 }
+    const bridge = { raised_bridges: true, z_bridging: 'easy' }
     const a = addNode('stencil', plate, { x: sp.x + 30, y: 60 }, 'Colour 1')
     const b = addNode('stencil', plate, { x: sp.x + 30, y: 300 }, 'Colour 2')
-    const set_ = addNode('colour_set', {}, { x: stageColumn('post').x + 30, y: 60 })
+    const px = stageColumn('post').x + 30
+    const ba = addNode('bridges', bridge, { x: px, y: 60 }, 'Bridges 1')
+    const bb = addNode('bridges', bridge, { x: px, y: 300 }, 'Bridges 2')
+    const set_ = addNode('colour_set', {}, { x: px + 300, y: 180 })
     connect({ source: src, sourceHandle: 'image', target: split, targetHandle: 'image' })
     connect({ source: split, sourceHandle: 'colour_1', target: a, targetHandle: 'mask' })
     connect({ source: split, sourceHandle: 'colour_2', target: b, targetHandle: 'mask' })
-    connect({ source: a, sourceHandle: 'solid', target: set_, targetHandle: 'colour_1' })
-    connect({ source: b, sourceHandle: 'solid', target: set_, targetHandle: 'colour_2' })
+    connect({ source: a, sourceHandle: 'solid', target: ba, targetHandle: 'body' })
+    connect({ source: b, sourceHandle: 'solid', target: bb, targetHandle: 'body' })
+    connect({ source: ba, sourceHandle: 'solid', target: set_, targetHandle: 'colour_1' })
+    connect({ source: bb, sourceHandle: 'solid', target: set_, targetHandle: 'colour_2' })
     set({ selected: set_ })
   },
   tiledStarter: (imageId, title) => {
@@ -298,12 +307,14 @@ export const useStudio = create<State>((set, get) => ({
     const st = addNode('stencil', { width_mm: 400, margin_mm: 12, thickness_mm: 6 }, { x: stageColumn('stencil').x + 30, y: 60 })
     const px = stageColumn('post').x + 30
     const tiles = addNode('tiles', { max_x: 200, max_y: 200 }, { x: px, y: 60 })
-    const pads = addNode('pads', {}, { x: px, y: 300 })
-    const hw = addNode('hardware', {}, { x: px, y: 540 })
+    const br = addNode('bridges', {}, { x: px, y: 300 })
+    const pads = addNode('pads', {}, { x: px, y: 540 })
+    const hw = addNode('hardware', {}, { x: px, y: 780 })
     connect({ source: src, sourceHandle: 'image', target: thr, targetHandle: 'image' })
     connect({ source: thr, sourceHandle: 'mask', target: st, targetHandle: 'mask' })
     connect({ source: st, sourceHandle: 'solid', target: tiles, targetHandle: 'solid' })
-    connect({ source: tiles, sourceHandle: 'parts', target: pads, targetHandle: 'parts' })
+    connect({ source: tiles, sourceHandle: 'parts', target: br, targetHandle: 'body' })
+    connect({ source: br, sourceHandle: 'parts', target: pads, targetHandle: 'parts' })
     connect({ source: pads, sourceHandle: 'parts', target: hw, targetHandle: 'parts' })
     set({ selected: tiles })
   },
@@ -315,13 +326,15 @@ export const useStudio = create<State>((set, get) => ({
     const lay = addNode('tile_layout', { width_mm: 400, margin_mm: 12, max_x: 200, max_y: 200 }, { x: stageColumn('stencil').x + 30, y: 60 })
     const st = addNode('stencil', { thickness_mm: 6 }, { x: stageColumn('stencil').x + 30, y: 360 })
     const px = stageColumn('post').x + 30
-    const pads = addNode('pads', {}, { x: px, y: 60 })
-    const hw = addNode('hardware', {}, { x: px, y: 300 })
+    const br = addNode('bridges', {}, { x: px, y: 60 })
+    const pads = addNode('pads', {}, { x: px, y: 300 })
+    const hw = addNode('hardware', {}, { x: px, y: 540 })
     connect({ source: src, sourceHandle: 'image', target: thr, targetHandle: 'image' })
     connect({ source: thr, sourceHandle: 'mask', target: lay, targetHandle: 'mask' })
     connect({ source: thr, sourceHandle: 'mask', target: st, targetHandle: 'mask' })
     connect({ source: lay, sourceHandle: 'tiles', target: st, targetHandle: 'tiles' })
-    connect({ source: st, sourceHandle: 'parts', target: pads, targetHandle: 'parts' })
+    connect({ source: st, sourceHandle: 'parts', target: br, targetHandle: 'body' })
+    connect({ source: br, sourceHandle: 'parts', target: pads, targetHandle: 'parts' })
     connect({ source: pads, sourceHandle: 'parts', target: hw, targetHandle: 'parts' })
     set({ selected: lay })
   },
@@ -334,7 +347,9 @@ export const useStudio = create<State>((set, get) => ({
     const st = addNode('vector_stencil', {}, { x: stageColumn('stencil').x + 30, y: 60 })
     connect({ source: src, sourceHandle: 'image', target: thr, targetHandle: 'image' })
     connect({ source: thr, sourceHandle: 'mask', target: tr, targetHandle: 'mask' })
+    const br = addNode('bridges', {}, { x: stageColumn('post').x + 30, y: 60 })
     connect({ source: tr, sourceHandle: 'shapes', target: st, targetHandle: 'shapes' })
+    connect({ source: st, sourceHandle: 'solid', target: br, targetHandle: 'body' })
     set({ selected: tr })
   },
   graph: () => ({
@@ -459,7 +474,7 @@ export function coarsen(g: GraphJson): GraphJson {
     nodes: g.nodes.map((n) => {
       const p = { ...n.params }
       if (n.type === 'source' && Number(p.resolution) > DRAFT_RESOLUTION) p.resolution = DRAFT_RESOLUTION
-      if ((n.type === 'stencil' || n.type === 'vector_stencil') && p.z_bridging === 'steps') p.z_bridging = 'easy'
+      if (n.type === 'bridges' && p.z_bridging === 'steps') p.z_bridging = 'easy'
       if (n.type === 'vector_stencil' && Number(p.detail) > 2) p.detail = 2
       return { ...n, params: p }
     }),

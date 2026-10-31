@@ -1302,3 +1302,29 @@ fn number_pockets_are_as_deep_as_asked() {
         );
     }
 }
+
+#[test]
+fn a_stencil_alone_succeeds_and_reports_its_islands() {
+    let mut e = Engine::new();
+    let id = e.add_image(test_png()).unwrap()["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let mut g = graph(&id, 2.0);
+    // the ring cuts out a disc that floats free unless a Bridges node joins it
+    g["nodes"][1]["params"] = json!({});
+    let r = e.run(&g, None, &|| 0.0);
+    assert_eq!(r["nodes"]["st"]["state"], "done", "{r}");
+    let key = r["nodes"]["st"]["key"].as_str().unwrap().to_string();
+    let Some(Value::Solid(s)) = e.value(&key, "solid") else {
+        panic!()
+    };
+    assert!(
+        s.stats["islands_remaining"].as_u64().unwrap() > 0,
+        "{:?}",
+        s.stats
+    );
+    assert_eq!(s.stats["watertight"], true);
+    let rep = e.report(&g, &r);
+    assert!(rep.to_string().contains("remain"), "{rep}");
+}

@@ -56,7 +56,6 @@ export const PARAM_HELP: Record<string, string> = {
   colours: 'How many flat colours to keep. Each becomes its own stencil.',
   supersample: 'Renders at a higher scale and averages, for smoother edges.',
   angle: 'Direction of the pattern lines on tones that set none.',
-  bridge_islands: 'When a cut leaves a piece floating free, add a bridge so it stays attached. Turn off only if you will join the pieces yourself.',
   crop_left: 'Trim this share of the picture width off the left side.',
   crop_right: 'Trim this share of the picture width off the right side.',
   crop_top: 'Trim this share of the picture height off the top.',
@@ -124,7 +123,7 @@ export const PARAM_HELP: Record<string, string> = {
   spacing_N: 'Distance between lines or dots for this tone. 0 uses the default spacing above.',
   cover_N: 'How much of this tone is paint, in percent. 0 lets the engine choose from the tone.',
   op: 'What to do to the paint. erode shrinks it, dilate grows it, open removes specks, close fills small gaps, thin and skeleton reduce shapes to lines; the others pick out edges, small bright or dark details, or a hand-made pattern (hit_or_miss).',
-  tile_method: 'Used with a Tile layout. per_tile bridges every tile on its own. cut_whole bridges the plate once, cuts it into tiles, and re-bridges only the pieces that came loose.',
+  tile_method: 'Used with a Tile layout. per_tile builds every tile from its own outline. cut_whole builds the plate once, cuts it into tiles, and reports the pieces that came loose (join them with a Bridges node).',
 }
 
 /** Where one node means something different by the same parameter name. */
