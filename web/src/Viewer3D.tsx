@@ -16,7 +16,7 @@ export interface PlateMeta {
 }
 interface Scene3D {
   meshes: THREE.Mesh[]
-  geos: { hi: THREE.BufferGeometry; lo?: THREE.BufferGeometry; sm?: THREE.BufferGeometry; lod: boolean }[]
+  geos: { hi: THREE.BufferGeometry; lo?: THREE.BufferGeometry; sm?: THREE.BufferGeometry; lod: boolean; base?: THREE.BufferAttribute | null; frag?: THREE.BufferAttribute | null; fragOn?: boolean }[]
   centers: THREE.Vector3[]
   boxes: THREE.Box3[]
   center: THREE.Vector3
@@ -44,6 +44,47 @@ function shadePockets(g: THREE.BufferGeometry) {
     if (nz > 0.99 && (a.z + b.z + c.z) / 3 < top - 0.05) col.fill(0.35, t * 3, t * 3 + 9)
   }
   g.setAttribute('color', new THREE.BufferAttribute(col, 3))
+}
+
+/**
+ * Colours every watertight piece apart from the largest one: triangles are grouped by shared (welded) vertices.
+ * Returns null when the mesh is a single piece.
+ */
+function fragmentColors(g: THREE.BufferGeometry): THREE.BufferAttribute | null {
+  const pos = g.attributes.position
+  const n = pos.count
+  const ids = new Map<string, number>()
+  const vid = new Int32Array(n)
+  for (let i = 0; i < n; i++) {
+    const k = `${Math.round(pos.getX(i) * 1000)},${Math.round(pos.getY(i) * 1000)},${Math.round(pos.getZ(i) * 1000)}`
+    let id = ids.get(k)
+    if (id === undefined) { id = ids.size; ids.set(k, id) }
+    vid[i] = id
+  }
+  const parent = new Int32Array(ids.size).map((_, i) => i)
+  const find = (a: number) => { while (parent[a] !== a) { parent[a] = parent[parent[a]]; a = parent[a] } return a }
+  for (let t = 0; t + 2 < n; t += 3) {
+    const a = find(vid[t])
+    for (const b of [find(vid[t + 1]), find(vid[t + 2])]) if (a !== b) parent[b] = find(a)
+  }
+  const count = new Map<number, number>()
+  for (let t = 0; t + 2 < n; t += 3) { const r = find(vid[t]); count.set(r, (count.get(r) ?? 0) + 1) }
+  if (count.size < 2) return null
+  let main = -1, best = -1
+  for (const [r, c] of count) if (c > best) { best = c; main = r }
+  const hue = new Map<number, THREE.Color>()
+  let k = 0
+  const col = new Float32Array(n * 3)
+  for (let t = 0; t + 2 < n; t += 3) {
+    const r = find(vid[t])
+    let c = new THREE.Color(1, 1, 1)
+    if (r !== main) {
+      if (!hue.has(r)) hue.set(r, new THREE.Color().setHSL(((k++ * 0.382) % 1) * 0.9, 0.95, 0.5))
+      c = hue.get(r)!
+    }
+    for (let v = 0; v < 3; v++) col.set([c.r, c.g, c.b], (t + v) * 3)
+  }
+  return new THREE.BufferAttribute(col, 3)
 }
 
 function coarse(src: THREE.BufferGeometry): THREE.BufferGeometry {
@@ -83,6 +124,7 @@ export default function Viewer3D({ parts, plate }: { parts: Part[]; plate?: Plat
   const host = useRef<HTMLDivElement>(null)
   const sc = useRef<Scene3D | null>(null)
   const [wire, setWire] = useState(false)
+  const [frags, setFrags] = useState(false)
   const [shading, setShading] = useState<'smooth' | 'flat'>('smooth')
   const [detail, setDetail] = useState<'auto' | 'high' | 'low'>('auto')
   const [interacting, setInteracting] = useState(false)
@@ -219,6 +261,17 @@ export default function Viewer3D({ parts, plate }: { parts: Part[]; plate?: Plat
         s.meshes.forEach((m, i) => {
       const mat = m.material as THREE.MeshStandardMaterial
       const g = s.geos[i]
+      if (g.fragOn !== frags) {
+        if (g.base === undefined) g.base = g.hi.getAttribute('color') as THREE.BufferAttribute | null
+        if (frags && g.frag === undefined) g.frag = fragmentColors(g.hi)
+        const use = frags ? g.frag : g.base
+        if (use) g.hi.setAttribute('color', use)
+        else g.hi.deleteAttribute('color')
+        g.sm?.dispose(); g.sm = undefined
+        g.lo?.dispose(); g.lo = undefined
+        g.fragOn = frags
+      }
+      mat.color.set(frags && g.frag ? 0xffffff : colorOf(i))
       if (low && g.lod && !g.lo) g.lo = coarse(g.hi)
       // STL triangles are not shared, so plain vertex normals are flat: smooth shading needs normals averaged over gentle edges
       if (shading === 'smooth' && !g.sm && g.hi.attributes.position.count <= 900_000) g.sm = toCreasedNormals(g.hi, Math.PI / 6)
@@ -283,7 +336,7 @@ export default function Viewer3D({ parts, plate }: { parts: Part[]; plate?: Plat
       s.meshes[i].position.set(ax + sz.x / 2 - s.centers[i].x, ay - sz.y / 2 - s.centers[i].y, -s.boxes[i].min.z)
       ax += sz.x + 8
     })
-  }, [wire, shading, detail, interacting, explode, clip, ready, hidden, plate])
+  }, [wire, frags, shading, detail, interacting, explode, clip, ready, hidden, plate])
 
   // seams, connectors, pads, holes and joiner lines drawn on each tile, so they follow it as the spacing changes
   useEffect(() => {
@@ -379,6 +432,7 @@ export default function Viewer3D({ parts, plate }: { parts: Part[]; plate?: Plat
         <button onClick={() => view('bottom')}>Bottom</button>
         <button onClick={() => view('left')}>Left</button>
         <button onClick={() => view('right')}>Right</button>
+        <label title="Colour every loose piece of each part apart from its largest one"><input type="checkbox" checked={frags} onChange={(e) => setFrags(e.target.checked)} /> colour fragments</label>
         <label><input type="checkbox" checked={wire} onChange={(e) => setWire(e.target.checked)} /> wireframe</label>
         <label>shading <select value={shading} onChange={(e) => setShading(e.target.value as 'smooth' | 'flat')}><option value="smooth">smooth</option><option value="flat">flat</option></select></label>
         <label>detail <select value={detail} onChange={(e) => setDetail(e.target.value as 'auto' | 'high' | 'low')}><option value="auto">auto</option><option value="high">high</option><option value="low">low</option></select></label>

@@ -1146,3 +1146,14 @@ test('projects get a random docker-style name, New picks another, and New comes 
   await page.locator('.toast').getByRole('button', { name: 'Undo' }).click()
   await expect(box).toHaveValue(first)
 })
+
+test('colour fragments can be toggled in the 3D view', async ({ page }) => {
+  await open(page)
+  await page.locator('.react-flow__node').filter({ hasText: 'Stencil' }).first().dispatchEvent('dblclick')
+  await expect(page.locator('.v3dims')).toContainText(/mm/, { timeout: 30_000 })
+  const box = page.getByLabel('colour fragments')
+  await box.check()
+  await expect(box).toBeChecked()
+  await box.uncheck()
+  await expect(page.locator('.crash')).toHaveCount(0)
+})
