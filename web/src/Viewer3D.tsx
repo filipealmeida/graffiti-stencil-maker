@@ -124,8 +124,8 @@ export default function Viewer3D({ parts, plate }: { parts: Part[]; plate?: Plat
   const host = useRef<HTMLDivElement>(null)
   const sc = useRef<Scene3D | null>(null)
   const [wire, setWire] = useState(false)
-  const [shading, setShading] = useState<'smooth' | 'flat' | 'fragments'>('smooth')
-  const frags = shading === 'fragments'
+  const [shading, setShading] = useState<'smooth' | 'flat'>('smooth')
+  const [frags, setFrags] = useState(false)
   const [detail, setDetail] = useState<'auto' | 'high' | 'low'>('auto')
   const [interacting, setInteracting] = useState(false)
   const [explode, setExplode] = useState(0)
@@ -274,8 +274,8 @@ export default function Viewer3D({ parts, plate }: { parts: Part[]; plate?: Plat
       mat.color.set(frags && g.frag ? 0xffffff : colorOf(i))
       if (low && g.lod && !g.lo) g.lo = coarse(g.hi)
       // STL triangles are not shared, so plain vertex normals are flat: smooth shading needs normals averaged over gentle edges
-      if (shading !== 'flat' && !g.sm && g.hi.attributes.position.count <= 900_000) g.sm = toCreasedNormals(g.hi, Math.PI / 6)
-      m.geometry = low && g.lo ? g.lo : shading !== 'flat' && g.sm ? g.sm : g.hi
+      if (shading === 'smooth' && !g.sm && g.hi.attributes.position.count <= 900_000) g.sm = toCreasedNormals(g.hi, Math.PI / 6)
+      m.geometry = low && g.lo ? g.lo : shading === 'smooth' && g.sm ? g.sm : g.hi
       mat.vertexColors = !!m.geometry.getAttribute('color')
       mat.wireframe = wire
       mat.flatShading = shading === 'flat'
@@ -393,14 +393,14 @@ export default function Viewer3D({ parts, plate }: { parts: Part[]; plate?: Plat
     return () => made.forEach((m) => { m.owner.remove(m.obj); (m.obj as THREE.Line).geometry?.dispose() })
   }, [ready, plate, layout])
 
-  // refit the camera so every part stays inside the panel as the spacing changes
+  // frame the parts once when there is no earlier camera; after that the camera only moves when the user moves it
   const fitRef = useRef(-1)
+  const hadCam = useRef(savedCam !== null)
   useEffect(() => {
     const s = sc.current
     if (!s) return
-    const changed = fitRef.current !== explode
+    if (fitRef.current !== -1 || hadCam.current) return
     fitRef.current = explode
-    if (!changed && savedCam) return
     const b = new THREE.Box3()
     s.meshes.forEach((m) => { if (m.visible) { m.updateMatrixWorld(true); b.union(new THREE.Box3().setFromObject(m)) } })
     if (b.isEmpty()) return
@@ -411,7 +411,7 @@ export default function Viewer3D({ parts, plate }: { parts: Part[]; plate?: Plat
     s.controls.target.copy(c)
     s.camera.position.copy(c).add(dir.setLength(d))
     s.controls.update()
-  }, [explode, ready])
+  }, [ready])
 
   const view = (v: 'iso' | 'top' | 'bottom' | 'left' | 'right') => {
     const s = sc.current
@@ -433,7 +433,8 @@ export default function Viewer3D({ parts, plate }: { parts: Part[]; plate?: Plat
         <button onClick={() => view('left')}>Left</button>
         <button onClick={() => view('right')}>Right</button>
         <label><input type="checkbox" checked={wire} onChange={(e) => setWire(e.target.checked)} /> wireframe</label>
-        <label>shading <select value={shading} onChange={(e) => setShading(e.target.value as 'smooth' | 'flat' | 'fragments')}><option value="smooth">smooth</option><option value="flat">flat</option><option value="fragments" title="Colour every loose piece apart from the largest one">fragments</option></select></label>
+        <label title="Colour every loose piece of each part apart from its largest one"><input type="checkbox" checked={frags} onChange={(e) => setFrags(e.target.checked)} /> colour fragments</label>
+        <label>shading <select value={shading} onChange={(e) => setShading(e.target.value as 'smooth' | 'flat')}><option value="smooth">smooth</option><option value="flat">flat</option></select></label>
         <label>detail <select value={detail} onChange={(e) => setDetail(e.target.value as 'auto' | 'high' | 'low')}><option value="auto">auto</option><option value="high">high</option><option value="low">low</option></select></label>
         {plate && <label title="seams (yellow), connectors (blue), pads (green), holes (red), joiner plates (purple)"><input type="checkbox" checked={layout} onChange={(e) => setLayout(e.target.checked)} /> layout</label>}
         <label>layers up to <input type="range" min={0.01} max={1} step={0.01} value={clip} onChange={(e) => setClip(+e.target.value)} /></label>

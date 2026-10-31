@@ -1147,12 +1147,12 @@ test('projects get a random docker-style name, New picks another, and New comes 
   await expect(box).toHaveValue(first)
 })
 
-test('the shading menu offers a fragments colouring', async ({ page }) => {
+test('colour fragments can be toggled in the 3D view', async ({ page }) => {
   await open(page)
   await page.locator('.react-flow__node').filter({ hasText: 'Stencil' }).first().dispatchEvent('dblclick')
   await expect(page.locator('.v3dims')).toContainText(/mm/, { timeout: 30_000 })
-  const sel = page.locator('.v3bar select').filter({ has: page.locator('option[value=fragments]') })
-  await sel.selectOption('fragments')
-  await sel.selectOption('smooth')
+  const box = page.getByLabel('colour fragments')
+  await box.check()
+  await box.uncheck()
   await expect(page.locator('.crash')).toHaveCount(0)
 })
