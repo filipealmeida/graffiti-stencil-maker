@@ -296,6 +296,33 @@
     ]
   },
   {
+    "name": "islands left after removing fragments",
+    "type": "fragments",
+    "params": {},
+    "info": {
+      "kind": "parts",
+      "meta": {
+        "fragments": {
+          "pieces_removed": 2,
+          "tiles_cleaned": 1,
+          "volume_removed_mm3": 10,
+          "islands_left": 3,
+          "tiles_with_islands": 2
+        }
+      }
+    },
+    "expected": [
+      {
+        "level": "info",
+        "text": "2 fragments removed from 1 tile (10 mm³)"
+      },
+      {
+        "level": "warn",
+        "text": "3 islands remain in 2 tiles: join them with Bridges"
+      }
+    ]
+  },
+  {
     "name": "loose pieces after a split",
     "type": "tiles",
     "params": {},

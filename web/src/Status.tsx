@@ -6,6 +6,7 @@ function Status({ onGoto }: { onGoto: (id: string) => void }) {
   const busy = useStudio((s) => s.busy);
   const error = useStudio((s) => s.error);
   const draft = useStudio((s) => s.draft);
+  const stopped = useStudio((s) => s.stopped);
   const runs = useStudio((s) => s.runs);
   const nodes = useStudio((s) => s.nodes);
   const progress = useStudio((s) => s.progress);
@@ -25,7 +26,9 @@ function Status({ onGoto }: { onGoto: (id: string) => void }) {
       ? `⚠ ${titleOf(failing.id)}: ${runs[failing.id]?.error}`
       : busy
       ? `${draft ? "refining" : "working"}…${step}${left !== null && left >= 3 ? ` ${formatEta(left)}` : ""}`
-      : draft
+      : stopped
+        ? "stopped: press Rerun to finish the nodes that were left"
+        : draft
         ? "draft preview"
         : "ready";
   return (

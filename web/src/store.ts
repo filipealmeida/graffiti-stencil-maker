@@ -71,6 +71,8 @@ interface State {
   dismissToast: (id: number) => void
   setShowHelp: (on: boolean) => void
   busy: boolean
+  /** The last run was stopped by the user: nodes that had not finished stay as they were until the next run. */
+  stopped: boolean
   error: string | null
   logs: (LogLine & { id: number })[]
   consoleOpen: boolean
@@ -135,7 +137,7 @@ export const useStudio = create<State>((set, get) => ({
     setTimeout(() => get().dismissToast(id), opts.undo ? 8000 : 4000)
   },
   dismissToast: (id) => set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) })),
-  setShowHelp: (on) => { localStorage.setItem('studio.showHelp', on ? '1' : '0'); set({ showHelp: on }) }, busy: false, error: null,
+  setShowHelp: (on) => { localStorage.setItem('studio.showHelp', on ? '1' : '0'); set({ showHelp: on }) }, busy: false, stopped: false, error: null,
   logs: [], usage: loadUsage(), perfOpen: localStorage.getItem('stencil-perf') === '1', consoleOpen: window.innerWidth >= 1000, reportOpen: false, hv: 0, bench: null, progress: { done: 0, total: 0 }, draft: false,
   addLogs: (l) => set((s) => ({ logs: [...s.logs, ...l.map((x, i) => ({ ...x, id: s.logs.length + i + Math.random() }))].slice(-500) })),
   clearLogs: () => set({ logs: [] }),
@@ -481,6 +483,23 @@ export function coarsen(g: GraphJson): GraphJson {
   }
 }
 
+/** Stops the running evaluation now. Finished nodes keep their results; the rest are marked stale until the next run. */
+export function stopRunning() {
+  const st = useStudio.getState()
+  if (!st.busy) return
+  token++
+  runningSig = doneSig = null
+  api.stop()
+  const runs: Record<string, NodeRun> = {}
+  for (const [id, r] of Object.entries(st.runs)) {
+    runs[id] = r.state === 'running' || r.state === 'pending'
+      ? (r.key ? { ...r, state: 'done', stale: true, progress: undefined, message: undefined } : { state: 'pending', message: 'stopped' })
+      : r
+  }
+  useStudio.setState({ runs, busy: false, stopped: true, error: null, draft: false })
+  st.addLogs([{ ts: new Date().toLocaleTimeString(), ms: null, t: 0, level: 'info', node: '', type: '', msg: 'Processing stopped by the user' }])
+}
+
 /**
  * Evaluates the whole graph. A run for a graph that is already running or already evaluated is skipped.
  * A draft run uses coarser settings (see `coarsen`) and is skipped when that would change nothing.
@@ -508,7 +527,7 @@ export async function runGraph(draft = false) {
     const prev = st.runs[n.id]
     merged[n.id] = prev ? { ...prev, stale: true } : { state: 'pending' }
   }
-  useStudio.setState({ runs: merged, busy: true, error: null, progress: { done: 0, total: g.nodes.length } })
+  useStudio.setState({ runs: merged, busy: true, stopped: false, error: null, progress: { done: 0, total: g.nodes.length } })
   try {
     const r = await api.run(g, undefined, (step) => {
       if (mine !== token) return

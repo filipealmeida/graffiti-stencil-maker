@@ -87,10 +87,16 @@ function call<T>(msg: Record<string, unknown>, transfer: Transferable[] = [], st
   })
 }
 
-/** Stops the current run. A node caught mid-computation can't hear a message, so the worker is replaced instead. */
-function stopRun() {
+// how long each node took when it last computed (cache hits don't count): the worker runs quick nodes first
+const costs: Record<string, number> = {}
+
+/**
+ * Stops the current run. A node caught mid-computation can't hear a message, so the worker is replaced instead.
+ * `force` replaces it whenever a node is computing, however short that has been going on.
+ */
+function stopRun(force = false) {
   if (!worker || !active) return
-  if (active.since !== null && Date.now() - active.since > HARD_CANCEL_MS) {
+  if (active.since !== null && (force || Date.now() - active.since > HARD_CANCEL_MS)) {
     worker.terminate()
     worker = null
     active = null
@@ -190,8 +196,9 @@ export const api = {
     stopRun()
     if (warm) await warm
     const r = await call<{ status: string; error?: string }>(
-      { op: 'run', graph: JSON.stringify(graph), targets: targets ? JSON.stringify(targets) : '' }, [],
+      { op: 'run', graph: JSON.stringify(graph), targets: targets ? JSON.stringify(targets) : '', costs }, [],
       (s) => {
+        if (s.state?.state === 'done' && !s.state.cached && s.state.ms > 0) costs[s.node] = s.state.ms
         for (const a of s.artifacts as any[]) {
           retain(a.key)
           const prev = blobs.get(`${a.key}/${a.out}`)
@@ -207,7 +214,9 @@ export const api = {
       })
     return r
   },
-  cancel: stopRun,
+  cancel: () => stopRun(),
+  /** Stops whatever is computing right now, even a node in the middle of its work. */
+  stop: () => stopRun(true),
   info: async (key: string, out: string) => infos.get(`${key}/${out}`) ?? {},
   /** The info of a finished output when it is already in memory. */
   peekInfo: (key: string, out: string) => infos.get(`${key}/${out}`),

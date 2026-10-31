@@ -5,7 +5,7 @@ type Req =
   | { id: number; op: 'image'; bytes: ArrayBuffer }
   | { id: number; op: 'has'; imageId: string }
   | { id: number; op: 'imageinfo'; imageId: string; resolution: number }
-  | { id: number; op: 'run'; graph: string; targets: string }
+  | { id: number; op: 'run'; graph: string; targets: string; costs?: Record<string, number> }
   | { id: number; op: 'cancel' }
   | { id: number; op: 'threads' }
 
@@ -65,8 +65,12 @@ function collect(result: any): Artifact[] {
 interface GNode { id: string; type: string }
 interface GEdge { from: [string, string]; to: [string, string] }
 
-/** Parents-first order of `targets` and everything they depend on, or null when the graph has a cycle. */
-function plan(nodes: GNode[], edges: GEdge[], targets: string[] | null): string[] | null {
+/**
+ * Parents-first order of `targets` and everything they depend on, or null when the graph has a cycle.
+ * Of the nodes that are ready, the one that took least last time goes first, so a slow node holds up only what
+ * depends on it and not the quick branches beside it.
+ */
+function plan(nodes: GNode[], edges: GEdge[], targets: string[] | null, costs: Record<string, number> = {}): string[] | null {
   const ids = new Set(nodes.map((n) => n.id))
   const ups = new Map<string, string[]>()
   for (const e of edges) if (ids.has(e.from[0]) && ids.has(e.to[0])) ups.set(e.to[0], [...(ups.get(e.to[0]) ?? []), e.from[0]])
@@ -75,13 +79,16 @@ function plan(nodes: GNode[], edges: GEdge[], targets: string[] | null): string[
   ;(targets ?? nodes.map((n) => n.id)).forEach((id) => ids.has(id) && visit(id))
   const order: string[] = []
   const done = new Set<string>()
-  let progressed = true
-  while (progressed) {
-    progressed = false
+  for (;;) {
+    let pick: string | null = null
     for (const n of nodes) {
       if (!want.has(n.id) || done.has(n.id)) continue
-      if ((ups.get(n.id) ?? []).every((u) => done.has(u))) { done.add(n.id); order.push(n.id); progressed = true }
+      if (!(ups.get(n.id) ?? []).every((u) => done.has(u))) continue
+      if (pick === null || (costs[n.id] ?? 0) < (costs[pick] ?? 0)) pick = n.id
     }
+    if (pick === null) break
+    done.add(pick)
+    order.push(pick)
   }
   return order.length === want.size ? order : null
 }
@@ -109,7 +116,7 @@ async function runGraph(m: Extract<Req, { op: 'run' }>) {
   const targets: string[] | null = m.targets ? JSON.parse(m.targets) : null
   const nodes: GNode[] = graph.nodes ?? []
   const edges: GEdge[] = graph.edges ?? []
-  const order = plan(nodes, edges, targets)
+  const order = plan(nodes, edges, targets, m.costs)
   const t0 = Date.now()
   if (!order) {
     // let the engine report what is wrong (cycle, unknown type, ...)

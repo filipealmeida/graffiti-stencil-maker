@@ -8,6 +8,7 @@ const PATHS: Record<string, string> = {
   folder: 'M3 6h6l2 2h10v11H3z',
   save: 'M5 3h12l4 4v14H5zM8 3v6h8V3M8 21v-7h8v7',
   new: 'M6 3h8l5 5v13H6zM14 3v5h5M12 12v6M9 15h6',
+  stop: 'M6 6h12v12H6z',
   rerun: 'M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7',
   report: 'M6 3h9l4 4v14H6zM9 12h7M9 16h7M9 8h3',
   perf: 'M4 20V10M10 20V4M16 20v-7M22 20H2',

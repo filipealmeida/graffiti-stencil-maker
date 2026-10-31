@@ -70,6 +70,8 @@ pub(super) fn run_fragments(
     let mut files = Vec::with_capacity(src.files.len());
     let mut removed = Vec::new();
     let (mut pieces_removed, mut volume_removed, mut tiles_cleaned) = (0usize, 0.0f64, 0usize);
+    // islands still apart from each tile's biggest piece once the cleaning is done
+    let (mut islands_left, mut tiles_with_islands) = (0usize, 0usize);
     for (name, data) in &src.files {
         let wanted = match &tiles {
             Some(t) => t.contains(name),
@@ -82,6 +84,9 @@ pub(super) fn run_fragments(
         let mesh = Mesh::from_stl(data)?;
         let (vol, of) = piece_volumes(&mesh);
         if vol.len() <= n {
+            let extra = vol.len().saturating_sub(1);
+            islands_left += extra;
+            tiles_with_islands += usize::from(extra > 0);
             files.push((name.clone(), data.clone()));
             continue;
         }
@@ -99,6 +104,9 @@ pub(super) fn run_fragments(
             }
         }
         let kept_n = keep.iter().filter(|k| **k).count();
+        let extra = kept_n.saturating_sub(1);
+        islands_left += extra;
+        tiles_with_islands += usize::from(extra > 0);
         if kept_n == vol.len() {
             files.push((name.clone(), data.clone()));
             continue;
@@ -126,7 +134,13 @@ pub(super) fn run_fragments(
     meta["fragments"] = json!({
         "keep": n, "only_floating": floating_only, "tiles_cleaned": tiles_cleaned, "pieces_removed": pieces_removed,
         "volume_removed_mm3": volume_removed, "removed": removed,
+        "islands_left": islands_left, "tiles_with_islands": tiles_with_islands,
     });
+    // what a Bridges node upstream reported is out of date now
+    if meta["bridged_fragments"].is_object() {
+        meta["bridged_fragments"]["islands_left"] = json!(islands_left);
+        meta["bridged_fragments"]["warnings"] = json!([]);
+    }
     Ok(vec![(
         "parts",
         Value::Parts(Rc::new(Parts { files, meta })),
@@ -183,6 +197,7 @@ mod tests {
         assert!((Mesh::from_stl(&f.1).unwrap().volume() - 2000.0).abs() < 1e-3);
         assert_eq!(p.meta["fragments"]["pieces_removed"], 2);
         assert_eq!(p.meta["fragments"]["tiles_cleaned"], 1);
+        assert_eq!(p.meta["fragments"]["islands_left"], 0);
         // other files and tiles in one piece are untouched
         assert_eq!(pieces(&p, "connector.stl"), 3);
         assert_eq!(pieces(&p, "stencil_r1c2.stl"), 1);
@@ -193,6 +208,8 @@ mod tests {
         let p = run(2.0);
         assert_eq!(pieces(&p, "stencil_r1c1.stl"), 2);
         assert_eq!(p.meta["fragments"]["pieces_removed"], 1);
+        assert_eq!(p.meta["fragments"]["islands_left"], 1);
+        assert_eq!(p.meta["fragments"]["tiles_with_islands"], 1);
         assert_eq!(pieces(&run(5.0), "stencil_r1c1.stl"), 3);
     }
 
@@ -208,7 +225,18 @@ mod tests {
         let p = run_with(json!({"keep": 1, "only_floating": true}), tile());
         assert_eq!(pieces(&p, "stencil_r1c1.stl"), 2);
         assert_eq!(p.meta["fragments"]["pieces_removed"], 1);
+        assert_eq!(p.meta["fragments"]["islands_left"], 1);
         let all = run_with(json!({"keep": 1, "only_floating": false}), tile());
         assert_eq!(pieces(&all, "stencil_r1c1.stl"), 1);
+    }
+
+    #[test]
+    fn a_bridges_report_is_refreshed() {
+        let mut parts = parts();
+        parts.meta["bridged_fragments"] =
+            json!({"islands_left": 5, "warnings": ["5 islands could not be bridged"]});
+        let p = run_with(json!({"keep": 1}), parts);
+        assert_eq!(p.meta["bridged_fragments"]["islands_left"], 0);
+        assert_eq!(p.meta["bridged_fragments"]["warnings"], json!([]));
     }
 }

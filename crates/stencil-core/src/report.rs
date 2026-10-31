@@ -121,6 +121,16 @@ pub fn findings(ty: &str, params: &Json, infos: &[Json]) -> Vec<Finding> {
                     ),
                 );
             }
+            if n(&fr["islands_left"]) > 0.0 {
+                add(
+                    Level::Warn,
+                    format!(
+                        "{} remain in {}: join them with Bridges",
+                        plural(n(&fr["islands_left"]), "island", "islands"),
+                        plural(n(&fr["tiles_with_islands"]), "tile", "tiles")
+                    ),
+                );
+            }
             if matches!(ty, "tiles" | "stencil" | "vector_stencil") && n(&t["loose_pieces"]) > 0.0 {
                 add(
                     Level::Warn,

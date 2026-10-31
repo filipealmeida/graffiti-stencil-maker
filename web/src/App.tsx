@@ -31,6 +31,7 @@ import {
   resetHistory,
   runGraph,
   rerun,
+  stopRunning,
   signature,
   checkpoint,
   STORE_KEY,
@@ -129,6 +130,9 @@ function Canvas() {
       } else if (k === "d") {
         e.preventDefault();
         useStudio.getState().duplicate();
+      } else if (k === ".") {
+        e.preventDefault();
+        stopRunning();
       } else if (k === "enter") {
         e.preventDefault();
         rerun();
@@ -431,6 +435,7 @@ function Canvas() {
     current.filter((t) => t.stage === st);
   const cmdActions = useMemo(
     () => [
+      { id: "stop", title: "Stop all processing", note: "Cancels the running evaluation at once; Rerun resumes", run: () => stopRunning() },
       ...current.map((t) => ({
         id: `node:${t.id}`,
         title: t.label,
@@ -637,14 +642,25 @@ function Canvas() {
           />
         </div>
         <span className="sep" />
-        <button
-          onClick={rerun}
-          disabled={s.busy}
-          title="Rerun the whole graph (Ctrl+Enter). Unchanged nodes come from the cache."
-          aria-label="Rerun"
-        >
-          <Icon name="rerun" />
-        </button>
+        {s.busy ? (
+          <button
+            className="danger"
+            onClick={stopRunning}
+            title="Stop all processing now (Ctrl+.). Finished nodes keep their results; Rerun picks up again."
+            aria-label="Stop processing"
+          >
+            <Icon name="stop" />
+            <span>Stop</span>
+          </button>
+        ) : (
+          <button
+            onClick={rerun}
+            title="Rerun the whole graph (Ctrl+Enter). Unchanged nodes come from the cache."
+            aria-label="Rerun"
+          >
+            <Icon name="rerun" />
+          </button>
+        )}
         <button
           className={s.reportOpen ? "on" : ""}
           onClick={() => s.setReport(!s.reportOpen)}
