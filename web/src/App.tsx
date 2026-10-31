@@ -644,13 +644,11 @@ function Canvas() {
         <span className="sep" />
         {s.busy ? (
           <button
-            className="danger"
             onClick={stopRunning}
             title="Stop all processing now (Ctrl+.). Finished nodes keep their results; Rerun picks up again."
             aria-label="Stop processing"
           >
             <Icon name="stop" />
-            <span>Stop</span>
           </button>
         ) : (
           <button

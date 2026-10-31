@@ -135,6 +135,32 @@ fn tapered_cylinder(r0: f64, r1: f64, z0: f64, z1: f64, n: usize) -> Mesh {
     mesh
 }
 
+/// A solid column of the given radius under every mounting hole, from the build plate up to just under the top
+/// face, so the hole and its boss never stand over an opening of the artwork.
+pub fn add_mount_columns(
+    solid: &Mesh,
+    points: &[(f64, f64)],
+    radius: f64,
+    segments: usize,
+    plate_top: f64,
+) -> Result<Mesh, String> {
+    if points.is_empty() {
+        return Ok(solid.clone());
+    }
+    let floor = solid.bounds().0[2];
+    let columns = union_all(
+        points
+            .iter()
+            .map(|&(x, y)| {
+                let mut c = cylinder(radius, floor, plate_top - 0.1, segments.max(24));
+                c.translate([x, y, 0.0]);
+                c
+            })
+            .collect(),
+    );
+    solid.union(&columns)
+}
+
 /// Tapered mounting-hole bosses that grow from the plate toward the screw head.
 pub fn add_mount_bosses(
     solid: &Mesh,
@@ -848,6 +874,23 @@ mod tests {
         )
         .unwrap();
         assert!(drilled.is_watertight() && !m.points.is_empty(), "{i}");
+    }
+
+    #[test]
+    fn mounting_columns_fill_an_opening_down_to_the_plate() {
+        let mut plate = Mesh::cuboid([0.0, 0.0, 0.0], [100.0, 80.0, 6.0]);
+        let opening = {
+            let mut c = cylinder(6.0, -1.0, 7.0, 48);
+            c.translate([50.0, 40.0, 0.0]);
+            c
+        };
+        plate = plate.subtract(&opening).unwrap();
+        assert!(!plate.box_inside([49.5, 39.5, 1.0], [50.5, 40.5, 2.0]));
+        let filled = add_mount_columns(&plate, &[(50.0, 40.0)], 7.5, 48, 6.0).unwrap();
+        assert!(filled.is_watertight());
+        assert!(filled.box_inside([49.0, 39.0, 0.1], [51.0, 41.0, 5.8]));
+        let boss = add_mount_bosses(&filled, &[(50.0, 40.0)], 2.2, 4.0, 16.0, 48, 6.0).unwrap();
+        assert!(boss.is_watertight() && crate::tile_bridge::components(&boss).0 == 1);
     }
 
     #[test]

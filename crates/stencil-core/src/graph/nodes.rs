@@ -985,6 +985,13 @@ pub(super) fn run_pads(_: &Engine, i: &HashMap<String, Value>, p: &P) -> Result<
                 m = hw::add_pads_at(&m, &ps, &pp, pad_r, layer)?;
             }
             if !hs.is_empty() {
+                m = hw::add_mount_columns(
+                    &m,
+                    &hs,
+                    (mount_boss_r - 0.4).max(hole_r + 1.0),
+                    mp.segments,
+                    plate_top,
+                )?;
                 if !flip {
                     m = hw::add_mount_bosses(
                         &m,
@@ -998,7 +1005,9 @@ pub(super) fn run_pads(_: &Engine, i: &HashMap<String, Value>, p: &P) -> Result<
                 }
                 m = hw::drill_at(&m, &hs, &mp)?;
             }
-            m.quantize_f32();
+            if !m.is_watertight() {
+                m.quantize_f32();
+            }
             if !m.is_watertight() {
                 return Err(format!("verification failed: {name} is not watertight"));
             }
