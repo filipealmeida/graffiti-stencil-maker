@@ -7,6 +7,7 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::rc::Rc;
 
 mod bridges;
+mod canvas;
 mod migrate;
 use migrate::migrate;
 
@@ -57,6 +58,40 @@ pub enum Value {
     Parts(Rc<Parts>),
     /// A plate divided into tiles, before it is a solid.
     Tiles(Rc<crate::tile_first::Layout>),
+    /// A picture, paint mask or outlines with a position and size on a canvas.
+    Layer(Rc<Layer>),
+}
+
+pub enum Art {
+    Image(Rc<RgbImage>),
+    Mask(Rc<Mask>),
+    Shapes(Rc<crate::trace::Shapes>),
+}
+
+impl Art {
+    /// Native size in pixels.
+    fn size(&self) -> (f64, f64) {
+        match self {
+            Art::Image(i) => (i.w as f64, i.h as f64),
+            Art::Mask(m) => (m.w as f64, m.h as f64),
+            Art::Shapes(s) => (s.w as f64, s.h as f64),
+        }
+    }
+    fn value(&self) -> Value {
+        match self {
+            Art::Image(i) => Value::Image(i.clone()),
+            Art::Mask(m) => Value::Mask(m.clone()),
+            Art::Shapes(s) => Value::Shapes(s.clone()),
+        }
+    }
+}
+
+/// Where a piece of art sits on a canvas: its top-left corner (x right, y down) and its scale, in canvas pixels.
+pub struct Layer {
+    pub art: Art,
+    pub x: f64,
+    pub y: f64,
+    pub scale: f64,
 }
 
 impl Value {
@@ -68,6 +103,7 @@ impl Value {
             Value::Solid(_) => "solid",
             Value::Parts(_) => "parts",
             Value::Tiles(_) => "tiles",
+            Value::Layer(_) => "layer",
         }
     }
 
@@ -85,6 +121,7 @@ impl Value {
                 let (w, h, rgb) = l.preview();
                 Ok(("image/png", png(w, h, image::ColorType::Rgb8, &rgb)?))
             }
+            Value::Layer(l) => l.art.value().encode(),
             Value::Parts(p) => match p.files.as_slice() {
                 [(_, b)] => Ok(("model/stl", b.clone())),
                 files => Ok(("application/zip", crate::zip::zip(files))),
@@ -105,6 +142,10 @@ impl Value {
             }
             Value::Solid(s) => {
                 json!({"kind": "solid", "stats": s.stats, "bytes": s.stl.len(), "tiles": []})
+            }
+            Value::Layer(l) => {
+                let (w, h) = l.art.size();
+                json!({"kind": "layer", "width": (w * l.scale).round(), "height": (h * l.scale).round(), "x": l.x, "y": l.y, "scale": l.scale})
             }
             Value::Tiles(l) => {
                 let pocket_list: Vec<Json> = l
@@ -555,6 +596,7 @@ fn plan(
             (Some((_, ot)), Some((_, it, _)))
                 if it == ot
                     || (*it == "any" && (*ot == "image" || *ot == "mask"))
+                    || (*it == "item" && matches!(*ot, "image" | "mask" | "shapes" | "layer"))
                     || (*it == "body" && (*ot == "solid" || *ot == "parts")) => {}
             _ => return Err(format!("invalid connection {a}.{ao} -> {b}.{bi}")),
         }

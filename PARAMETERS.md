@@ -1,7 +1,3 @@
-# Node parameter reference
-
-Every parameter `--set NODE.PARAM=VALUE` accepts. Generated with `stencil --list-params --params-format markdown`; regenerate it when a node changes.
-
 ### Image (`source`)
 
 | Parameter | Label | Type | Default | Range or choices |
@@ -31,6 +27,28 @@ Every parameter `--set NODE.PARAM=VALUE` accepts. Generated with `stencil --list
 | `angle` | Fine rotation (deg) | float | `0.0` | -45.0 to 45.0 |
 | `flip_h` | Flip horizontally | bool | `false` | true \| false |
 | `flip_v` | Flip vertically | bool | `false` | true \| false |
+
+### Place (`place`)
+
+| Parameter | Label | Type | Default | Range or choices |
+|---|---|---|---|---|
+| `move_x` | Move right (px) | float | `0.0` | -20000.0 to 20000.0 |
+| `move_y` | Move down (px) | float | `0.0` | -20000.0 to 20000.0 |
+| `scale_pct` | Scale (%) | float | `100.0` | 1.0 to 1000.0 |
+| `width_px` | Or set the width to (px, 0 = use the scale) | int | `0.0` | 0.0 to 20000.0 |
+
+### Collage (`canvas`)
+
+| Parameter | Label | Type | Default | Range or choices |
+|---|---|---|---|---|
+| `arrange` | Arrange | choice | `"manual"` | manual \| row \| column |
+| `layer_gap` | Gap between layers (px) | int | `0.0` | 0.0 to 2000.0 |
+| `layer_align` | Align | choice | `"start"` | start \| centre \| end |
+| `canvas_size` | Canvas size | choice | `"fit layers"` | fit layers \| fixed |
+| `canvas_width` | Width when fixed (px) | int | `1000.0` | 16.0 to 12000.0 |
+| `canvas_height` | Height when fixed (px) | int | `1000.0` | 16.0 to 12000.0 |
+| `canvas_margin` | Margin round the layers (px) | int | `0.0` | 0.0 to 2000.0 |
+| `overlap` | Where layers overlap | choice | `"darker wins"` | darker wins \| later on top |
 
 ### Threshold (`threshold`)
 

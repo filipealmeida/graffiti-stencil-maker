@@ -350,6 +350,14 @@ td:last-child {
   width: 15px;
   height: 15px;
 }
+.react-flow__handle.k-item {
+  border-radius: 50%;
+}
+.react-flow__handle.k-layer {
+  clip-path: polygon(0 5%, 100% 50%, 0 95%);
+  width: 15px;
+  height: 15px;
+}
 .react-flow__handle.k-parts {
   clip-path: polygon(30% 0, 70% 0, 100% 30%, 100% 70%, 70% 100%, 30% 100%, 0 70%, 0 30%);
   width: 15px;

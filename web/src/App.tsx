@@ -8,7 +8,7 @@ import {
   useReactFlow,
   type Edge,
 } from "@xyflow/react";
-import { api, type NodeType, type Stage } from "./api";
+import { api, type Kind, type NodeType, type Stage } from "./api";
 import Icon from "./Icon";
 import PanelResizer from './PanelResizer'
 import Inspector from "./Inspector";
@@ -272,8 +272,7 @@ function Canvas() {
   };
 
   /** Can an output of this kind feed an input of that kind? The same rule as drawing a connection by hand. */
-  const kindFits = (out: string, inp: string) =>
-    inp === out || (inp === "any" && (out === "image" || out === "mask"));
+  const kindFits = (out: string, inp: string) => canLink(out as Kind, inp as Kind);
 
   /** The edge under a dragged, unconnected node that the node could be placed in the middle of. */
   const edgeToSplit = (nodeId: string) => {
@@ -394,6 +393,11 @@ function Canvas() {
       "Vector",
       "image → threshold → trace → vector stencil. Smooth curves instead of pixels.",
       s.vectorStarter,
+    ],
+    [
+      "Collage",
+      "image placed twice on one canvas (Place moves and scales the second) → threshold → stencil → bridges. Replace the copies with your own pictures, text or outlines.",
+      s.collageStarter,
     ],
     [
       "Multi-colour pack",

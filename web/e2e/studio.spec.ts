@@ -430,6 +430,20 @@ test('sliders carry a tooltip and a unit, and the status line is announced', asy
   await expect(page.locator('footer [role=status]').first()).toBeVisible()
 })
 
+test('the Collage template joins a picture and a placed copy on one canvas, with a spare input waiting', async ({ page }) => {
+  await open(page)
+  await page.getByRole('button', { name: /Templates/ }).click()
+  await page.locator('.menu button').filter({ hasText: /^Collage/ }).click()
+  const col = page.locator('.react-flow__node').filter({ hasText: 'Collage' }).first()
+  await expect(page.locator('.react-flow__node').filter({ hasText: 'Place' }).first()).toBeVisible()
+  await expect(col.locator('.port.in')).toHaveCount(3)
+  await expect(col.locator('.port.in').nth(2)).toContainText('layer 3')
+  await expect(col.locator('.port.out')).toHaveCount(3)
+  await expect(page.locator('.react-flow__edge')).toHaveCount(6)
+  await expect(col.locator('.node-foot, .dot.done').first()).toBeVisible({ timeout: 60000 })
+  await expect(col.locator('.port.out.empty')).toHaveCount(2)
+})
+
 test('the Multi-colour pack template builds a registered multi-colour graph', async ({ page }) => {
   await open(page)
   await page.getByRole('button', { name: /Templates/ }).click()

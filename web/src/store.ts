@@ -111,6 +111,7 @@ interface State {
   starter: (imageId: string, title: string) => void
   colourStarter: (imageId: string, title: string) => void
   vectorStarter: (imageId: string, title: string) => void
+  collageStarter: (imageId: string, title: string) => void
   colourSetStarter: (imageId: string, title: string) => void
   tiledStarter: (imageId: string, title: string) => void
   tilesFirstStarter: (imageId: string, title: string) => void
@@ -350,6 +351,23 @@ export const useStudio = create<State>((set, get) => ({
     connect({ source: br, sourceHandle: 'parts', target: pads, targetHandle: 'parts' })
     connect({ source: pads, sourceHandle: 'parts', target: hw, targetHandle: 'parts' })
     set({ selected: lay })
+  },
+  collageStarter: (imageId, title) => {
+    const { addNode, connect } = get()
+    set({ nodes: [], edges: [], runs: {}, selected: null })
+    const src = addNode('source', { image_id: imageId }, { x: 40, y: 60 }, title)
+    const place = addNode('place', { move_x: 40, move_y: 40, scale_pct: 60 }, { x: 330, y: 330 })
+    const col = addNode('canvas', {}, { x: 640, y: 60 })
+    const thr = addNode('threshold', {}, { x: 900, y: 60 })
+    const st = addNode('stencil', {}, { x: stageColumn('stencil').x + 30, y: 60 })
+    const br = addNode('bridges', {}, { x: stageColumn('post').x + 30, y: 60 })
+    connect({ source: src, sourceHandle: 'image', target: col, targetHandle: 'layer_1' })
+    connect({ source: src, sourceHandle: 'image', target: place, targetHandle: 'item' })
+    connect({ source: place, sourceHandle: 'layer', target: col, targetHandle: 'layer_2' })
+    connect({ source: col, sourceHandle: 'image', target: thr, targetHandle: 'image' })
+    connect({ source: thr, sourceHandle: 'mask', target: st, targetHandle: 'mask' })
+    connect({ source: st, sourceHandle: 'solid', target: br, targetHandle: 'body' })
+    set({ selected: col })
   },
   vectorStarter: (imageId, title) => {
     const { addNode, connect } = get()

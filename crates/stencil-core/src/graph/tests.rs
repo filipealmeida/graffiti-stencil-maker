@@ -1439,3 +1439,195 @@ fn a_stencil_alone_succeeds_and_reports_its_islands() {
     let rep = e.report(&g, &r);
     assert!(rep.to_string().contains("remain"), "{rep}");
 }
+
+/// Runs a graph and returns the engine with the report.
+fn run_collage(g: &Json) -> (Engine, Json) {
+    let mut e = Engine::new();
+    let id = e.add_image(test_png()).unwrap()["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let mut g = g.clone();
+    for n in g["nodes"].as_array_mut().unwrap() {
+        if n["type"] == "source" {
+            n["params"] = json!({"image_id": id, "resolution": 120});
+        }
+    }
+    let r = e.run(&g, None, &|| 0.0);
+    (e, r)
+}
+
+fn collage_image(e: &Engine, r: &Json, node: &str) -> (usize, usize, Vec<u8>) {
+    assert_eq!(r["nodes"][node]["state"], "done", "{r}");
+    let key = r["nodes"][node]["key"].as_str().unwrap();
+    let Some(Value::Image(i)) = e.value(key, "image") else {
+        panic!("no image")
+    };
+    (i.w, i.h, i.rgb.clone())
+}
+
+fn source(id: &str) -> Json {
+    json!({"id": id, "type": "source", "params": {}})
+}
+
+fn edge(a: &str, ao: &str, b: &str, bi: &str) -> Json {
+    json!({"from": [a, ao], "to": [b, bi]})
+}
+
+/// The columns of the canvas that hold dark pixels.
+fn dark_columns(w: usize, h: usize, rgb: &[u8]) -> Vec<usize> {
+    (0..w)
+        .filter(|&x| (0..h).any(|y| rgb[(y * w + x) * 3] < 128))
+        .collect()
+}
+
+#[test]
+fn collage_places_layers_at_the_corner_unless_moved_or_scaled() {
+    let g = json!({
+        "nodes": [source("a"), source("b"), {"id": "p", "type": "place", "params": {"move_x": 150, "move_y": 10, "width_px": 60}},
+                  {"id": "c", "type": "canvas", "params": {}}],
+        "edges": [edge("a", "image", "c", "layer_1"), edge("b", "image", "p", "item"), edge("p", "layer", "c", "layer_2")]
+    });
+    let (e, r) = run_collage(&g);
+    let (w, h, rgb) = collage_image(&e, &r, "c");
+    // the first layer is 120 px at the corner; the second is 60 px wide at x = 150, 10 down
+    assert_eq!((w, h), (210, 120), "{r}");
+    let cols = dark_columns(w, h, &rgb);
+    assert!(cols.iter().any(|&x| x < 120) && cols.iter().any(|&x| x >= 150));
+    assert!(
+        !cols.iter().any(|&x| (120..150).contains(&x)),
+        "the gap stays empty"
+    );
+    assert!(cols.iter().all(|&x| x < 210));
+}
+
+#[test]
+fn collage_rows_columns_gaps_and_chained_places() {
+    let row = json!({
+        "nodes": [source("a"), source("b"), source("d"),
+                  {"id": "c", "type": "canvas", "params": {"arrange": "row", "layer_gap": 10, "canvas_margin": 5}}],
+        "edges": [edge("a", "image", "c", "layer_1"), edge("b", "image", "c", "layer_2"), edge("d", "image", "c", "layer_3")]
+    });
+    let (e, r) = run_collage(&row);
+    let (w, h, _) = collage_image(&e, &r, "c");
+    assert_eq!((w, h), (3 * 120 + 2 * 10 + 10, 120 + 10), "{r}");
+
+    let col = json!({
+        "nodes": [source("a"), source("b"), {"id": "c", "type": "canvas", "params": {"arrange": "column", "layer_gap": 4}}],
+        "edges": [edge("a", "image", "c", "layer_1"), edge("b", "image", "c", "layer_2")]
+    });
+    let (e, r) = run_collage(&col);
+    let (w, h, _) = collage_image(&e, &r, "c");
+    assert_eq!((w, h), (120, 244), "{r}");
+
+    // moves add up and scales multiply along a chain of Place nodes
+    let chain = json!({
+        "nodes": [source("a"), source("b"),
+                  {"id": "p1", "type": "place", "params": {"move_x": 30, "scale_pct": 50}},
+                  {"id": "p2", "type": "place", "params": {"move_x": 30, "scale_pct": 50}},
+                  {"id": "c", "type": "canvas", "params": {}}],
+        "edges": [edge("a", "image", "c", "layer_1"), edge("b", "image", "p1", "item"),
+                  edge("p1", "layer", "p2", "item"), edge("p2", "layer", "c", "layer_2")]
+    });
+    let (e, r) = run_collage(&chain);
+    let (w, h, _) = collage_image(&e, &r, "c");
+    assert_eq!(
+        (w, h),
+        (120, 120),
+        "a 30 px layer at x = 60 fits inside the first one: {r}"
+    );
+}
+
+#[test]
+fn collage_overlap_rules_and_a_fixed_canvas() {
+    let text = |id: &str| json!({"id": id, "type": "text", "params": {"text": "I", "size": 60, "padding": 4}});
+    let mk = |overlap: &str| {
+        json!({
+            "nodes": [source("a"), text("t"), {"id": "c", "type": "canvas", "params": {"overlap": overlap, "canvas_size": "fixed", "canvas_width": 200, "canvas_height": 150}}],
+            "edges": [edge("a", "image", "c", "layer_1"), edge("t", "mask", "c", "layer_2")]
+        })
+    };
+    let (e, r) = run_collage(&mk("darker wins"));
+    let (w, h, under) = collage_image(&e, &r, "c");
+    assert_eq!((w, h), (200, 150));
+    let (e2, r2) = run_collage(&mk("later on top"));
+    let (_, _, over) = collage_image(&e2, &r2, "c");
+    let dark = |v: &[u8]| v.chunks(3).filter(|p| p[0] < 128).count();
+    // darker wins keeps the ring under the letter; later on top blanks its box
+    assert!(
+        dark(&under) > dark(&over),
+        "{} vs {}",
+        dark(&under),
+        dark(&over)
+    );
+}
+
+#[test]
+fn collage_offers_only_the_outputs_it_can_make_without_guessing() {
+    let avail = |r: &Json, out: &str| {
+        r["nodes"]["c"]["outputs"][out]["available"]
+            .as_bool()
+            .unwrap()
+    };
+    let text = |id: &str| json!({"id": id, "type": "text", "params": {"text": "A", "size": 60}});
+    let masks = json!({
+        "nodes": [text("t1"), text("t2"), {"id": "c", "type": "canvas", "params": {"arrange": "row"}}],
+        "edges": [edge("t1", "mask", "c", "layer_1"), edge("t2", "mask", "c", "layer_2")]
+    });
+    let (_, r) = run_collage(&masks);
+    assert!(
+        avail(&r, "image") && avail(&r, "mask") && !avail(&r, "shapes"),
+        "{r}"
+    );
+
+    let mixed = json!({
+        "nodes": [source("a"), text("t"), {"id": "c", "type": "canvas", "params": {"arrange": "row"}}],
+        "edges": [edge("a", "image", "c", "layer_1"), edge("t", "mask", "c", "layer_2")]
+    });
+    let (_, r) = run_collage(&mixed);
+    assert!(
+        avail(&r, "image") && !avail(&r, "mask") && !avail(&r, "shapes"),
+        "{r}"
+    );
+
+    let outlines = |arrange: &str| {
+        json!({
+            "nodes": [source("a"), {"id": "th", "type": "threshold", "params": {}}, {"id": "tr", "type": "trace", "params": {}},
+                      {"id": "c", "type": "canvas", "params": {"arrange": arrange, "layer_gap": 5}}],
+            "edges": [edge("a", "image", "th", "image"), edge("th", "mask", "tr", "mask"),
+                      edge("tr", "shapes", "c", "layer_1"), edge("tr", "shapes", "c", "layer_2")]
+        })
+    };
+    let (e, r) = run_collage(&outlines("row"));
+    assert!(avail(&r, "shapes") && avail(&r, "mask"), "{r}");
+    let key = r["nodes"]["c"]["key"].as_str().unwrap();
+    let Some(Value::Shapes(s)) = e.value(key, "shapes") else {
+        panic!()
+    };
+    let single = r["nodes"]["tr"]["key"].as_str().unwrap();
+    let Some(Value::Shapes(one)) = e.value(single, "shapes") else {
+        panic!()
+    };
+    assert_eq!(s.loops.len(), 2 * one.loops.len());
+    assert_eq!(s.w, 2 * one.w + 5);
+    // two copies on top of each other would cancel by the even-odd rule, so no outlines are offered
+    let (_, r) = run_collage(&outlines("manual"));
+    assert!(!avail(&r, "shapes") && avail(&r, "mask"), "{r}");
+}
+
+#[test]
+fn collage_refuses_a_canvas_too_big_and_needs_a_layer() {
+    let big = json!({
+        "nodes": [source("a"), source("b"), {"id": "p", "type": "place", "params": {"move_x": 15000, "move_y": 15000}}, {"id": "c", "type": "canvas", "params": {}}],
+        "edges": [edge("a", "image", "c", "layer_1"), edge("b", "image", "p", "item"), edge("p", "layer", "c", "layer_2")]
+    });
+    let (_, r) = run_collage(&big);
+    assert_eq!(r["nodes"]["c"]["state"], "error", "{r}");
+    assert!(r["nodes"]["c"]["error"]
+        .as_str()
+        .unwrap()
+        .contains("scale the layers down"));
+    let none = json!({"nodes": [{"id": "c", "type": "canvas", "params": {}}], "edges": []});
+    let (_, r) = run_collage(&none);
+    assert_eq!(r["nodes"]["c"]["state"], "error");
+}

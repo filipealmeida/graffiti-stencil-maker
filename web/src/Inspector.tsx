@@ -56,7 +56,7 @@ export default function Inspector() {
           {avail.length > 1 && (
             <div className="tabs">{avail.map((o) => <button key={o.name} className={o.name === cur.name ? 'on' : ''} onClick={() => setOut(o.name)}>{o.name}</button>)}</div>
           )}
-          {(cur.type === 'image' || cur.type === 'mask' || cur.type === 'shapes') && <img className={`big ${cur.type}`} src={artifactUrl(key, cur.name, 700)} alt="" />}
+          {(cur.type === 'image' || cur.type === 'mask' || cur.type === 'shapes' || cur.type === 'layer') && <img className={`big ${cur.type}`} src={artifactUrl(key, cur.name, 700)} alt="" />}
           {cur.type === 'parts' && info?.files && (
             <>
               <ul>{Object.entries(info.files as Record<string, number>).map(([n, b]) => <li key={n}>{n} <em>{(b / 1024).toFixed(0)} kB</em></li>)}</ul>

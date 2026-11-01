@@ -1,6 +1,6 @@
 import { Handle, Position, type NodeProps } from '@xyflow/react'
 import { api, artifactUrl, type Kind } from './api'
-import { KIND_INFO, canLink, kindBackground, portText, portTitle } from './ports'
+import { KIND_INFO, canLink, visibleInputs, kindBackground, portText, portTitle } from './ports'
 import { useStudio, type StudioNode } from './store'
 import { badgesFor } from './badges'
 import { runSummary } from './NodeActions'
@@ -25,6 +25,7 @@ export default function StudioNodeView({ id, data, selected }: NodeProps<StudioN
   const t = useStudio((s) => s.types[data.type])
   const run = useStudio((s) => s.runs[id])
   const drag = useStudio((s) => s.dragFrom)
+  const linked = useStudio((s) => s.edges.filter((e) => e.target === id).map((e) => e.targetHandle).join(','))
   const from = useStudio((s) => (s.dragFrom ? s.types[s.nodes.find((x) => x.id === s.dragFrom!.node)?.data.type ?? ''] : undefined))
   const fit = (dir: 'in' | 'out', kind: Kind) => {
     if (!drag) return ''
@@ -57,7 +58,7 @@ export default function StudioNodeView({ id, data, selected }: NodeProps<StudioN
         </ul>
       )}
       <div className="node-body">
-        {t.inputs.map((p) => {
+        {visibleInputs(t.inputs, linked.split(',')).map((p) => {
           const x = portText(data.type, 'in', p.name)
           return (
             <div className={`port in${fit('in', p.type)}`} key={p.name} title={portTitle(data.type, 'in', p.name, p.type, p.required)}>
@@ -69,7 +70,7 @@ export default function StudioNodeView({ id, data, selected }: NodeProps<StudioN
         {shown.map((p) => (
           <div className={`port out${fit('out', p.type)}${done && !run.outputs?.[p.name]?.available ? ' empty' : ''}`} key={p.name} title={portTitle(data.type, 'out', p.name, p.type, true)}>
             <span>{portText(data.type, 'out', p.name).label}</span>
-            {done && run.key && run.outputs?.[p.name]?.available && (p.type === 'image' || p.type === 'mask' || p.type === 'shapes' || p.type === 'tiles') && (
+            {done && run.key && run.outputs?.[p.name]?.available && (p.type === 'image' || p.type === 'mask' || p.type === 'shapes' || p.type === 'tiles' || p.type === 'layer') && (
               <img className={`thumb ${p.type}${run.stale ? ' stale' : ''}`} src={artifactUrl(run.key, p.name, 96)} alt="" draggable={false} />
             )}
             <Handle type="source" position={Position.Right} id={p.name} className={`k-${p.type}`} style={{ background: kindBackground(p.type) }} />

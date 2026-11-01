@@ -90,6 +90,17 @@ what it carries. Where two inputs are alternatives (a Stencil takes a paint mask
 A link that replaces the one already in an input shows a toast with Undo. The stages are shown as prepare (Trace),
 build (Stencil) and finish (Post-process).
 
+**Collage and Place** (prepare lane) put several pictures, paint masks and outlines on one canvas. Connect as many as
+you like to a *Collage*: it always shows one empty input after the last connected one. Every layer sits at the top-left
+corner at its own size until a *Place* node, wired between the source and the Collage, moves it (px right and down) or
+scales it (% of its size, or a width in px). Place nodes chain: moves add up and scales multiply. The Collage can also
+*arrange* the layers in a row or column with a gap, and Place then nudges a layer from its slot. The canvas fits the layers
+(plus a margin) or has a fixed size, and where layers overlap the darker pixel wins, or the later layer covers. Its
+*picture* output always exists (masks and outlines are drawn dark on white), *paint* needs layers that are all masks or
+outlines, and *outlines* needs all layers to be outlines that do not overlap (overlapping outlines would cancel under the
+even-odd fill). A picture is never turned into paint by the Collage: put a Threshold after it. The *Collage* template
+builds the whole chain.
+
 The graph is arranged into three stages:
 
 1. **Trace:** Image, Threshold, Reduce colours, Split colours, Apply tone patterns, Reshape paint, Smooth mask (blur + supersample for curved edges), Trace, **Round corners**, **Remove specks**, and Rasterise shapes.

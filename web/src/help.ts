@@ -1,5 +1,17 @@
 /** A short "why" for the settings people most often wonder about, keyed by the engine's parameter name. */
 export const PARAM_HELP: Record<string, string> = {
+  move_x: 'How far right of its slot the layer sits, in canvas pixels. Negative moves it left. The canvas grows to fit.',
+  move_y: 'How far down from its slot the layer sits, in canvas pixels. Negative moves it up.',
+  scale_pct: 'Resizes the layer around its top-left corner. 100 keeps its own size. Scales multiply along a chain of Place nodes.',
+  width_px: 'Sets the layer to exactly this width in canvas pixels, whatever its own size, so pictures of different resolutions line up. 0 uses the scale instead.',
+  arrange: 'Manual leaves every layer at the top-left corner until a Place node moves it. Row and column line the layers up in the order they are connected.',
+  layer_gap: 'Space between neighbouring layers in a row or column, in pixels.',
+  layer_align: 'How layers of different sizes line up across a row or column: along their start edge, their middle or their end edge.',
+  canvas_size: 'Fit layers makes the canvas just big enough for every layer, so a layer moved left or up still shows. Fixed keeps the width and height below and cuts off what falls outside.',
+  canvas_width: 'Canvas width in pixels when the size is fixed.',
+  canvas_height: 'Canvas height in pixels when the size is fixed.',
+  canvas_margin: 'Empty space added round the layers when the canvas fits them, in pixels.',
+  overlap: 'Darker wins keeps the darkest pixel where layers overlap, so a logo on white paper leaves the picture under it. Later on top covers whatever lies under each layer.',
   width_mm: 'Overall width of the plate. The height follows the picture. Bigger plates print in tiles.',
   thickness_mm: 'How thick the stencil is. Thicker stands up better and keeps paint from bleeding under the edge, but costs print time.',
   margin_mm: 'Solid frame around the artwork. It stiffens the plate and gives room for tape, magnets or registration holes. 0 = no frame.',
