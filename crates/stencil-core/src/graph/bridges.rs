@@ -11,11 +11,45 @@ fn num(v: &Json) -> f64 {
     v.as_f64().unwrap_or(0.0)
 }
 
+/// The leaning seam faces of one tile, in the tile's own coordinates: which sides are cut by a seam, and how the
+/// cut leans and sits back from the seam line. Mirrors how Split volume cuts its tiles.
+struct Sides {
+    size: [f64; 2],
+    /// Seam on the low and high side of x, then of y.
+    seam: [bool; 4],
+    lean: f64,
+    inset: f64,
+    z_mid: f64,
+}
+
+impl Sides {
+    /// The solid a bridge may occupy: vertical at the plate's outer border, leaning along every seam.
+    fn clip(&self, top: f64) -> Mesh {
+        let rect = |z: f64| -> [[f64; 2]; 4] {
+            let d = self.lean * (z - self.z_mid);
+            let side = |seam: bool, edge: f64, out: f64, sign: f64| {
+                if seam {
+                    edge + sign * self.inset + d
+                } else {
+                    out
+                }
+            };
+            let xa = side(self.seam[0], 0.0, -1.0, 1.0);
+            let xb = side(self.seam[1], self.size[0], self.size[0] + 1.0, -1.0);
+            let ya = side(self.seam[2], 0.0, -1.0, 1.0);
+            let yb = side(self.seam[3], self.size[1], self.size[1] + 1.0, -1.0);
+            [[xa, ya], [xb, ya], [xb, yb], [xa, yb]]
+        };
+        Mesh::loft_quads(rect(-1.0), -1.0, rect(top + 1.0), top + 1.0)
+    }
+}
+
 /// Bridges the islands of one mesh to its biggest piece. Returns the mesh and the piece counts before and after.
 fn bridge_piece(
     mut m: Mesh,
     origin: [f64; 2],
     pockets: &[[f64; 4]],
+    sides: Option<&Sides>,
     bp: &BridgeParams,
 ) -> Result<(Mesh, usize, usize), String> {
     let top = bp.plate_top;
@@ -49,7 +83,11 @@ fn bridge_piece(
     } else {
         ([ml[0], ml[1]], [mh[0], mh[1]])
     };
-    let clip = Mesh::cuboid([fl[0], fl[1], -1.0], [fh[0], fh[1], top + 1.0]);
+    let mut clip = Mesh::cuboid([fl[0], fl[1], -1.0], [fh[0], fh[1], top + 1.0]);
+    // a bevelled seam face leans in from the bridging plane: a bridge must end on that face, not poke through it
+    if let Some(sd) = sides.filter(|sd| sd.lean > 1e-9 && sd.seam.iter().any(|&b| b)) {
+        clip = clip.intersect(&sd.clip(top))?;
+    }
     for _ in 0..bp.passes.max(1) {
         if components(&m).0 < 2 {
             break;
@@ -118,7 +156,7 @@ fn bridge_solid(s: &Solid, p: &P) -> Result<Outputs, String> {
     }
     let flip = st["flip"] == true;
     let bp = bridge_params(p, top, layer, num(&st["thickness_mm"]), flip);
-    let (m, before, after) = bridge_piece(Mesh::from_stl(&s.stl)?, [0.0, 0.0], &[], &bp)?;
+    let (m, before, after) = bridge_piece(Mesh::from_stl(&s.stl)?, [0.0, 0.0], &[], None, &bp)?;
     let stl = m.to_stl();
     let mut stats = s.stats.clone();
     stats["islands_found"] = json!(before.saturating_sub(1) + num(&st["islands_found"]) as usize);
@@ -159,13 +197,51 @@ fn bridge_parts(src: &Parts, p: &P) -> Result<Outputs, String> {
         plate["flip"] == true,
     );
     let entries = plate["parts"].as_array().cloned().unwrap_or_default();
-    let tiles: Vec<(String, [f64; 2])> = entries
+    let seams: Vec<[f64; 4]> = plate["seams"]
+        .as_array()
+        .map(|a| {
+            a.iter()
+                .map(|r| [num(&r[0]), num(&r[1]), num(&r[2]), num(&r[3])])
+                .collect()
+        })
+        .unwrap_or_default();
+    let angle = num(&src.meta["tiling"]["seam_angle_deg"]).to_radians();
+    let (lean, inset) = (
+        angle.tan(),
+        num(&src.meta["tiling"]["seam_gap_mm"]) / 2.0 / angle.cos(),
+    );
+    let z_mid = (if num(&plate["thickness"]) > 0.0 {
+        num(&plate["thickness"])
+    } else {
+        top
+    }) / 2.0;
+    let tiles: Vec<(String, [f64; 2], Option<Sides>)> = entries
         .iter()
         .filter(|e| e["role"] == "tile")
         .filter_map(|e| {
-            e["file"]
-                .as_str()
-                .map(|f| (f.to_string(), [num(&e["origin"][0]), num(&e["origin"][1])]))
+            let f = e["file"].as_str()?;
+            let origin = [num(&e["origin"][0]), num(&e["origin"][1])];
+            let size = [num(&e["size"][0]), num(&e["size"][1])];
+            // a seam lies along a tile's side when it runs at that coordinate across the tile's span
+            let along = |axis: usize, at: f64| {
+                seams.iter().any(|s| {
+                    let (lo, hi) = (origin[1 - axis], origin[1 - axis] + size[1 - axis]);
+                    s[0] == axis as f64 && (s[1] - at).abs() < 1e-3 && s[2] < hi && s[3] > lo
+                })
+            };
+            let sides = (size[0] > 0.0 && size[1] > 0.0).then(|| Sides {
+                size,
+                seam: [
+                    along(0, origin[0]),
+                    along(0, origin[0] + size[0]),
+                    along(1, origin[1]),
+                    along(1, origin[1] + size[1]),
+                ],
+                lean,
+                inset,
+                z_mid,
+            });
+            Some((f.to_string(), origin, sides))
         })
         .collect();
     if tiles.is_empty() {
@@ -185,7 +261,7 @@ fn bridge_parts(src: &Parts, p: &P) -> Result<Outputs, String> {
     let (mut islands_found, mut islands_bridged, mut tiles_bridged, mut left_over) =
         (0usize, 0usize, 0usize, 0usize);
     for (name, data) in &src.files {
-        let Some((_, origin)) = tiles.iter().find(|t| &t.0 == name) else {
+        let Some((_, origin, sides)) = tiles.iter().find(|t| &t.0 == name) else {
             files.push((name.clone(), data.clone()));
             continue;
         };
@@ -194,8 +270,8 @@ fn bridge_parts(src: &Parts, p: &P) -> Result<Outputs, String> {
             files.push((name.clone(), data.clone()));
             continue;
         }
-        let (m, before, after) =
-            bridge_piece(m, *origin, &pockets, &bp).map_err(|e| format!("{name}: {e}"))?;
+        let (m, before, after) = bridge_piece(m, *origin, &pockets, sides.as_ref(), &bp)
+            .map_err(|e| format!("{name}: {e}"))?;
         islands_found += before - 1;
         islands_bridged += (before - after).min(before - 1);
         left_over += after - 1;
@@ -293,5 +369,58 @@ mod tests {
         assert_eq!(components(&Mesh::from_stl(&s.stl).unwrap()).0, 1);
         assert_eq!(parts.files.len(), 1);
         assert_eq!(parts.meta["plate"]["parts"][0]["role"], "tile");
+    }
+
+    /// A tile whose high side is a 30 degree bevel, with an island right against that face: the strip that
+    /// joins it runs along the face, and its lower half would stick through the bevel without the leaning clip.
+    #[test]
+    fn bridges_end_on_the_bevelled_face_of_the_tile() {
+        let (lean, inset, top) = (30f64.to_radians().tan(), 0.1, 6.0);
+        let sides = Sides {
+            size: [60.0, 40.0],
+            seam: [false, true, false, false],
+            lean,
+            inset,
+            z_mid: top / 2.0,
+        };
+        let tile = sides
+            .clip(top)
+            .intersect(&Mesh::cuboid([0.0, 0.0, 0.0], [70.0, 40.0, top]))
+            .unwrap();
+        let part = |x0: f64, x1: f64, y0: f64, y1: f64| {
+            tile.intersect(&Mesh::cuboid([x0, y0, -1.0], [x1, y1, top + 1.0]))
+                .unwrap()
+        };
+        let mut m = part(0.0, 70.0, 20.0, 40.0);
+        m.append(&part(60.0, 70.0, 0.0, 10.0));
+        let parts = Parts {
+            files: vec![("stencil_r1c1.stl".into(), m.to_stl())],
+            meta: json!({
+                "tiling": {"seam_angle_deg": 30.0, "seam_gap_mm": 0.2},
+                "plate": {"top": top, "layer": 0.2, "thickness": top, "flip": false, "connectors": [],
+                    "seams": [[0.0, 60.0, 0.0, 40.0]],
+                    "parts": [{"file": "stencil_r1c1.stl", "role": "tile", "origin": [0.0, 0.0], "size": [60.0, 40.0]}]},
+            }),
+        };
+        let mut i = HashMap::new();
+        i.insert("body".to_string(), Value::Parts(Rc::new(parts)));
+        let p = P(serde_json::from_value(
+            json!({"bridge_max_length": 20.0, "raised_bridges": false}),
+        )
+        .unwrap());
+        let Value::Parts(out) = &run_bridges(&Engine::new(), &i, &p).unwrap()[0].1 else {
+            panic!()
+        };
+        let m = Mesh::from_stl(&out.files[0].1).unwrap();
+        assert_eq!(components(&m).0, 1, "the island is joined");
+        for v in &m.v {
+            let face = 60.0 - inset + lean * (v[2] - top / 2.0);
+            assert!(
+                v[0] <= face + 2e-3,
+                "vertex at z {:.2} is {:.3} mm through the bevel",
+                v[2],
+                v[0] - face
+            );
+        }
     }
 }

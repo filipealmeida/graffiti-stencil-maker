@@ -849,6 +849,117 @@ fn pads_stay_clear_of_a_bevelled_seam_face() {
     }
 }
 
+/// A grid of small painted rings: the material inside each is an island, and some sit beside the seams.
+fn dotted_png() -> Vec<u8> {
+    let img = image::GrayImage::from_fn(160, 160, |x, y| {
+        let (cx, cy) = (((x + 3) % 16) as f64 - 8.0, ((y + 3) % 16) as f64 - 8.0);
+        let d = cx.hypot(cy);
+        image::Luma([if (4.0..6.5).contains(&d) { 0 } else { 255 }])
+    });
+    let mut out = std::io::Cursor::new(Vec::new());
+    img.write_to(&mut out, image::ImageFormat::Png).unwrap();
+    out.into_inner()
+}
+
+/// Bevelled tiles with Bridges only before the split, only after it, or both: every tile must stay inside its leaning
+/// seam faces, and where bridging comes after the split each tile must be a single piece.
+#[test]
+fn bridges_stay_inside_the_bevelled_seam_faces_before_after_and_around_the_split() {
+    let (angle, gap, thick) = (30.0f64, 0.2, 6.0);
+    let (lean, inset) = (
+        angle.to_radians().tan(),
+        gap / 2.0 / angle.to_radians().cos(),
+    );
+    for (before, after) in [(true, false), (true, true), (false, true)] {
+        let mut e = Engine::new();
+        let id = e.add_image(dotted_png()).unwrap()["id"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        let mut g = graph(&id, thick);
+        g["nodes"][2]["params"] =
+            json!({"thickness_mm": thick, "margin_mm": 6.0, "width_mm": 140.0});
+        g["nodes"][3] = json!({"id": "ex", "type": "tiles", "params": {
+            "max_x": 80.0, "max_y": 80.0, "seam_angle_deg": angle, "seam_gap": gap}});
+        let mut bridged = Vec::new();
+        if before {
+            bridged.push("st");
+        }
+        if after {
+            bridged.push("ex");
+        }
+        let g = with_bridges(g, &bridged);
+        let last = if after { "ex-bridges" } else { "ex" };
+        let r = e.run(&g, None, &|| 0.0);
+        let tag = format!("before={before} after={after}");
+        assert_eq!(r["nodes"][last]["state"], "done", "{tag}: {r}");
+        let key = r["nodes"][last]["key"].as_str().unwrap().to_string();
+        let Some(Value::Parts(p)) = e.value(&key, "parts") else {
+            panic!()
+        };
+        if !before {
+            assert!(
+                p.meta["bridged_fragments"]["islands_found"]
+                    .as_u64()
+                    .unwrap()
+                    > 20,
+                "{tag}"
+            );
+        }
+        let plate = &p.meta["plate"];
+        let seams = plate["seams"].as_array().unwrap();
+        assert!(!seams.is_empty());
+        let mut checked = 0;
+        for part in plate["parts"].as_array().unwrap() {
+            let name = part["file"].as_str().unwrap();
+            let m = crate::mesh::Mesh::from_stl(&p.files.iter().find(|f| f.0 == name).unwrap().1)
+                .unwrap();
+            assert!(m.is_watertight(), "{tag}: {name}");
+            if after {
+                assert_eq!(crate::tile_bridge::components(&m).0, 1, "{tag}: {name}");
+            }
+            let o = [
+                part["origin"][0].as_f64().unwrap(),
+                part["origin"][1].as_f64().unwrap(),
+            ];
+            let size = [
+                part["size"][0].as_f64().unwrap(),
+                part["size"][1].as_f64().unwrap(),
+            ];
+            for s in seams {
+                let (axis, pos) = (s[0].as_f64().unwrap() as usize, s[1].as_f64().unwrap());
+                let (at, len) = (o[axis], size[axis]);
+                // +1 when the tile lies on the high side of the seam, -1 when on the low side
+                let side = if (pos - at).abs() < 1e-3 {
+                    1.0
+                } else if (pos - (at + len)).abs() < 1e-3 {
+                    -1.0
+                } else {
+                    continue;
+                };
+                let (a, b) = (s[2].as_f64().unwrap(), s[3].as_f64().unwrap());
+                for v in &m.v {
+                    let along = v[1 - axis] + o[1 - axis];
+                    if along < a + 0.5 || along > b - 0.5 {
+                        continue;
+                    }
+                    let plane = if side > 0.0 { 0.0 } else { len }
+                        + side * inset
+                        + lean * (v[2] - thick / 2.0);
+                    assert!(
+                        (v[axis] - plane) * side >= -2e-3,
+                        "{tag}: {name} pokes {:.3} mm through the bevel at z {:.2}",
+                        (plane - v[axis]) * side,
+                        v[2]
+                    );
+                    checked += 1;
+                }
+            }
+        }
+        assert!(checked > 100, "{tag}: only {checked} vertices checked");
+    }
+}
+
 #[test]
 fn pads_node_fits_pads_and_holes_clear_of_seams() {
     for flip in [false, true] {
