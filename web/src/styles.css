@@ -1579,3 +1579,16 @@ header {
 .layer-xy input {
   width: 64px;
 }
+.imgbar .iconbtn {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.imgbar .iconbtn.on {
+  background: var(--acc);
+  color: #fff;
+  border-color: var(--acc);
+}

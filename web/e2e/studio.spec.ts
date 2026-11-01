@@ -458,6 +458,19 @@ test('the Collage workbench lists its layers, and Repeat is in the menu', async 
   await x2.fill(String(before + 25))
   await expect(page.getByRole('button', { name: 'Reset moves' })).toBeVisible({ timeout: 30000 })
   await expect.poll(async () => Number(await x2.inputValue()), { timeout: 30000 }).toBe(before + 25)
+  // dragging only works in edit mode, and the wheel keeps zooming
+  const stage = page.locator('.imgstage')
+  const box = (await stage.boundingBox())!
+  const at = { x: box.x + box.width / 2 + 60, y: box.y + box.height / 2 + 60 }
+  await page.mouse.move(at.x, at.y); await page.mouse.down(); await page.mouse.move(at.x + 40, at.y + 40, { steps: 5 }); await page.mouse.up()
+  await expect(x2).toHaveValue(String(before + 25))
+  await page.getByRole('button', { name: 'Edit layers' }).click()
+  await page.getByRole('button', { name: 'Snap' }).click()
+  await expect(page.getByRole('button', { name: 'Snap' })).toHaveAttribute('aria-pressed', 'false')
+  await page.mouse.move(at.x, at.y); await page.mouse.down(); await page.mouse.move(at.x + 40, at.y + 40, { steps: 5 }); await page.mouse.up()
+  await expect.poll(async () => Number(await x2.inputValue()), { timeout: 30000 }).toBeGreaterThan(before + 25)
+  await page.getByRole('button', { name: 'Edit layers' }).click()
+  await expect(page.getByRole('button', { name: 'Edit layers' })).toHaveAttribute('aria-pressed', 'false')
 })
 
 test('the Multi-colour pack template builds a registered multi-colour graph', async ({ page }) => {

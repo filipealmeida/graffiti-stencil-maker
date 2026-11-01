@@ -4,27 +4,28 @@ import { persist } from 'zustand/middleware'
 import { applyDrag, checkPocket, checkSeam, hitTest, isEmpty, type Drag, type LayoutEdits, type LayoutInfo } from './layoutEdit'
 
 /** Overlay preferences outlive the component: it remounts whenever a run replaces the result. */
-const usePrefs = create<{ overlay: boolean; opacity: number; set: (p: Partial<{ overlay: boolean; opacity: number }>) => void }>()(
-  persist((set) => ({ overlay: true, opacity: 0.6, set: (p) => set(p) }), { name: 'studio.imageview' }),
+const usePrefs = create<{ overlay: boolean; opacity: number; snap: boolean; set: (p: Partial<{ overlay: boolean; opacity: number; snap: boolean }>) => void }>()(
+  persist((set) => ({ overlay: true, opacity: 0.6, snap: true, set: (p) => set(p) }), { name: 'studio.imageview' }),
 )
 
 /** Lets the tile layout be edited by hand: the plate's seams and connector blocks are drawn over the preview. */
 export interface LayoutProps { info: LayoutInfo; edits: LayoutEdits; onCommit: (e: LayoutEdits) => void; onReset: () => void }
 /** Lets Collage layers be dragged: their rectangles (canvas pixels, y down) are drawn over the preview. */
-export interface LayerBox { input: string; x: number; y: number; w: number; h: number }
-export interface LayersProps { width: number; height: number; boxes: LayerBox[]; selected?: string; onSelect: (input: string) => void; onMove: (input: string, dx: number, dy: number) => void }
+export interface LayerBox { input: string; x: number; y: number; w: number; h: number; src?: string }
+export interface LayersProps { width: number; height: number; boxes: LayerBox[]; preview: boolean; editing: boolean; onEditing: (on: boolean) => void; selected?: string; onSelect: (input: string) => void; onMove: (input: string, dx: number, dy: number, now?: boolean) => void }
 interface Props { src: string; under?: string; kind: 'image' | 'mask'; layout?: LayoutProps; layers?: LayersProps }
 
 /** Zoomable, pannable raster view. A mask can be laid over the image it was derived from. */
 export default function ImageView({ src, under, kind, layout, layers }: Props) {
   const [view, setView] = useState({ k: 1, x: 0, y: 0 })
-  const { overlay, opacity, set: setPrefs } = usePrefs()
+  const { overlay, opacity, snap, set: setPrefs } = usePrefs()
   const drag = useRef<{ x: number; y: number } | null>(null)
   const host = useRef<HTMLDivElement>(null)
   const grab = useRef<Drag | null>(null)
   const [live, setLive] = useState<(Drag & { why?: string }) | null>(null)
   const lgrab = useRef<{ input: string; x: number; y: number } | null>(null)
-  const [lmove, setLmove] = useState<{ input: string; dx: number; dy: number } | null>(null)
+  const [lmove, setLmove] = useState<{ input: string; dx: number; dy: number; gx?: number; gy?: number } | null>(null)
+  const [limgs, setLimgs] = useState<Record<string, HTMLImageElement>>({})
   const [note, setNote] = useState('')
   const [cursor, setCursor] = useState('')
   const noteTimer = useRef<number>()
@@ -58,6 +59,18 @@ export default function ImageView({ src, under, kind, layout, layers }: Props) {
     return () => { alive = false }
   }, [src, under, showUnder])
 
+  // the layers' own pictures, so a dragged layer can be seen moving
+  const srcs = (layers?.boxes ?? []).map((b) => b.src ?? '').join('|')
+  useEffect(() => {
+    let alive = true
+    for (const u of srcs.split('|').filter(Boolean)) {
+      const i = new Image()
+      i.onload = () => alive && setLimgs((m) => (m[u] === i ? m : { ...m, [u]: i }))
+      i.src = u
+    }
+    return () => { alive = false }
+  }, [srcs])
+
   useEffect(() => {
     const el = host.current!
     const ro = new ResizeObserver(() => setBox({ w: el.clientWidth, h: el.clientHeight }))
@@ -84,10 +97,24 @@ export default function ImageView({ src, under, kind, layout, layers }: Props) {
       g.globalCompositeOperation = 'multiply'
       g.globalAlpha = opacity
     } else if (kind === 'mask') g.fillRect(-bw / 2, -bh / 2, bw, bh)
-    g.drawImage(top, -bw / 2, -bh / 2, bw, bh)
+    const moving = !!layers && (!!lmove || layers.preview) && layers.boxes.every((b) => !b.src || limgs[b.src])
+    if (moving) {
+      g.save()
+      g.beginPath(); g.rect(-bw / 2, -bh / 2, bw, bh); g.clip()
+      g.fillStyle = '#fff'
+      g.fillRect(-bw / 2, -bh / 2, bw, bh)
+      g.globalCompositeOperation = 'multiply'
+      const k = bw / layers!.width
+      for (const b of layers!.boxes) {
+        const im = b.src && limgs[b.src]
+        const d = lmove?.input === b.input ? lmove : null
+        if (im) g.drawImage(im, (b.x + (d?.dx ?? 0)) * k - bw / 2, (b.y + (d?.dy ?? 0)) * k - bh / 2, b.w * k, b.h * k)
+      }
+      g.restore()
+    } else g.drawImage(top, -bw / 2, -bh / 2, bw, bh)
     if (layout) drawLayout(g, layout.info, bw, bh, view.k, live)
     if (layers) drawLayers(g, layers, bw, bh, view.k, lmove)
-  }, [imgs, box, view, opacity, showUnder, kind, layout, live, layers, lmove])
+  }, [imgs, box, view, opacity, showUnder, kind, layout, live, layers, lmove, limgs])
 
   /** Canvas pixels under a pointer, when layers are shown. */
   const canvasAt = (e: React.PointerEvent) => {
@@ -116,7 +143,8 @@ export default function ImageView({ src, under, kind, layout, layers }: Props) {
   }
   const down = (e: React.PointerEvent) => {
     const cp = canvasAt(e), hit = cp && layerAt(cp)
-    if (cp && hit) {
+    if (layers?.editing && !hit) return
+    if (cp && hit && layers?.editing) {
       lgrab.current = { input: hit.input, x: cp.x, y: cp.y }
       layers!.onSelect(hit.input)
       setLmove({ input: hit.input, dx: 0, dy: 0 })
@@ -136,10 +164,17 @@ export default function ImageView({ src, under, kind, layout, layers }: Props) {
   const move = (e: React.PointerEvent) => {
     const lg = lgrab.current, cp = canvasAt(e)
     if (lg && cp) {
-      setLmove({ input: lg.input, dx: Math.round(cp.x - lg.x), dy: Math.round(cp.y - lg.y) })
+      const b = layers!.boxes.find((x) => x.input === lg.input)!
+      let dx = Math.round(cp.x - lg.x), dy = Math.round(cp.y - lg.y), gx: number | undefined, gy: number | undefined
+      if (snap && !e.altKey) {
+        const px = Math.min(box.w * 0.9, 900) / layers!.width * view.k
+        const s = snapTo(b, dx, dy, layers!, 7 / px)
+        dx = s.dx; dy = s.dy; gx = s.gx; gy = s.gy
+      }
+      setLmove({ input: lg.input, dx, dy, gx, gy })
       return
     }
-    if (cp && !drag.current) setCursor(layerAt(cp) ? 'move' : '')
+    if (cp && !drag.current) setCursor(layers?.editing ? (layerAt(cp) ? 'move' : 'default') : '')
     const g = grab.current, p = plateAt(e)
     if (g && p && layout) {
       if (g.kind === 'seam') {
@@ -159,12 +194,19 @@ export default function ImageView({ src, under, kind, layout, layers }: Props) {
       setCursor(!h ? '' : h.kind === 'pocket' ? 'grab' : h.axis === 0 ? 'col-resize' : 'row-resize')
     }
   }
+  const onKey = (e: React.KeyboardEvent) => {
+    const d = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] }[e.key]
+    if (!d || !layers?.editing || !layers.selected) return
+    e.preventDefault()
+    const k = e.shiftKey ? 10 : 1
+    layers.onMove(layers.selected, d[0] * k, d[1] * k)
+  }
   const up = () => {
     const m = lmove
     if (lgrab.current) {
       lgrab.current = null
       setLmove(null)
-      if (m && layers && (m.dx || m.dy)) layers.onMove(m.input, m.dx, m.dy)
+      if (m && layers && (m.dx || m.dy)) layers.onMove(m.input, m.dx, m.dy, true)
       return
     }
     drag.current = null
@@ -180,13 +222,26 @@ export default function ImageView({ src, under, kind, layout, layers }: Props) {
       <div
         ref={host} className="imgstage" onWheel={onWheel} onDoubleClick={() => setView({ k: 1, x: 0, y: 0 })}
         style={cursor ? { cursor } : undefined}
+        tabIndex={layers?.editing ? 0 : undefined} onKeyDown={onKey}
         onPointerDown={down} onPointerMove={move} onPointerUp={up}
         onPointerCancel={() => { lgrab.current = null; setLmove(null); drag.current = null; grab.current = null; setLive(null) }}
       >
         <canvas ref={canvas} className="imgcanvas" />
       </div>
       <div className="imgbar">
-        <span>{Math.round(view.k * 100)}% · wheel zoom, drag pan, double-click reset{layout && ' · drag a seam or block to edit the layout'}{layers && ' · drag a layer to move it'}</span>
+        <span>{Math.round(view.k * 100)}% · wheel zoom, drag pan, double-click reset{layout && ' · drag a seam or block to edit the layout'}{layers && (layers.editing ? ' · editing: drag a layer, arrow keys nudge (Shift ×10), hold Alt to skip snapping' : '')}</span>
+        {layers && (
+          <>
+            <button className={`iconbtn${layers.editing ? ' on' : ''}`} aria-pressed={layers.editing} aria-label="Edit layers" onClick={() => layers.onEditing(!layers.editing)}
+              title={layers.editing ? 'Stop editing layers' : 'Edit layers: drag them in the preview. Panning is off while editing; the wheel still zooms.'}>
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 3v18M3 12h18M12 3l-3 3M12 3l3 3M12 21l-3-3M12 21l3-3M3 12l3-3M3 12l3 3M21 12l-3-3M21 12l-3 3" /></svg>
+            </button>
+            <button className={`iconbtn${snap ? ' on' : ''}`} aria-pressed={snap} aria-label="Snap" onClick={() => setPrefs({ snap: !snap })}
+              title="Snap to the edges and centres of the other layers and the canvas (hold Alt to skip it while dragging)">
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M6 3v9a6 6 0 0 0 12 0V3M6 8h4M14 8h4" /></svg>
+            </button>
+          </>
+        )}
         {layout && !isEmpty(layout.edits) && <button onClick={layout.onReset} title="Go back to the automatic layout">Reset layout</button>}
         {layout && layout.info.edits_ignored > 0 && <span className="warn">{layout.info.edits_ignored} edit(s) no longer fit and were ignored</span>}
         <span role="status" aria-live="polite" className="layout-note">{live?.why ? `Can't drop here: ${live.why}.` : note}</span>
@@ -245,7 +300,7 @@ function drawLayout(g: CanvasRenderingContext2D, L: LayoutInfo, bw: number, bh: 
 }
 
 /** Layer rectangles; the one being dragged is drawn where it would land. */
-function drawLayers(g: CanvasRenderingContext2D, L: LayersProps, bw: number, bh: number, k: number, live: { input: string; dx: number; dy: number } | null) {
+function drawLayers(g: CanvasRenderingContext2D, L: LayersProps, bw: number, bh: number, k: number, live: { input: string; dx: number; dy: number; gx?: number; gy?: number } | null) {
   const px = bw / L.width
   g.save()
   g.lineWidth = 1.5 / k
@@ -255,5 +310,31 @@ function drawLayers(g: CanvasRenderingContext2D, L: LayersProps, bw: number, bh:
     g.setLineDash(on ? [] : [5 / k, 4 / k])
     g.strokeRect((b.x + (d?.dx ?? 0)) * px - bw / 2, (b.y + (d?.dy ?? 0)) * px - bh / 2, b.w * px, b.h * px)
   }
+  if (live?.gx !== undefined || live?.gy !== undefined) {
+    g.strokeStyle = '#ff3b30'
+    g.setLineDash([3 / k, 3 / k])
+    g.beginPath()
+    if (live.gx !== undefined) { g.moveTo(live.gx * px - bw / 2, -bh / 2); g.lineTo(live.gx * px - bw / 2, bh / 2) }
+    if (live.gy !== undefined) { g.moveTo(-bw / 2, live.gy * px - bh / 2); g.lineTo(bw / 2, live.gy * px - bh / 2) }
+    g.stroke()
+  }
   g.restore()
+}
+
+/** Pulls a dragged layer onto the edges and centres of the other layers and of the canvas when one is within `tol` canvas pixels. */
+function snapTo(b: LayerBox, dx: number, dy: number, L: LayersProps, tol: number) {
+  const others = L.boxes.filter((o) => o.input !== b.input)
+  const xs = [0, L.width / 2, L.width, ...others.flatMap((o) => [o.x, o.x + o.w / 2, o.x + o.w])]
+  const ys = [0, L.height / 2, L.height, ...others.flatMap((o) => [o.y, o.y + o.h / 2, o.y + o.h])]
+  const pull = (lo: number, size: number, targets: number[]) => {
+    let best: { d: number; at: number } | null = null
+    for (const mine of [lo, lo + size / 2, lo + size])
+      for (const t of targets) {
+        const d = t - mine
+        if (Math.abs(d) <= tol && (!best || Math.abs(d) < Math.abs(best.d))) best = { d, at: t }
+      }
+    return best
+  }
+  const sx = pull(b.x + dx, b.w, xs), sy = pull(b.y + dy, b.h, ys)
+  return { dx: Math.round(dx + (sx?.d ?? 0)), dy: Math.round(dy + (sy?.d ?? 0)), gx: sx?.at, gy: sy?.at }
 }

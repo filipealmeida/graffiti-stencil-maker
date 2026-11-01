@@ -1675,3 +1675,16 @@ fn collage_layer_moves_offset_a_layer_from_its_arranged_place() {
     let (w, h, _) = collage_image(&e, &r, "c");
     assert_eq!((w, h), (320, 130), "{r}");
 }
+
+#[test]
+fn collage_reports_layers_with_a_mask_first_and_a_picture_second() {
+    let g = json!({
+        "nodes": [source("a"), {"id": "t", "type": "text", "params": {"text": "HI"}}, {"id": "c", "type": "canvas", "params": {}}],
+        "edges": [edge("t", "mask", "c", "layer_1"), edge("a", "image", "c", "layer_2")]
+    });
+    let (e, r) = run_collage(&g);
+    let key = r["nodes"]["c"]["key"].as_str().unwrap();
+    let info = e.value(key, "layout").expect("layout").info();
+    assert_eq!(info["layers"].as_array().unwrap().len(), 2, "{info}");
+    assert_eq!(info["layers"][0]["kind"], "mask");
+}

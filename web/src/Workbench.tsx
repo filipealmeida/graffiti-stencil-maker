@@ -1,5 +1,5 @@
 import { STAGE_LABEL } from './ports'
-import { Suspense, lazy, useEffect, useState } from 'react'
+import { Suspense, lazy, useEffect, useRef, useState } from 'react'
 import { api, artifactUrl, partUrl, type Kind } from './api'
 import Console from './Console'
 import ImageView, { type LayersProps } from './ImageView'
@@ -9,7 +9,7 @@ import Presets from './Presets'
 import { NodeActions, DeleteNode, downloadFor, runSummary } from './NodeActions'
 import Findings, { useNodeFindings } from './Findings'
 import ImageInfoPanel from './ImageInfo'
-import { useStudio } from './store'
+import { useStudio, type StudioNode } from './store'
 import { parseEdits, stringify, type LayoutInfo } from './layoutEdit'
 const Viewer3D = lazy(() => import('./Viewer3D'))
 
@@ -21,6 +21,7 @@ export default function Workbench() {
   const node = useStudio((s) => s.nodes.find((n) => n.id === s.bench))
   const types = useStudio((s) => s.types)
   const edges = useStudio((s) => s.edges)
+  const nodes = useStudio((s) => s.nodes)
   const runs = useStudio((s) => s.runs)
   const busy = useStudio((s) => s.busy)
   const open = useStudio((s) => s.openBench)
@@ -30,6 +31,12 @@ export default function Workbench() {
   const [info, setInfo] = useState<Record<string, any> | null>(null)
   const [layout, setLayout] = useState<Record<string, any> | null>(null)
   const [picked, setPicked] = useState<string>()
+  const [editing, setEditing] = useState(false)
+  // hand moves wait here until the user stops interacting, so the engine is not asked again for every step
+  const [draft, setDraft] = useState<Record<string, [number, number]> | null>(null)
+  const draftRef = useRef<Record<string, [number, number]> | null>(null)
+  const timer = useRef<number>()
+  const commitRef = useRef<() => void>(() => {})
 
   const problems = useNodeFindings(id).filter((b) => b.level !== 'info').length
   const t = node && types[node.data.type]
@@ -58,17 +65,47 @@ export default function Workbench() {
     if (t?.id === 'canvas' && run?.key) api.info(run.key, 'layout').then(setLayout).catch(() => setLayout(null))
   }, [t?.id, run?.key])
 
+  useEffect(() => {
+    if (layout) { draftRef.current = null; setDraft(null) }
+  }, [layout])
+  useEffect(() => () => commitRef.current(), [])
+
   if (!id || !node || !t) return null
   const moves = (): Record<string, [number, number]> => {
     try { const v = JSON.parse(String(node.data.params.layer_moves || '{}')); return v && typeof v === 'object' ? v : {} } catch { return {} }
   }
-  const moveLayer = (input: string, dx: number, dy: number) => {
-    const m = moves(), [ox, oy] = m[input] ?? [0, 0]
-    m[input] = [ox + dx, oy + dy]
-    setParam(node.id, 'layer_moves', JSON.stringify(m))
+  const commit = () => {
+    window.clearTimeout(timer.current)
+    const d = draftRef.current
+    if (!d) return
+    const kept = Object.fromEntries(Object.entries(d).filter(([, v]) => v[0] || v[1]))
+    const text = Object.keys(kept).length ? JSON.stringify(kept) : ''
+    if (text === String(node.data.params.layer_moves || '')) { draftRef.current = null; setDraft(null) } else setParam(node.id, 'layer_moves', text)
   }
-  const layerProps: LayersProps | undefined = t.id === 'canvas' && layout?.layers?.length && cur?.id.startsWith('out:')
-    ? { width: layout.width, height: layout.height, boxes: layout.layers, selected: picked, onSelect: setPicked, onMove: moveLayer }
+  commitRef.current = commit
+  const moveLayer = (input: string, dx: number, dy: number, now = false) => {
+    const base = draftRef.current ?? moves(), [ox, oy] = base[input] ?? [0, 0]
+    const next = { ...base, [input]: [ox + dx, oy + dy] as [number, number] }
+    draftRef.current = next
+    setDraft(next)
+    window.clearTimeout(timer.current)
+    if (now) commit()
+    else timer.current = window.setTimeout(() => commitRef.current(), 700)
+  }
+  const committed = moves()
+  const shown: Record<string, any> | null = layout && {
+    ...layout,
+    layers: (layout.layers as any[]).map((l) => {
+      const c = committed[l.input] ?? [0, 0], d = draft?.[l.input] ?? c
+      const o = layerOrigin(nodes, edges, node.id, l.input)
+      const key = o && runs[o.n.id]?.key
+      const kind = o && types[o.n.data.type]?.outputs.find((x) => x.name === o.out)?.type
+      const src = key && (kind === 'image' || kind === 'mask' || kind === 'shapes') ? artifactUrl(key, o.out) : undefined
+      return { ...l, x: l.x + d[0] - c[0], y: l.y + d[1] - c[1], src }
+    }),
+  }
+  const layerProps: LayersProps | undefined = t.id === 'canvas' && shown?.layers?.length && cur?.id.startsWith('out:')
+    ? { width: shown.width, height: shown.height, boxes: shown.layers, preview: draft !== null, editing, onEditing: setEditing, selected: picked, onSelect: setPicked, onMove: moveLayer }
     : undefined
   const imageFor = (key?: string) => {
     const e = edges.find((x) => x.target === node.id && ['image', 'size'].includes(x.targetHandle ?? ''))
@@ -131,7 +168,7 @@ export default function Workbench() {
             {cur?.kind === 'parts' && <Viewer3D parts={partsList()} plate={info?.meta?.plate} />}
           </Suspense>
         </section>
-        {t.id === 'canvas' && <LayersPanel canvasId={node.id} layout={layout} picked={picked} onPick={setPicked} onMove={moveLayer} moved={Object.keys(moves()).length > 0} onReset={() => setParam(node.id, 'layer_moves', '')} />}
+        {t.id === 'canvas' && <LayersPanel layout={shown} picked={picked} onPick={setPicked} onMove={moveLayer} moved={Object.keys(draft ?? committed).length > 0} onReset={() => { draftRef.current = null; setDraft(null); window.clearTimeout(timer.current); setParam(node.id, 'layer_moves', '') }} />}
       </div>
       <div className="bench-foot">
         <div className="stats">
@@ -147,9 +184,9 @@ export default function Workbench() {
 }
 
 /** The layers of a Collage: where each one sits on the canvas and where it comes from. */
-function LayersPanel({ canvasId, layout, picked, onPick, onMove, moved, onReset }: {
-  canvasId: string; layout: Record<string, any> | null; picked?: string; onPick: (i: string) => void
-  onMove: (input: string, dx: number, dy: number) => void; moved: boolean; onReset: () => void
+function LayersPanel({ layout, picked, onPick, onMove, moved, onReset }: {
+  layout: Record<string, any> | null; picked?: string; onPick: (i: string) => void
+  onMove: (input: string, dx: number, dy: number, now?: boolean) => void; moved: boolean; onReset: () => void
 }) {
   const nodes = useStudio((s) => s.nodes)
   const edges = useStudio((s) => s.edges)
@@ -157,18 +194,8 @@ function LayersPanel({ canvasId, layout, picked, onPick, onMove, moved, onReset 
   const types = useStudio((s) => s.types)
   const open = useStudio((s) => s.openBench)
   const layers: any[] = layout?.layers ?? []
-  const origin = (input: string) => {
-    let e = edges.find((x) => x.target === canvasId && x.targetHandle === input)
-    let place: string | undefined
-    while (e) {
-      const n = nodes.find((x) => x.id === e!.source)
-      if (!n) return undefined
-      if (n.data.type !== 'place') return { n, out: e.sourceHandle ?? 'image', place }
-      place ??= n.id
-      e = edges.find((x) => x.target === n.id && x.targetHandle === 'item')
-    }
-    return undefined
-  }
+  const canvasId = useStudio((s) => s.bench) ?? ''
+  const origin = (input: string) => layerOrigin(nodes, edges, canvasId, input)
   return (
     <aside className="bench-layers" aria-label="Layers">
       <h4>Layers{layout && <small> · canvas {layout.width}×{layout.height}px</small>}</h4>
@@ -199,4 +226,18 @@ function LayersPanel({ canvasId, layout, picked, onPick, onMove, moved, onReset 
       })}
     </aside>
   )
+}
+
+/** The node a Collage layer comes from, looking through Place nodes, and the first Place node on the way. */
+function layerOrigin(nodes: StudioNode[], edges: { source: string; sourceHandle?: string | null; target: string; targetHandle?: string | null }[], canvasId: string, input: string) {
+  let e = edges.find((x) => x.target === canvasId && x.targetHandle === input)
+  let place: string | undefined
+  while (e) {
+    const n = nodes.find((x) => x.id === e!.source)
+    if (!n) return undefined
+    if (n.data.type !== 'place') return { n, out: e.sourceHandle ?? 'image', place }
+    place ??= n.id
+    e = edges.find((x) => x.target === n.id && x.targetHandle === 'item')
+  }
+  return undefined
 }

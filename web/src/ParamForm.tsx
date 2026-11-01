@@ -64,9 +64,9 @@ function Field({ p, value, onChange, nodeType }: { p: ParamDef; value: unknown; 
 
 export default function ParamForm({ node, type, layers, before }: { node: StudioNode; type: NodeType; layers?: number; before?: ReactNode }) {
   const setParam = useStudio((s) => s.setParam)
-  const groups = [...new Set(type.params.map((p) => p.group ?? ''))]
   // the picture of an Image node is not a setting
   const editable = type.params.filter((p) => p.kind !== 'text')
+  const groups = [...new Set(editable.map((p) => p.group ?? ''))]
   const changed = editable.filter((p) => !same(node.data.params[p.name] ?? p.default, p.default))
   const showHelp = useStudio((s) => s.showHelp)
   const setShowHelp = useStudio((s) => s.setShowHelp)
