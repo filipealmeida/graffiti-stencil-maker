@@ -7,6 +7,8 @@ pub const WALL_MM: f64 = 1.0;
 pub const THIN_WALL_MM: f64 = 0.6;
 pub const ROW_GAP_MM: f64 = 1.5;
 pub const MAX_ROWS: usize = 4;
+/// Just above the build plate, where a box can start without touching the plate's face.
+const PLATE_EPS_MM: f64 = 0.05;
 pub const SPACING_TARGET_MM: f64 = 30.0;
 pub const POCKET_DEPTH_MM: f64 = 10.0;
 
@@ -300,7 +302,9 @@ pub(crate) fn row_heights(shape: Shape, d: f64, t: f64) -> Vec<f64> {
     let n = (((t - 2.0 * WALL_MM + ROW_GAP_MM) / (ext + ROW_GAP_MM)).floor() as usize)
         .clamp(1, MAX_ROWS);
     if n == 1 {
-        return vec![t / 2.0];
+        // as low as the wall allows: the less there is under a hole, the less can be missing there
+        // the extra 0.8 mm keeps the pocket floor clear of the first-layer flare and raised bridges, where the boolean ops stumble
+        return vec![(WALL_MM + 0.8 + ext / 2.0).min(t / 2.0)];
     }
     let (lo, hi) = (WALL_MM + ext / 2.0, t - WALL_MM - ext / 2.0);
     (0..n)
@@ -488,7 +492,8 @@ fn place_connectors(
                         }) {
                             continue;
                         }
-                        if !strip.box_inside(gl, gh) {
+                        // solid all the way down to the plate under the hole, not only around it
+                        if !strip.box_inside([gl[0], gl[1], gl[2].min(PLATE_EPS_MM)], gh) {
                             continue;
                         }
                         cutters.append(&at(r_hole, pocket_len));
@@ -1196,6 +1201,22 @@ mod tests {
         assert!(t.info["reinforced_seams"].as_u64().unwrap() >= 1);
         assert!(t.info["added_material_mm3"].as_f64().unwrap() > 0.0);
         assert!(t.tiles.iter().all(|x| x.mesh.is_watertight()));
+    }
+
+    #[test]
+    fn a_single_row_of_holes_sits_low_and_needs_material_down_to_the_plate() {
+        let z = row_heights(Shape::Hex, 3.2, 7.0);
+        assert_eq!(z.len(), 1);
+        assert!(z[0] < 3.5, "{z:?}");
+        let plate = Mesh::cuboid([0.0, 0.0, 0.0], [100.0, 60.0, 7.0]);
+        assert!(tile(&plate, &plain(60.0, 0.0, false)).is_ok());
+        // a shallow channel under the whole seam leaves every hole without material beneath it
+        let channel = Mesh::cuboid([40.0, -1.0, -1.0], [60.0, 61.0, 0.3]);
+        let hollow = plate.subtract(&channel).unwrap();
+        let err = tile(&hollow, &plain(60.0, 0.0, false))
+            .err()
+            .expect("no room");
+        assert!(err.contains("no room"), "{err}");
     }
 
     #[test]
