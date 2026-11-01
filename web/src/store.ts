@@ -93,6 +93,8 @@ interface State {
   select: (id: string | null) => void
   usage: Record<string, number>
   perfOpen: boolean
+  /** The port a new link is being dragged from, so compatible ports can light up. */
+  dragFrom: { node: string; port: string; dir: 'in' | 'out' } | null
   setPerf: (o: boolean) => void
   reportOpen: boolean
   /** Bumped whenever the undo history changes, so a list of it can redraw. */
@@ -138,7 +140,7 @@ export const useStudio = create<State>((set, get) => ({
   },
   dismissToast: (id) => set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) })),
   setShowHelp: (on) => { localStorage.setItem('studio.showHelp', on ? '1' : '0'); set({ showHelp: on }) }, busy: false, stopped: false, error: null,
-  logs: [], usage: loadUsage(), perfOpen: localStorage.getItem('stencil-perf') === '1', consoleOpen: window.innerWidth >= 1000, reportOpen: false, hv: 0, bench: null, progress: { done: 0, total: 0 }, draft: false,
+  logs: [], usage: loadUsage(), perfOpen: localStorage.getItem('stencil-perf') === '1', dragFrom: null, consoleOpen: window.innerWidth >= 1000, reportOpen: false, hv: 0, bench: null, progress: { done: 0, total: 0 }, draft: false,
   addLogs: (l) => set((s) => ({ logs: [...s.logs, ...l.map((x, i) => ({ ...x, id: s.logs.length + i + Math.random() }))].slice(-500) })),
   clearLogs: () => set({ logs: [] }),
   setConsole: (consoleOpen) => set({ consoleOpen }),
@@ -148,11 +150,20 @@ export const useStudio = create<State>((set, get) => ({
   setTypes: (t) => set({ types: Object.fromEntries(t.map((x) => [x.id, x])) }),
   onNodesChange: (c) => set((s) => ({ nodes: applyNodeChanges(c, s.nodes) })),
   onEdgesChange: (c) => set((s) => ({ edges: applyEdgeChanges(c, s.edges) })),
-  connect: (c) => set((s) => ({
+  connect: (c) => {
+    const old = get().edges.find((e) => e.target === c.target && e.targetHandle === c.targetHandle && (e.source !== c.source || e.sourceHandle !== c.sourceHandle))
     // an input takes one connection: a new one replaces the old
-    edges: addEdge({ ...c, id: `${c.source}.${c.sourceHandle}->${c.target}.${c.targetHandle}` },
-      s.edges.filter((e) => !(e.target === c.target && e.targetHandle === c.targetHandle))),
-  })),
+    set((s) => ({
+      edges: addEdge({ ...c, id: `${c.source}.${c.sourceHandle}->${c.target}.${c.targetHandle}` },
+        s.edges.filter((e) => !(e.target === c.target && e.targetHandle === c.targetHandle))),
+    }))
+    if (old) {
+      const prev = old
+      get().toast(`An input takes one link: the previous one to "${c.targetHandle}" was replaced.`, {
+        undo: () => set((s) => ({ edges: [...s.edges.filter((e) => !(e.target === c.target && e.targetHandle === c.targetHandle)), prev] })),
+      })
+    }
+  },
   insertOnEdge: (nodeId, edgeId, input, output) => set((s) => {
     const e = s.edges.find((x) => x.id === edgeId)
     if (!e) return {}

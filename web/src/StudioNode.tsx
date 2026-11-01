@@ -1,11 +1,12 @@
 import { Handle, Position, type NodeProps } from '@xyflow/react'
 import { api, artifactUrl, type Kind } from './api'
+import { KIND_INFO, canLink, kindBackground, portText, portTitle } from './ports'
 import { useStudio, type StudioNode } from './store'
 import { badgesFor } from './badges'
 import { runSummary } from './NodeActions'
 import { etaSeconds, formatEta, nodeStarts, useNow } from './eta'
 
-export const KIND_COLOR: Record<Kind, string> = { image: '#4aa3ff', mask: '#ffa24a', shapes: '#f0d24a', tiles: '#ff7a9c', solid: '#5fd38d', parts: '#c28bff', any: '#8a93a0', body: '#8a93a0' }
+export const KIND_COLOR = Object.fromEntries(Object.entries(KIND_INFO).map(([k, v]) => [k, v.colour])) as Record<Kind, string>
 
 /** What a running node is doing and how long it has left. */
 function RunNote({ id, message, progress, ms }: { id: string; message?: string; progress?: number; ms?: number }) {
@@ -23,6 +24,15 @@ function RunNote({ id, message, progress, ms }: { id: string; message?: string; 
 export default function StudioNodeView({ id, data, selected }: NodeProps<StudioNode>) {
   const t = useStudio((s) => s.types[data.type])
   const run = useStudio((s) => s.runs[id])
+  const drag = useStudio((s) => s.dragFrom)
+  const from = useStudio((s) => (s.dragFrom ? s.types[s.nodes.find((x) => x.id === s.dragFrom!.node)?.data.type ?? ''] : undefined))
+  const fit = (dir: 'in' | 'out', kind: Kind) => {
+    if (!drag) return ''
+    if (drag.dir === dir || drag.node === id) return ' dim'
+    const other = (drag.dir === 'out' ? from?.outputs : from?.inputs)?.find((x) => x.name === drag.port)?.type
+    if (!other) return ''
+    return (dir === 'in' ? canLink(other, kind) : canLink(kind, other)) ? ' fits' : ' dim'
+  }
   if (!t) return <div className="node">unknown node {data.type}</div>
   const done = !!run?.key && run.state !== 'error'
   const first = t.outputs.find((o) => run?.outputs?.[o.name]?.available)
@@ -47,19 +57,22 @@ export default function StudioNodeView({ id, data, selected }: NodeProps<StudioN
         </ul>
       )}
       <div className="node-body">
-        {t.inputs.map((p) => (
-          <div className="port in" key={p.name}>
-            <Handle type="target" position={Position.Left} id={p.name} style={{ background: KIND_COLOR[p.type] }} />
-            <span>{p.name}{p.required ? '' : '?'}</span>
-          </div>
-        ))}
+        {t.inputs.map((p) => {
+          const x = portText(data.type, 'in', p.name)
+          return (
+            <div className={`port in${fit('in', p.type)}`} key={p.name} title={portTitle(data.type, 'in', p.name, p.type, p.required)}>
+              <Handle type="target" position={Position.Left} id={p.name} className={`k-${p.type}`} style={{ background: kindBackground(p.type) }} />
+              <span>{x.or ? 'or ' : ''}{x.label}{p.required || x.either ? '' : '?'}</span>
+            </div>
+          )
+        })}
         {shown.map((p) => (
-          <div className={`port out${done && !run.outputs?.[p.name]?.available ? ' empty' : ''}`} key={p.name}>
-            <span>{p.name}</span>
+          <div className={`port out${fit('out', p.type)}${done && !run.outputs?.[p.name]?.available ? ' empty' : ''}`} key={p.name} title={portTitle(data.type, 'out', p.name, p.type, true)}>
+            <span>{portText(data.type, 'out', p.name).label}</span>
             {done && run.key && run.outputs?.[p.name]?.available && (p.type === 'image' || p.type === 'mask' || p.type === 'shapes' || p.type === 'tiles') && (
               <img className={`thumb ${p.type}${run.stale ? ' stale' : ''}`} src={artifactUrl(run.key, p.name, 96)} alt="" draggable={false} />
             )}
-            <Handle type="source" position={Position.Right} id={p.name} style={{ background: KIND_COLOR[p.type] }} />
+            <Handle type="source" position={Position.Right} id={p.name} className={`k-${p.type}`} style={{ background: kindBackground(p.type) }} />
           </div>
         ))}
         {run?.state === 'error' && <div className="err">{run.error}</div>}

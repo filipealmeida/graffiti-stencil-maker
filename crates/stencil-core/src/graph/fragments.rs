@@ -128,7 +128,7 @@ pub(super) fn run_fragments(
         files.push((name.clone(), cleaned.to_stl()));
     }
     if tiles.as_ref().is_some_and(|t| t.is_empty()) {
-        return Err("the parts have no tiles: connect a Split volume or Tile layout node".into());
+        return Err("the parts have no tiles: connect a Split volume or Tile plan node".into());
     }
     let mut meta = src.meta.clone();
     meta["fragments"] = json!({

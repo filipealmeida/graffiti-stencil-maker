@@ -185,8 +185,7 @@ fn bridge_parts(src: &Parts, p: &P) -> Result<Outputs, String> {
     let (top, layer) = (num(&plate["top"]), num(&plate["layer"]));
     if plate.is_null() || top <= 0.0 || layer <= 0.0 {
         return Err(
-            "the parts have no plate description: connect a Split volume or Tile layout node"
-                .into(),
+            "the parts have no plate description: connect a Split volume or Tile plan node".into(),
         );
     }
     let bp = bridge_params(
@@ -245,7 +244,7 @@ fn bridge_parts(src: &Parts, p: &P) -> Result<Outputs, String> {
         })
         .collect();
     if tiles.is_empty() {
-        return Err("the parts have no tiles: connect a Split volume or Tile layout node".into());
+        return Err("the parts have no tiles: connect a Split volume or Tile plan node".into());
     }
     // connector pockets must stay open: bridges keep out of them
     let pockets: Vec<[f64; 4]> = plate["connectors"]

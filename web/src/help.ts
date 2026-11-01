@@ -123,7 +123,7 @@ export const PARAM_HELP: Record<string, string> = {
   spacing_N: 'Distance between lines or dots for this tone. 0 uses the default spacing above.',
   cover_N: 'How much of this tone is paint, in percent. 0 lets the engine choose from the tone.',
   op: 'What to do to the paint. erode shrinks it, dilate grows it, open removes specks, close fills small gaps, thin and skeleton reduce shapes to lines; the others pick out edges, small bright or dark details, or a hand-made pattern (hit_or_miss).',
-  tile_method: 'Used with a Tile layout. per_tile builds every tile from its own outline. cut_whole builds the plate once, cuts it into tiles, and reports the pieces that came loose (join them with a Bridges node).',
+  tile_method: 'Used with a Tile plan. per_tile builds every tile from its own outline. cut_whole builds the plate once, cuts it into tiles, and reports the pieces that came loose (join them with a Bridges node).',
 }
 
 /** Where one node means something different by the same parameter name. */

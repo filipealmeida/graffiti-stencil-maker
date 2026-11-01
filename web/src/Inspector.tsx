@@ -1,3 +1,4 @@
+import { STAGE_LABEL } from './ports'
 import ImageInfoPanel from './ImageInfo'
 import { useEffect, useState } from 'react'
 import { api, artifactUrl } from './api'
@@ -40,7 +41,7 @@ export default function Inspector() {
   const fileInput = t.id === 'source'
   return (
     <aside className="inspector">
-      <h2>{t.label} <small className={`tag stage-${t.stage}`}>{t.stage}</small></h2>
+      <h2>{t.label} <small className={`tag stage-${t.stage}`}>{STAGE_LABEL[t.stage]}</small></h2>
       <p className="mut status-line">{runSummary(run, busy)}</p>
       <Findings id={node.id} />
       <Presets key={node.id} node={node} />

@@ -1,4 +1,4 @@
-//! The Colour set node: one plate per colour, drilled with the same registration holes so the layers line up.
+//! The Multi-colour pack node: one plate per colour, drilled with the same registration holes so the layers line up.
 
 use super::catalogue::Outputs;
 use super::*;

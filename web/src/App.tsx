@@ -22,6 +22,7 @@ import { forgetFile, saveProject, exportEverything, recentProjects, safeName } f
 import Workbench from "./Workbench";
 import StudioEdge from "./StudioEdge";
 import StudioNodeView, { KIND_COLOR } from "./StudioNode";
+import { STAGE_LABEL, canLink } from "./ports";
 import Status from "./Status";
 import CommandPalette from "./CommandPalette";
 import {
@@ -330,13 +331,7 @@ function Canvas() {
     const i = s.types[b.data.type]?.inputs.find(
       (x) => x.name === c.targetHandle,
     );
-    return (
-      !!o &&
-      !!i &&
-      (i.type === o.type ||
-        (i.type === "any" && (o.type === "image" || o.type === "mask")) ||
-        (i.type === "body" && (o.type === "solid" || o.type === "parts")))
-    );
+    return !!o && !!i && canLink(o.type, i.type);
   };
 
   const open = async (f: File) => {
@@ -401,7 +396,7 @@ function Canvas() {
       s.vectorStarter,
     ],
     [
-      "Colour set",
+      "Multi-colour pack",
       "image → split colours → one stencil per colour → colour set. Layers with registration holes and pins, as one ZIP.",
       s.colourSetStarter,
     ],
@@ -412,7 +407,7 @@ function Canvas() {
     ],
     [
       "Tiles first",
-      "image → threshold → tile layout → stencil (per tile) → pads & holes → screws. Cut into tiles before bridging, so every tile is island-free by itself.",
+      "image → threshold → tile plan → stencil (per tile) → pads & holes → screws. Cut into tiles before bridging, so every tile is island-free by itself.",
       s.tilesFirstStarter,
     ],
   ] as const;
@@ -439,7 +434,7 @@ function Canvas() {
       ...current.map((t) => ({
         id: `node:${t.id}`,
         title: t.label,
-        note: `${t.stage} · ${t.doc.split(/(?<=\.)\s/)[0]}${FORMER_NAMES[t.id] ? ` · was ${FORMER_NAMES[t.id]}` : ""}`,
+        note: `${STAGE_LABEL[t.stage]} · ${t.doc.split(/(?<=\.)\s/)[0]}${FORMER_NAMES[t.id] ? ` · was ${FORMER_NAMES[t.id]}` : ""}`,
         run: () => addFromMenu(t),
       })),
       ...templates.map(([name, doc, make]) => ({
@@ -473,7 +468,7 @@ function Canvas() {
                 aria-expanded={menu === st}
                 onClick={() => setMenu(menu === st ? null : st)}
               >
-                + {st}
+                + {STAGE_LABEL[st]}
               </button>
               {menu === st && (
                 <div className="menu" style={menuStyle(stageNodes(st).length)}>
@@ -517,7 +512,7 @@ function Canvas() {
                         {n > 0 && <span className="cnt">{n}</span>}
                       </b>
                       <small>
-                        {t.stage} · {t.doc.split(/(?<=\.)\s/)[0]}
+                        {STAGE_LABEL[t.stage]} · {t.doc.split(/(?<=\.)\s/)[0]}
                       </small>
                     </button>
                   );
@@ -702,6 +697,8 @@ function Canvas() {
             onNodesChange={s.onNodesChange}
             onEdgesChange={s.onEdgesChange}
             onConnect={s.connect}
+            onConnectStart={(_, p) => p.nodeId && p.handleId && useStudio.setState({ dragFrom: { node: p.nodeId, port: p.handleId, dir: p.handleType === 'source' ? 'out' : 'in' } })}
+            onConnectEnd={() => useStudio.setState({ dragFrom: null })}
             isValidConnection={isValid}
             onNodeClick={(_, n) => s.select(n.id)}
             onPaneClick={() => s.select(null)}
@@ -785,9 +782,13 @@ const FORMER_NAMES: Record<string, string> = {
   tone_patterns: "Tone patterns",
   morphology: "Morphology",
   shapes_to_mask: "Shapes to mask",
-  ring: "Margin expansion",
   pads: "Pads & mounting holes",
   hardware: "Screws, nuts & fit test",
+  tile_layout: "Tile layout",
+  remesh: "Remesh",
+  ring: "Margin expansion · Expand margin",
+  colour_set: "Colour set",
+  remove_islands: "Remove islands",
 };
 
 let announced = false;

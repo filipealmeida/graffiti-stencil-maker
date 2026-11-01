@@ -213,7 +213,7 @@ pub(super) fn catalogue() -> Vec<NodeDef> {
         },
         NodeDef {
             id: "remove_islands",
-            label: "Remove islands",
+            label: "Remove specks",
             stage: "trace",
             inputs: vec![("shapes", "shapes", true)],
             outputs: vec![("shapes", "shapes"), ("removed", "shapes")],
@@ -243,7 +243,7 @@ pub(super) fn catalogue() -> Vec<NodeDef> {
             inputs: vec![("mask", "mask", false), ("tiles", "tiles", false)],
             outputs: vec![("solid", "solid"), ("parts", "parts")],
             params: stencil_params(false),
-            doc: "Turns a mask into a watertight 3D plate. Floating pieces (islands) stay as they are: add a Bridges node after it to join them. Minimum first-layer width adds a tapered flare only at the bed; the Bridges node chooses its links from the original outline. Connect a Tile layout instead of a mask to build every tile as a stencil of its own (the Parts output): the width and margin then come from the layout. Tiles that hold loose pieces are reported; a Bridges node after this joins them.",
+            doc: "Turns a mask into a watertight 3D plate. Floating pieces (islands) stay as they are: add a Bridges node after it to join them. Minimum first-layer width adds a tapered flare only at the bed; the Bridges node chooses its links from the original outline. Connect a Tile plan instead of a mask to build every tile as a stencil of its own (the Parts output): the width and margin then come from the layout. Tiles that hold loose pieces are reported; a Bridges node after this joins them.",
             run: run_stencil,
         },
         NodeDef {
@@ -253,12 +253,12 @@ pub(super) fn catalogue() -> Vec<NodeDef> {
             inputs: vec![("shapes", "shapes", false), ("tiles", "tiles", false)],
             outputs: vec![("solid", "solid"), ("parts", "parts")],
             params: stencil_params(true),
-            doc: "Builds the plate directly from vector outlines with polygon booleans and extrudes the result. Floating pieces (islands) stay: add a Bridges node after it. Mesh detail controls curve flattening accuracy. Raised bridges are built from vectors too, as stepped strips, so curves stay smooth. Minimum first-layer width adds a tapered flare only at the bed; bridge selection still uses the original outline. Connect a Tile layout instead of shapes to build every tile as a stencil of its own (the Parts output); the width and margin then come from the layout.",
+            doc: "Builds the plate directly from vector outlines with polygon booleans and extrudes the result. Floating pieces (islands) stay: add a Bridges node after it. Mesh detail controls curve flattening accuracy. Raised bridges are built from vectors too, as stepped strips, so curves stay smooth. Minimum first-layer width adds a tapered flare only at the bed; bridge selection still uses the original outline. Connect a Tile plan instead of shapes to build every tile as a stencil of its own (the Parts output); the width and margin then come from the layout.",
             run: run_vector_stencil,
         },
         NodeDef {
             id: "tile_layout",
-            label: "Tile layout",
+            label: "Tile plan",
             stage: "stencil",
             inputs: vec![("mask", "mask", false), ("shapes", "shapes", false)],
             outputs: vec![("tiles", "tiles")],
@@ -281,7 +281,7 @@ pub(super) fn catalogue() -> Vec<NodeDef> {
         },
         NodeDef {
             id: "remesh",
-            label: "Remesh",
+            label: "Simplify mesh",
             stage: "stencil",
             inputs: vec![("solid", "solid", true)],
             outputs: vec![("solid", "solid")],
@@ -372,7 +372,7 @@ pub(super) fn catalogue() -> Vec<NodeDef> {
         },
         NodeDef {
             id: "ring",
-            label: "Expand margin",
+            label: "Border slabs",
             stage: "post",
             inputs: vec![("parts", "parts", true)],
             outputs: vec![("parts", "parts")],
@@ -430,7 +430,7 @@ pub(super) fn catalogue() -> Vec<NodeDef> {
         },
         NodeDef {
             id: "colour_set",
-            label: "Colour set",
+            label: "Multi-colour pack",
             stage: "post",
             inputs: colour_set::INPUTS.iter().map(|n| (*n, "solid", *n == "colour_1")).collect(),
             outputs: vec![("parts", "parts")],

@@ -125,7 +125,7 @@ Every parameter `--set NODE.PARAM=VALUE` accepts. Generated with `stencil --list
 | `radius` | Arc radius (px) | float | `3.0` | 0.5 to 50.0 |
 | `round_concave` | Also round empty spikes poking into the paint | bool | `false` | true \| false |
 
-### Remove islands (`remove_islands`)
+### Remove specks (`remove_islands`)
 
 | Parameter | Label | Type | Default | Range or choices |
 |---|---|---|---|---|
@@ -174,7 +174,7 @@ Every parameter `--set NODE.PARAM=VALUE` accepts. Generated with `stencil --list
 | `first_layer_taper_mm` | Taper height (mm) | float | `1.0` | 0.0 to 50.0 |
 | `tile_method` | Tile method | choice | `"per_tile"` | per_tile \| cut_whole |
 
-### Tile layout (`tile_layout`)
+### Tile plan (`tile_layout`)
 
 | Parameter | Label | Type | Default | Range or choices |
 |---|---|---|---|---|
@@ -191,7 +191,7 @@ Every parameter `--set NODE.PARAM=VALUE` accepts. Generated with `stencil --list
 | `segments` | Round segments | int | `48.0` | 24.0 to 128.0 |
 | `edits` | Layout edits | text | `""` | text |
 
-### Remesh (`remesh`)
+### Simplify mesh (`remesh`)
 
 | Parameter | Label | Type | Default | Range or choices |
 |---|---|---|---|---|
@@ -258,7 +258,7 @@ Every parameter `--set NODE.PARAM=VALUE` accepts. Generated with `stencil --list
 | `extend` | Extender plate: distance between the two rows of holes (mm) | float | `25.0` | 10.0 to 120.0 |
 | `segments` | Round segments | int | `48.0` | 24.0 to 128.0 |
 
-### Expand margin (`ring`)
+### Border slabs (`ring`)
 
 | Parameter | Label | Type | Default | Range or choices |
 |---|---|---|---|---|
@@ -298,7 +298,7 @@ Every parameter `--set NODE.PARAM=VALUE` accepts. Generated with `stencil --list
 | `raised_bridges` | Raised bridges | bool | `true` | true \| false |
 | `z_bridging` | Z bridging | choice | `"easy"` | easy \| steps |
 
-### Colour set (`colour_set`)
+### Multi-colour pack (`colour_set`)
 
 | Parameter | Label | Type | Default | Range or choices |
 |---|---|---|---|---|

@@ -1,3 +1,4 @@
+import { STAGE_LABEL } from './ports'
 import { Suspense, lazy, useEffect, useState } from 'react'
 import { api, artifactUrl, partUrl, type Kind } from './api'
 import Console from './Console'
@@ -70,7 +71,7 @@ export default function Workbench() {
     <div className="bench">
       <div className="bench-head">
         <button className="close" onClick={() => open(null)} aria-label="Close preview" title="Close (Esc)">✕</button>
-        <h2>{node.data.title || t.label} <small className={`tag stage-${t.stage}`}>{t.stage}</small>{problems > 0 && <span className="tb-badge warn" title="Findings on this node">{problems}</span>}</h2>
+        <h2>{node.data.title || t.label} <small className={`tag stage-${t.stage}`}>{STAGE_LABEL[t.stage]}</small>{problems > 0 && <span className="tb-badge warn" title="Findings on this node">{problems}</span>}</h2>
         <div className="tabs">
           {views.map((x) => <button key={x.id} className={x.id === cur?.id ? 'on' : ''} onClick={() => setView(x.id)}>{x.label}</button>)}
         </div>

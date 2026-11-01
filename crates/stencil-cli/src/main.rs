@@ -311,7 +311,7 @@ fn main() {
             found.push((id.to_string(), v.encode().map(|e| e.1).unwrap_or_default()));
         }
         if found.is_empty() {
-            fail("--layout: the graph has no Tile layout node");
+            fail("--layout: the graph has no Tile plan node");
         }
         let many = found.len() > 1;
         for (id, bytes) in found {
@@ -325,7 +325,7 @@ fn main() {
                 base.clone()
             };
             write(&path, &bytes);
-            eprintln!("wrote the tile layout to {}", path.display());
+            eprintln!("wrote the tile plan to {}", path.display());
             layouts += 1;
         }
     }

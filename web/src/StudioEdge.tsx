@@ -1,13 +1,16 @@
 import { BaseEdge, EdgeLabelRenderer, getBezierPath, type EdgeProps } from '@xyflow/react'
 import { useStudio } from './store'
+import { KIND_INFO } from './ports'
 
 /** Bezier edge with a wide hit area and a delete button at its midpoint while selected. */
 export default function StudioEdge(p: EdgeProps) {
   const [path, x, y] = getBezierPath(p)
   const remove = useStudio((s) => s.removeEdge)
+  const kind = useStudio((s) => s.types[s.nodes.find((n) => n.id === p.source)?.data.type ?? '']?.outputs.find((o) => o.name === p.sourceHandleId)?.type)
+  const colour = kind ? KIND_INFO[kind].colour : p.style?.stroke
   return (
     <>
-      <BaseEdge id={p.id} path={path} style={{ ...p.style, stroke: p.selected ? '#ff8a1f' : p.style?.stroke, strokeWidth: p.selected ? 3 : 2 }} interactionWidth={26} />
+      <BaseEdge id={p.id} path={path} style={{ ...p.style, stroke: p.selected ? '#ff8a1f' : colour, strokeWidth: p.selected ? 3 : 2 }} interactionWidth={26} />
       {p.selected && (
         <EdgeLabelRenderer>
           <button className="edge-del nodrag nopan" style={{ transform: `translate(-50%,-50%) translate(${x}px,${y}px)` }} onClick={() => remove(p.id)} title="Delete connection">×</button>

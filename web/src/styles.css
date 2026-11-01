@@ -326,9 +326,54 @@ td:last-child {
   max-width: 220px;
 }
 .react-flow__handle {
-  width: 10px;
-  height: 10px;
-  border: 2px solid #111;
+  width: 12px;
+  height: 12px;
+  border: 0;
+}
+/* shape tells the kind apart when colours are close: round raster, square vector, diamond plan, polygons for 3D */
+.react-flow__handle.k-image,
+.react-flow__handle.k-mask,
+.react-flow__handle.k-any {
+  border-radius: 50%;
+}
+.react-flow__handle.k-shapes {
+  border-radius: 2px;
+}
+.react-flow__handle.k-tiles {
+  clip-path: polygon(50% 0, 100% 50%, 50% 100%, 0 50%);
+  width: 15px;
+  height: 15px;
+}
+.react-flow__handle.k-solid,
+.react-flow__handle.k-body {
+  clip-path: polygon(25% 5%, 75% 5%, 100% 50%, 75% 95%, 25% 95%, 0 50%);
+  width: 15px;
+  height: 15px;
+}
+.react-flow__handle.k-parts {
+  clip-path: polygon(30% 0, 70% 0, 100% 30%, 100% 70%, 70% 100%, 30% 100%, 0 70%, 0 30%);
+  width: 15px;
+  height: 15px;
+}
+.port.dim {
+  opacity: 0.3;
+}
+.port.fits {
+  color: var(--fg);
+}
+.port.fits .react-flow__handle {
+  animation: fit-pulse 0.9s ease-in-out infinite alternate;
+}
+@keyframes fit-pulse {
+  to {
+    scale: 1.5;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .port.fits .react-flow__handle {
+    animation: none;
+    scale: 1.4;
+  }
 }
 .react-flow__minimap {
   background: var(--panel) !important;

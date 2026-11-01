@@ -1032,7 +1032,7 @@ fn pads_node_fits_pads_and_holes_clear_of_seams() {
     }
 }
 
-/// The picture through Tile layout, the per-tile stencil, Pads and Screws.
+/// The picture through Tile plan, the per-tile stencil, Pads and Screws.
 fn pre_tiled_chain(vector: bool, flip: bool) -> (Engine, Json) {
     let mut e = Engine::new();
     let id = e.add_image(test_png()).unwrap()["id"]

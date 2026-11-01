@@ -9,10 +9,10 @@ const ICON = { error: '✖', warn: '▲', info: 'ℹ' } as const
 export function hintFor(text: string): { hint: string; add?: string } | null {
   if (/pieces? loose in/.test(text)) return { hint: 'Join them or drop them.', add: 'bridges' }
   if (/island.* remain/.test(text)) return { hint: 'Join them with a Bridges node, or raise its bridge width.', add: 'bridges' }
-  if (/not watertight/.test(text)) return { hint: 'Add a Remesh node or lower the smoothing.' }
+  if (/not watertight/.test(text)) return { hint: 'Add a Simplify mesh node or lower the smoothing.' }
   if (/^overhang/.test(text)) return { hint: 'Raise the ground height so the paint fills below.' }
   if (/thinner than a nozzle/.test(text)) return { hint: 'Raise the bridge width to at least the nozzle size.' }
-  if (/M triangles/.test(text)) return { hint: 'Add a Remesh node or lower the resolution.' }
+  if (/M triangles/.test(text)) return { hint: 'Add a Simplify mesh node or lower the resolution.' }
   return null
 }
 

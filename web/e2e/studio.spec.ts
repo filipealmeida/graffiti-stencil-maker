@@ -132,7 +132,7 @@ test('undo returns to the previous value', async ({ page }) => {
 
 test('the Reshape paint node can be added from the menu and shows its parameters', async ({ page }) => {
   await open(page)
-  await page.getByRole('button', { name: '+ trace' }).click()
+  await page.getByRole('button', { name: '+ prepare' }).click()
   await page.locator('.menu button').filter({ hasText: 'Reshape paint' }).click()
   await expect(page.locator('.react-flow__node').filter({ hasText: 'Reshape paint' })).toBeVisible()
   await page.locator('.react-flow__node').filter({ hasText: 'Reshape paint' }).dispatchEvent('click')
@@ -149,7 +149,7 @@ test('the console lists timed sub-steps of the stencil node', async ({ page }) =
 test('new nodes avoid existing ones and no lane panels are drawn', async ({ page }) => {
   await open(page)
   for (let i = 0; i < 3; i++) {
-    await page.getByRole('button', { name: '+ trace' }).click()
+    await page.getByRole('button', { name: '+ prepare' }).click()
     await page.locator('.menu button').filter({ hasText: 'Reshape paint' }).click()
   }
   const boxes = await page.locator('.react-flow__node').evaluateAll((l) => l.map((e) => { const r = e.getBoundingClientRect(); return [r.x, r.y, r.width, r.height] }))
@@ -168,7 +168,7 @@ test('3D views show dimensions and the trace node exports SVG', async ({ page })
   await expect(page.locator('.v3dims')).toContainText(/\d+\.\d × \d+\.\d × \d+\.\d mm/, { timeout: 30_000 })
   await page.getByRole('button', { name: /Close/ }).click()
 
-  await page.getByRole('button', { name: '+ trace' }).click()
+  await page.getByRole('button', { name: '+ prepare' }).click()
   await page.locator('.menu button').filter({ has: page.locator('b', { hasText: /^Trace$/ }) }).click()
   const trace = page.locator('.react-flow__node').filter({ hasText: 'Trace' }).last()
   const from = page.locator('.react-flow__node').filter({ hasText: 'Threshold' }).first().locator('.source').first()
@@ -188,7 +188,7 @@ test('3D views show dimensions and the trace node exports SVG', async ({ page })
 
 test('the Crop & rotate node can be added and rotates the picture', async ({ page }) => {
   await open(page)
-  await page.getByRole('button', { name: '+ trace' }).click()
+  await page.getByRole('button', { name: '+ prepare' }).click()
   await page.getByRole('button', { name: 'Crop & rotate' }).click()
   const node = page.locator('.react-flow__node').filter({ hasText: 'Crop & rotate' })
   await expect(node).toBeVisible()
@@ -284,7 +284,7 @@ test('copy, paste and duplicate create independent nodes', async ({ page }) => {
 
 test('the Text node renders letters and can feed a stencil', async ({ page }) => {
   await open(page)
-  await page.getByRole('button', { name: '+ trace' }).click()
+  await page.getByRole('button', { name: '+ prepare' }).click()
   await page.locator('.menu button').filter({ hasText: /^Text/ }).click()
   const text = page.locator('.react-flow__node').filter({ hasText: 'Text' }).last()
   await text.dispatchEvent('dblclick')
@@ -323,7 +323,7 @@ test('templates menu rebuilds the graph around the picture', async ({ page }) =>
 test('a long palette menu scrolls inside itself, not the page', async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 420 })
   await open(page)
-  await page.getByRole('button', { name: '+ trace' }).click()
+  await page.getByRole('button', { name: '+ prepare' }).click()
   const m = page.locator('.menu').first()
   const b = (await m.boundingBox())!
   expect(b.y + b.height).toBeLessThanOrEqual(420)
@@ -331,24 +331,36 @@ test('a long palette menu scrolls inside itself, not the page', async ({ page })
   expect(await page.evaluate(() => document.documentElement.scrollHeight <= window.innerHeight)).toBe(true)
 })
 
-test('the Remesh can be added from the stencil menu and shows its parameters', async ({ page }) => {
+test('the Simplify mesh can be added from the stencil menu and shows its parameters', async ({ page }) => {
   await open(page)
-  await page.getByRole('button', { name: '+ stencil' }).click()
-  await page.locator('.menu button').filter({ hasText: 'Remesh' }).click()
-  const node = page.locator('.react-flow__node').filter({ hasText: 'Remesh' })
+  await page.getByRole('button', { name: '+ build' }).click()
+  await page.locator('.menu button').filter({ hasText: 'Simplify mesh' }).click()
+  const node = page.locator('.react-flow__node').filter({ hasText: 'Simplify mesh' })
   await expect(node).toBeVisible()
   await node.dispatchEvent('click')
   await expect(page.locator('aside')).toContainText('tolerance')
   await expect(page.locator('aside')).toContainText('overhang')
 })
 
+test('ports show what they do, either/or inputs are not marked optional, and 3D inputs have their own shape', async ({ page }) => {
+  await open(page)
+  await page.getByRole('button', { name: '+ build' }).click()
+  await page.locator('.menu button').filter({ hasText: /^Stencil/ }).first().click()
+  const node = page.locator('.react-flow__node').filter({ hasText: 'Stencil' }).first()
+  await expect(node.locator('.port.in').nth(0)).toHaveText('paint')
+  await expect(node.locator('.port.in').nth(1)).toHaveText('or tile plan')
+  await expect(node.locator('.port.in').nth(1)).toHaveAttribute('title', /Tile plan/)
+  await expect(node.locator('.port.out .react-flow__handle.k-solid')).toHaveCount(1)
+  await expect(node.locator('.port.out .react-flow__handle.k-parts')).toHaveCount(1)
+})
+
 test('the shape cleanup nodes can be added from the trace menu', async ({ page }) => {
   await open(page)
-  await page.getByRole('button', { name: '+ trace' }).click()
+  await page.getByRole('button', { name: '+ prepare' }).click()
   await page.locator('.menu button').filter({ hasText: 'Round corners' }).click()
-  await page.getByRole('button', { name: '+ trace' }).click()
-  await page.locator('.menu button').filter({ hasText: 'Remove islands' }).click()
-  const node = page.locator('.react-flow__node').filter({ hasText: 'Remove islands' })
+  await page.getByRole('button', { name: '+ prepare' }).click()
+  await page.locator('.menu button').filter({ hasText: 'Remove specks' }).click()
+  const node = page.locator('.react-flow__node').filter({ hasText: 'Remove specks' })
   await expect(node).toBeVisible()
   await node.dispatchEvent('click')
   await expect(page.locator('aside')).toContainText('Smaller than')
@@ -357,7 +369,7 @@ test('the shape cleanup nodes can be added from the trace menu', async ({ page }
 test('+ All lists every node by usage with counts, menus flow into columns, and the perf overlay toggles', async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 420 })
   await open(page)
-  await page.getByRole('button', { name: '+ trace' }).click()
+  await page.getByRole('button', { name: '+ prepare' }).click()
   await page.locator('.menu button').filter({ hasText: 'Round corners' }).click()
   await page.getByRole('button', { name: '+ All' }).click()
   const items = page.locator('.menu button')
@@ -405,7 +417,7 @@ test('the Image node workbench (double-click) has Open and Download', async ({ p
 
 test('the older Tiles & mounting node is hidden from the menus and the palette', async ({ page }) => {
   await open(page)
-  await page.getByRole('button', { name: '+ post' }).click()
+  await page.getByRole('button', { name: '+ finish' }).click()
   await expect(page.locator('.menu button').filter({ hasText: 'Split volume' })).toBeVisible()
   await expect(page.locator('.menu button').filter({ hasText: 'Tiles & mounting' })).toHaveCount(0)
 })
@@ -418,11 +430,11 @@ test('sliders carry a tooltip and a unit, and the status line is announced', asy
   await expect(page.locator('footer [role=status]').first()).toBeVisible()
 })
 
-test('the Colour set template builds a registered multi-colour graph', async ({ page }) => {
+test('the Multi-colour pack template builds a registered multi-colour graph', async ({ page }) => {
   await open(page)
   await page.getByRole('button', { name: /Templates/ }).click()
-  await page.locator('.menu button').filter({ hasText: 'Colour set' }).click()
-  await expect(page.locator('.react-flow__node').filter({ hasText: 'Colour set' })).toBeVisible()
+  await page.locator('.menu button').filter({ hasText: 'Multi-colour pack' }).click()
+  await expect(page.locator('.react-flow__node').filter({ hasText: 'Multi-colour pack' })).toBeVisible()
   await expect(page.locator('.react-flow__edge')).toHaveCount(7)
 })
 
@@ -439,7 +451,7 @@ test('the Tiles first template cuts before bridging and feeds pads', async ({ pa
   await open(page)
   await page.getByRole('button', { name: /Templates/ }).click()
   await page.locator('.menu button').filter({ hasText: 'Tiles first' }).click()
-  for (const t of ['Tile layout', 'Stencil', 'Add pads & mounting holes'])
+  for (const t of ['Tile plan', 'Stencil', 'Add pads & mounting holes'])
     await expect(page.locator('.react-flow__node').filter({ hasText: t }).first()).toBeVisible()
   await expect(page.locator('.react-flow__edge')).toHaveCount(7)
   await page.locator('.react-flow__node').filter({ hasText: 'Add pads & mounting holes' }).first().dispatchEvent('dblclick')
@@ -450,7 +462,7 @@ async function openLayoutPreview(page: Page) {
   await open(page)
   await page.getByRole('button', { name: /Templates/ }).click()
   await page.locator('.menu button').filter({ hasText: 'Tiles first' }).click()
-  await page.locator('.react-flow__node').filter({ hasText: 'Tile layout' }).first().dispatchEvent('dblclick')
+  await page.locator('.react-flow__node').filter({ hasText: 'Tile plan' }).first().dispatchEvent('dblclick')
   await expect(page.locator('.imgbar')).toContainText('drag a seam or block', { timeout: 80_000 })
   const seam = page.locator('.bench').getByLabel('Seam may move up to', { exact: true })
   await seam.fill('0')
@@ -529,7 +541,7 @@ test('undo and redo restore a deleted node', async ({ page }) => {
   await open(page)
   await page.waitForTimeout(600)
   const n = await page.locator('.react-flow__node').count()
-  await page.getByRole('button', { name: '+ trace' }).click()
+  await page.getByRole('button', { name: '+ prepare' }).click()
   await page.locator('.menu button').filter({ hasText: 'Reshape paint' }).click()
   await expect(page.locator('.react-flow__node')).toHaveCount(n + 1)
   await page.waitForTimeout(600)
@@ -569,10 +581,10 @@ test('help text stays hidden until the Show help toggle is on', async ({ page })
 
 test('every node type has the Show help button and its parameters have help text', async ({ page }) => {
   await open(page)
-  await page.getByRole('button', { name: '+ trace' }).click()
+  await page.getByRole('button', { name: '+ prepare' }).click()
   const labels = await page.locator('.menu button').allInnerTexts()
   expect(labels.length).toBeGreaterThan(3)
-  for (const stage of ['+ trace', '+ stencil', '+ post']) {
+  for (const stage of ['+ prepare', '+ build', '+ finish']) {
     await page.keyboard.press('Escape')
     await page.getByRole('button', { name: stage }).click()
     const n = await page.locator('.menu button').count()
@@ -595,7 +607,7 @@ test('every node type has the Show help button and its parameters have help text
 
 test('a long node description is cut at four lines until Show help is pressed', async ({ page }) => {
   await open(page)
-  await page.getByRole('button', { name: '+ post' }).click()
+  await page.getByRole('button', { name: '+ finish' }).click()
   await page.locator('.menu button').filter({ hasText: 'Screws, nuts' }).click()
   await page.locator('.react-flow__node').last().dispatchEvent('click')
   const doc = page.locator('aside .doc')
@@ -608,7 +620,7 @@ test('a long node description is cut at four lines until Show help is pressed', 
 
 test('the unit shows beside the number, not in the label, and clearance labels say radial or diametral', async ({ page }) => {
   await open(page)
-  await page.getByRole('button', { name: '+ post' }).click()
+  await page.getByRole('button', { name: '+ finish' }).click()
   await page.locator('.menu button').filter({ hasText: 'Screws, nuts' }).click()
   await page.locator('.react-flow__node').last().dispatchEvent('click')
   const labels = await page.locator('aside .row > span:first-child').allInnerTexts()
@@ -653,7 +665,7 @@ test('command palette adds a node', async ({ page }) => {
   await page.getByTitle('Command palette (Ctrl+K)').click()
   await page.getByRole('textbox', { name: 'Command palette' }).fill('remesh')
   await page.locator('.cmdpal-list button').first().click()
-  await expect(page.locator('.react-flow__node').filter({ hasText: 'Remesh' })).toBeVisible()
+  await expect(page.locator('.react-flow__node').filter({ hasText: 'Simplify mesh' })).toBeVisible()
 })
 
 test('viewer exposes smooth and flat shading', async ({ page }) => {
@@ -664,7 +676,7 @@ test('viewer exposes smooth and flat shading', async ({ page }) => {
   await page.locator('.v3bar select').first().selectOption('smooth')
 })
 
-test('the viewer shows the tile layout of a Pads node and can hide it', async ({ page }) => {
+test('the viewer shows the tile plan of a Pads node and can hide it', async ({ page }) => {
   await open(page)
   await page.getByRole('button', { name: /Templates/ }).click()
   await page.locator('.menu button').filter({ hasText: 'Tiles, pads & screws' }).click()
@@ -690,14 +702,14 @@ test('the Report panel gives a print verdict, lists findings and times each node
   await expect(page.locator('.v3bar label').filter({ hasText: 'layout' }).locator('input')).toBeVisible({ timeout: 80_000 })
   await expect(page.locator('.report .verdict')).toHaveText(/ready|check|blocked/, { timeout: 30_000 })
   await expect(page.locator('.report').getByRole('list', { name: 'Timing' }).locator('li').first()).toBeVisible()
-  await expect(page.locator('.report')).toContainText('Tile layout')
+  await expect(page.locator('.report')).toContainText('Tile plan')
 })
 
 test('the History list names edits and jumps back to an earlier state', async ({ page }) => {
   await open(page)
   await page.waitForTimeout(600)
   const n = await page.locator('.react-flow__node').count()
-  await page.getByRole('button', { name: '+ trace' }).click()
+  await page.getByRole('button', { name: '+ prepare' }).click()
   await page.locator('.menu button').filter({ hasText: 'Reshape paint' }).click()
   await expect(page.locator('.react-flow__node')).toHaveCount(n + 1)
   await page.waitForTimeout(600)
@@ -786,18 +798,18 @@ test('the Split volume node is named so and Pads accepts "none" as a thread', as
   await expect(page.locator('aside.inspector select:not([aria-label=Preset])').first()).toContainText('none')
 })
 
-test('Expand margin can be added from the post menu', async ({ page }) => {
+test('Border slabs can be added from the post menu', async ({ page }) => {
   await open(page)
-  await page.getByRole('button', { name: '+ post' }).click()
-  await page.locator('.menu button').filter({ hasText: 'Expand margin' }).click()
-  await expect(page.locator('.react-flow__node').filter({ hasText: 'Expand margin' })).toBeVisible()
+  await page.getByRole('button', { name: '+ finish' }).click()
+  await page.locator('.menu button').filter({ hasText: 'Border slabs' }).click()
+  await expect(page.locator('.react-flow__node').filter({ hasText: 'Border slabs' })).toBeVisible()
 })
 
-test('the Expand margin viewer shows the ring round the assembled plate', async ({ page }) => {
+test('the Border slabs viewer shows the ring round the assembled plate', async ({ page }) => {
   test.setTimeout(240_000)
   await page.goto('/')
   await page.locator('input[type=file][accept*=json]').setInputFiles('e2e/fixtures/margin-ring.json')
-  await page.locator('.react-flow__node').filter({ hasText: 'Expand margin' }).first().dispatchEvent('dblclick')
+  await page.locator('.react-flow__node').filter({ hasText: 'Border slabs' }).first().dispatchEvent('dblclick')
   await expect(page.locator('.v3bar')).toBeVisible({ timeout: 200_000 })
   // plate 1096 × 219.8 mm plus a 100 mm border all round
   await expect(page.getByText(/Assembled:.*1296\.0 × 419\.8/)).toBeVisible({ timeout: 60_000 })
@@ -807,7 +819,7 @@ test('files in a downloaded ZIP carry the time they were made, not 1980', async 
   test.setTimeout(240_000)
   await page.goto('/')
   await page.locator('input[type=file][accept*=json]').setInputFiles('e2e/fixtures/margin-ring.json')
-  await page.locator('.react-flow__node').filter({ hasText: 'Expand margin' }).first().dispatchEvent('dblclick')
+  await page.locator('.react-flow__node').filter({ hasText: 'Border slabs' }).first().dispatchEvent('dblclick')
   await expect(page.locator('.v3bar')).toBeVisible({ timeout: 200_000 })
   const href = await page.getByRole('link', { name: /^Download (ZIP|STL)$/ }).getAttribute('href')
   const bytes = await page.evaluate(async (u) => Array.from(new Uint8Array(await (await fetch(u!)).arrayBuffer()).slice(0, 32)), href)
@@ -821,7 +833,7 @@ test('the shading menu changes how the mesh is drawn', async ({ page }) => {
   test.setTimeout(240_000)
   await page.goto('/')
   await page.locator('input[type=file][accept*=json]').setInputFiles('e2e/fixtures/margin-ring.json')
-  await page.locator('.react-flow__node').filter({ hasText: 'Expand margin' }).first().dispatchEvent('dblclick')
+  await page.locator('.react-flow__node').filter({ hasText: 'Border slabs' }).first().dispatchEvent('dblclick')
   await expect(page.locator('.v3bar')).toBeVisible({ timeout: 200_000 })
   await page.getByRole('button', { name: 'Iso' }).click()
   const shot = async (mode: string) => {
@@ -865,7 +877,7 @@ test('panning after "fit view" moves the graph by the drag, nothing more', async
 
 test('every setting of every node has help text, including the per-tone ones', async ({ page }) => {
   await open(page)
-  await page.getByRole('button', { name: '+ trace' }).click()
+  await page.getByRole('button', { name: '+ prepare' }).click()
   await page.locator('.menu button').filter({ hasText: 'Apply tone patterns' }).click()
   await page.locator('.react-flow__node').last().dispatchEvent('click')
   await page.getByRole('button', { name: 'Show help' }).click()
@@ -876,7 +888,7 @@ test('every setting of every node has help text, including the per-tone ones', a
 
 test('bolt and nut fit settings are shared between nodes', async ({ page }) => {
   await open(page)
-  for (const [stage, name] of [['+ post', 'Make screws'], ['+ post', 'Expand margin']]) {
+  for (const [stage, name] of [['+ finish', 'Make screws'], ['+ finish', 'Border slabs']]) {
     await page.getByRole('button', { name: stage }).click()
     await page.locator('.menu button').filter({ hasText: name }).click()
   }
@@ -884,7 +896,7 @@ test('bolt and nut fit settings are shared between nodes', async ({ page }) => {
   await page.locator('.react-flow__node').filter({ hasText: 'Make screws' }).dispatchEvent('click')
   await taper().fill('0.5')
   await taper().blur()
-  await page.locator('.react-flow__node').filter({ hasText: 'Expand margin' }).dispatchEvent('click')
+  await page.locator('.react-flow__node').filter({ hasText: 'Border slabs' }).dispatchEvent('click')
   await expect(taper()).toHaveValue('0.5')
 })
 
@@ -923,7 +935,7 @@ test('a narrow window turns the panel into a drawer without sideways scrolling',
 
 test('the shared bolt settings carry a shared tag', async ({ page }) => {
   await open(page)
-  await page.getByRole('button', { name: '+ post' }).click()
+  await page.getByRole('button', { name: '+ finish' }).click()
   await page.locator('.menu button').filter({ hasText: 'Make screws' }).click()
   await page.locator('.react-flow__node').last().dispatchEvent('click')
   await expect(page.locator('aside .shared-tag').first()).toBeVisible()
@@ -938,7 +950,7 @@ test('the command palette still finds a node by its former name', async ({ page 
 
 test('a failed run offers a jump to the node that failed', async ({ page }) => {
   await open(page)
-  await page.getByRole('button', { name: '+ post' }).click()
+  await page.getByRole('button', { name: '+ finish' }).click()
   await page.locator('.menu button').filter({ hasText: 'Add pads & mounting holes' }).click()
   const jump = page.locator('.goto-fail')
   await expect(jump).toBeVisible({ timeout: 60000 })
@@ -968,7 +980,7 @@ test('a node added while the view is panned away is brought into view', async ({
   await page.mouse.down()
   await page.mouse.move(box.x + box.width - 20, box.y + box.height - 20, { steps: 5 })
   await page.mouse.up()
-  await page.getByRole('button', { name: '+ post' }).click()
+  await page.getByRole('button', { name: '+ finish' }).click()
   await page.locator('.menu button').filter({ hasText: 'Make screws' }).click()
   const node = page.locator('.react-flow__node').filter({ hasText: 'Make screws' })
   await expect(node).toBeVisible()
@@ -992,7 +1004,7 @@ async function dragNodeOntoEdge(page: Page, label: string, edgeIndex: number) {
 test('a node dragged onto a compatible edge is placed between its ends', async ({ page }) => {
   await open(page)
   await expect(page.locator('.react-flow__edge')).toHaveCount(3)
-  await page.getByRole('button', { name: '+ trace' }).click()
+  await page.getByRole('button', { name: '+ prepare' }).click()
   await page.locator('.menu button').filter({ hasText: 'Smooth mask' }).click()
   const drop = await dragNodeOntoEdge(page, 'Smooth mask', 1)
   await expect(page.locator('.react-flow__edge.splice')).toHaveCount(1)
@@ -1003,7 +1015,7 @@ test('a node dragged onto a compatible edge is placed between its ends', async (
 
 test('a node that does not fit the edge leaves it alone', async ({ page }) => {
   await open(page)
-  await page.getByRole('button', { name: '+ trace' }).click()
+  await page.getByRole('button', { name: '+ prepare' }).click()
   await page.locator('.menu button').filter({ hasText: /^Threshold/ }).click()
   const drop = await dragNodeOntoEdge(page, 'Threshold', 1)
   await expect(page.locator('.react-flow__edge.splice')).toHaveCount(0)
@@ -1017,7 +1029,7 @@ test('the status text lives in a footer, so the toolbar buttons never move while
   await expect(page.locator('footer.statusbar [role=status]')).toBeVisible()
   const rerun = page.locator('header').getByRole('button', { name: 'Rerun' })
   const before = (await rerun.boundingBox())!
-  await page.getByRole('button', { name: '+ post' }).click()
+  await page.getByRole('button', { name: '+ finish' }).click()
   await page.locator('.menu button').filter({ hasText: 'Add pads & mounting holes' }).click()
   await expect(page.locator('footer .goto-fail')).toBeVisible({ timeout: 60000 })
   const after = (await rerun.boundingBox())!

@@ -275,7 +275,7 @@ pub(super) fn run_vector_stencil(
     }
     let Some(Value::Shapes(s)) = i.get("shapes") else {
         return Err(
-            "nothing is connected to the 'shapes' input: connect shapes, or a tile layout".into(),
+            "nothing is connected to the 'outlines' input: connect outlines, or a tile plan".into(),
         );
     };
     finish_solid(crate::vector_stencil::build(s, p.f("detail"), &q)?, p)
@@ -354,7 +354,8 @@ pub(super) fn run_stencil(
     }
     let Some(Value::Mask(m)) = i.get("mask") else {
         return Err(
-            "nothing is connected to the 'mask' input: connect a mask, or a tile layout".into(),
+            "nothing is connected to the 'paint' input: connect a paint mask, or a tile plan"
+                .into(),
         );
     };
     finish_solid(
@@ -728,8 +729,7 @@ pub(super) fn run_pads(_: &Engine, i: &HashMap<String, Value>, p: &P) -> Result<
     let plate = &src.meta["plate"];
     if plate.is_null() {
         return Err(
-            "the parts have no plate description: connect a Split volume or Tile layout node"
-                .into(),
+            "the parts have no plate description: connect a Split volume or Tile plan node".into(),
         );
     }
     let num = |v: &Json| v.as_f64().unwrap_or(0.0);
@@ -746,7 +746,7 @@ pub(super) fn run_pads(_: &Engine, i: &HashMap<String, Value>, p: &P) -> Result<
         })
         .collect();
     if tiles.is_empty() {
-        return Err("the plate has no tiles: connect a Split volume node (or a Tile layout) that cuts it into tiles first".into());
+        return Err("the plate has no tiles: connect a Split volume node (or a Tile plan) that cuts it into tiles first".into());
     }
     let quad = |k: &str| -> Vec<[f64; 4]> {
         plate[k]
@@ -1092,7 +1092,7 @@ pub(super) fn run_ring(_: &Engine, i: &HashMap<String, Value>, p: &P) -> Result<
             .map(|a| a.iter().filter(|e| e["role"] == "tile").collect())
             .unwrap_or_default();
         if t.is_empty() {
-            return Err("the plate has no tiles: connect a Split volume node (or a Tile layout) that cuts it into tiles first".into());
+            return Err("the plate has no tiles: connect a Split volume node (or a Tile plan) that cuts it into tiles first".into());
         }
         [
             t.iter()
