@@ -297,16 +297,17 @@ fn shift_seams(
     Ok(out)
 }
 
+/// Where the lowest connector pocket starts above the plate; the material under it is solid down to the plate.
+pub const POCKET_START_MM: f64 = 0.8;
+
 pub(crate) fn row_heights(shape: Shape, d: f64, t: f64) -> Vec<f64> {
     let ext = z_extent(shape, d);
-    let n = (((t - 2.0 * WALL_MM + ROW_GAP_MM) / (ext + ROW_GAP_MM)).floor() as usize)
+    let n = (((t - POCKET_START_MM - WALL_MM + ROW_GAP_MM) / (ext + ROW_GAP_MM)).floor() as usize)
         .clamp(1, MAX_ROWS);
+    let (lo, hi) = (POCKET_START_MM + ext / 2.0, t - WALL_MM - ext / 2.0);
     if n == 1 {
-        // as low as the wall allows: the less there is under a hole, the less can be missing there
-        // the extra 0.8 mm keeps the pocket floor clear of the first-layer flare and raised bridges, where the boolean ops stumble
-        return vec![(WALL_MM + 0.8 + ext / 2.0).min(t / 2.0)];
+        return vec![lo.min(t / 2.0)];
     }
-    let (lo, hi) = (WALL_MM + ext / 2.0, t - WALL_MM - ext / 2.0);
     (0..n)
         .map(|i| lo + i as f64 * (hi - lo) / (n - 1) as f64)
         .collect()
@@ -345,7 +346,7 @@ pub fn check_connector(shape: Shape, diameter: f64, height: f64) -> Result<(), S
             "connectors need a plate thicker than {MIN_HEIGHT_MM} mm (it is {height:.1} mm)"
         ));
     }
-    let need = z_extent(shape, diameter) + 2.0 * WALL_MM;
+    let need = z_extent(shape, diameter) + POCKET_START_MM + WALL_MM;
     if need > height + 1e-9 {
         return Err(format!("a connector of diameter {diameter} mm needs a plate at least {need:.1} mm thick (it is {height:.1} mm)"));
     }
@@ -493,7 +494,7 @@ fn place_connectors(
                             continue;
                         }
                         // solid all the way down to the plate under the hole, not only around it
-                        if !strip.box_inside([gl[0], gl[1], gl[2].min(PLATE_EPS_MM)], gh) {
+                        if !strip.box_inside([gl[0], gl[1], PLATE_EPS_MM], gh) {
                             continue;
                         }
                         cutters.append(&at(r_hole, pocket_len));
@@ -1207,7 +1208,11 @@ mod tests {
     fn a_single_row_of_holes_sits_low_and_needs_material_down_to_the_plate() {
         let z = row_heights(Shape::Hex, 3.2, 7.0);
         assert_eq!(z.len(), 1);
-        assert!(z[0] < 3.5, "{z:?}");
+        // the pocket floor starts 0.8 mm above the plate
+        assert!(
+            (z[0] - POCKET_START_MM - 3f64.sqrt() / 2.0 * 3.2 / 2.0).abs() < 1e-9,
+            "{z:?}"
+        );
         let plate = Mesh::cuboid([0.0, 0.0, 0.0], [100.0, 60.0, 7.0]);
         assert!(tile(&plate, &plain(60.0, 0.0, false)).is_ok());
         // a shallow channel under the whole seam leaves every hole without material beneath it
