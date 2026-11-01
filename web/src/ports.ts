@@ -48,6 +48,7 @@ const TABLE: Table = {
   tile_layout: { in: { mask: { ...paint, hint: 'Connect this or outlines', either: true }, shapes: { ...outlines, hint: 'Connect this or paint', or: true } } },
   bridges: { out: { solid: { label: 'solid', hint: 'The bridged model (with a solid in)' }, parts: { label: 'parts', hint: 'The bridged tiles' } } },
   place: { in: { item: { label: 'content', hint: 'A picture, a paint mask, outlines, or another placed layer' } }, out: { layer: { label: 'layer', hint: 'The content with its position and size, for a Collage' } } },
+  repeat: { in: { item: { label: 'content', hint: 'The picture, paint mask or outlines to repeat' } }, out: { image: { label: 'picture', hint: 'The grid of copies. Masks and outlines are drawn dark on white' }, mask: { label: 'paint', hint: 'Only when the content is a paint mask or outlines' }, shapes: { label: 'outlines', hint: 'Only when the content is outlines and the copies do not overlap' } } },
   canvas: { out: { image: { label: 'picture', hint: 'The combined picture. Masks and outlines are drawn dark on white' }, mask: { label: 'paint', hint: 'Only when every layer is a paint mask or outlines' }, shapes: { label: 'outlines', hint: 'Only when every layer is outlines and none overlap' } } },
   colour_set: { out: { parts: { label: 'plates', hint: 'One registered plate per colour' } } },
 }

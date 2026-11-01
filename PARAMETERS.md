@@ -34,8 +34,10 @@
 |---|---|---|---|---|
 | `move_x` | Move right (px) | float | `0.0` | -20000.0 to 20000.0 |
 | `move_y` | Move down (px) | float | `0.0` | -20000.0 to 20000.0 |
-| `scale_pct` | Scale (%) | float | `100.0` | 1.0 to 1000.0 |
+| `scale_w_pct` | Scale width (%) | float | `100.0` | 1.0 to 1000.0 |
+| `scale_h_pct` | Scale height (%) | float | `100.0` | 1.0 to 1000.0 |
 | `width_px` | Or set the width to (px, 0 = use the scale) | int | `0.0` | 0.0 to 20000.0 |
+| `height_px` | Or set the height to (px, 0 = use the scale) | int | `0.0` | 0.0 to 20000.0 |
 
 ### Collage (`canvas`)
 
@@ -49,6 +51,18 @@
 | `canvas_height` | Height when fixed (px) | int | `1000.0` | 16.0 to 12000.0 |
 | `canvas_margin` | Margin round the layers (px) | int | `0.0` | 0.0 to 2000.0 |
 | `overlap` | Where layers overlap | choice | `"darker wins"` | darker wins \| later on top |
+
+### Repeat (`repeat`)
+
+| Parameter | Label | Type | Default | Range or choices |
+|---|---|---|---|---|
+| `columns` | Columns | int | `3.0` | 1.0 to 50.0 |
+| `rows` | Rows | int | `3.0` | 1.0 to 50.0 |
+| `gap_x` | Gap between columns (px) | int | `0.0` | -2000.0 to 2000.0 |
+| `gap_y` | Gap between rows (px) | int | `0.0` | -2000.0 to 2000.0 |
+| `stagger_pct` | Shift every second row by (% of a cell) | float | `0.0` | -100.0 to 100.0 |
+| `repeat_margin` | Margin round the grid (px) | int | `0.0` | 0.0 to 2000.0 |
+| `overlap` | Where copies overlap | choice | `"darker wins"` | darker wins \| later on top |
 
 ### Threshold (`threshold`)
 

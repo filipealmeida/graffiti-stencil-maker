@@ -558,6 +558,44 @@ td:last-child {
   min-width: 0;
   position: relative;
 }
+.bench-layers {
+  width: 250px;
+  overflow: auto;
+  padding: 10px;
+  background: var(--panel);
+  border-left: 1px solid var(--line);
+}
+.bench-layers h4 {
+  margin: 0 0 8px;
+}
+.layer-row {
+  display: flex;
+  gap: 8px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--line);
+}
+.layer-row small {
+  display: block;
+  color: var(--mut, #8a94a3);
+}
+.layer-thumb {
+  width: 48px;
+  height: 48px;
+  flex: none;
+  background: #fff2;
+  border-radius: 4px;
+  overflow: hidden;
+}
+.layer-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+.layer-actions {
+  display: flex;
+  gap: 4px;
+  margin-top: 4px;
+}
 .center {
   display: flex;
   height: 100%;

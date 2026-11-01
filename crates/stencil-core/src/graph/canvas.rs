@@ -13,32 +13,30 @@ pub(super) const INPUTS: [&str; MAX_LAYERS] = [
 const MAX_SIDE: f64 = 16000.0;
 const MAX_PIXELS: f64 = 80e6;
 
-fn art_of(v: &Value) -> Option<(Art, f64, f64, f64)> {
+fn art_of(v: &Value) -> Option<(Art, f64, f64, f64, f64)> {
     Some(match v {
-        Value::Image(i) => (Art::Image(i.clone()), 0.0, 0.0, 1.0),
-        Value::Mask(m) => (Art::Mask(m.clone()), 0.0, 0.0, 1.0),
-        Value::Shapes(s) => (Art::Shapes(s.clone()), 0.0, 0.0, 1.0),
-        Value::Layer(l) => {
-            let art = match &l.art {
-                Art::Image(i) => Art::Image(i.clone()),
-                Art::Mask(m) => Art::Mask(m.clone()),
-                Art::Shapes(s) => Art::Shapes(s.clone()),
-            };
-            (art, l.x, l.y, l.scale)
-        }
+        Value::Image(i) => (Art::Image(i.clone()), 0.0, 0.0, 1.0, 1.0),
+        Value::Mask(m) => (Art::Mask(m.clone()), 0.0, 0.0, 1.0, 1.0),
+        Value::Shapes(s) => (Art::Shapes(s.clone()), 0.0, 0.0, 1.0, 1.0),
+        Value::Layer(l) => (l.art.clone_art(), l.x, l.y, l.sx, l.sy),
         _ => return None,
     })
 }
 
 pub(super) fn run_place(_: &Engine, i: &HashMap<String, Value>, p: &P) -> Result<Outputs, String> {
-    let (art, x, y, scale) = i.get("item").and_then(art_of).ok_or(
+    let (art, x, y, sx, sy) = i.get("item").and_then(art_of).ok_or(
         "nothing is connected to the 'content' input: connect a picture, a paint mask or outlines",
     )?;
-    let width = p.f("width_px");
-    let scale = if width > 0.0 {
-        width / art.size().0.max(1.0)
-    } else {
-        scale * p.f("scale_pct") / 100.0
+    let (aw, ah) = art.size();
+    // an exact size wins over the scale and over earlier Place nodes in a chain
+    let (width, height) = (p.f("width_px"), p.f("height_px"));
+    // an exact size on one side alone keeps the proportions
+    let by_scale = |k: f64, pct: f64| k * pct / 100.0;
+    let (sx, sy) = match (width > 0.0, height > 0.0) {
+        (true, true) => (width / aw.max(1.0), height / ah.max(1.0)),
+        (true, false) => (width / aw.max(1.0), width / aw.max(1.0) * sy / sx.max(1e-9)),
+        (false, true) => (height / ah.max(1.0) * sx / sy.max(1e-9), height / ah.max(1.0)),
+        (false, false) => (by_scale(sx, p.f("scale_w_pct")), by_scale(sy, p.f("scale_h_pct"))),
     };
     Ok(vec![(
         "layer",
@@ -46,19 +44,48 @@ pub(super) fn run_place(_: &Engine, i: &HashMap<String, Value>, p: &P) -> Result
             art,
             x: x + p.f("move_x"),
             y: y + p.f("move_y"),
-            scale,
+            sx,
+            sy,
         })),
     )])
 }
 
 /// A layer with its slot on the canvas, in canvas pixels before the origin is chosen.
 struct Placed {
+    label: String,
     art: Art,
     x: f64,
     y: f64,
     w: f64,
     h: f64,
-    scale: f64,
+    sx: f64,
+    sy: f64,
+}
+
+impl Art {
+    fn clone_art(&self) -> Art {
+        match self {
+            Art::Image(i) => Art::Image(i.clone()),
+            Art::Mask(m) => Art::Mask(m.clone()),
+            Art::Shapes(s) => Art::Shapes(s.clone()),
+        }
+    }
+}
+
+impl Placed {
+    fn new(label: &str, art: Art, x: f64, y: f64, sx: f64, sy: f64) -> Self {
+        let (w, h) = art.size();
+        Placed {
+            label: label.into(),
+            art,
+            x,
+            y,
+            w: (w * sx).max(1.0),
+            h: (h * sy).max(1.0),
+            sx,
+            sy,
+        }
+    }
 }
 
 fn arrange(layers: &mut [Placed], how: &str, gap: f64, align: &str) {
@@ -131,6 +158,15 @@ fn paint_of(art: &Art, w: usize, h: usize) -> Vec<bool> {
     }
 }
 
+/// Which source a layer draws from, so copies of one picture are resized once.
+fn art_id(a: &Art) -> usize {
+    match a {
+        Art::Image(i) => Rc::as_ptr(i) as *const u8 as usize,
+        Art::Mask(m) => Rc::as_ptr(m) as *const u8 as usize,
+        Art::Shapes(s) => Rc::as_ptr(s) as *const u8 as usize,
+    }
+}
+
 /// Visits the pixels of a `tw` x `th` tile at (`x0`, `y0`) that fall inside a `cw` x `ch` canvas.
 fn each_pixel(
     cw: usize,
@@ -155,8 +191,8 @@ fn each_pixel(
     }
 }
 
-fn moved(s: &Shapes, k: f64, dx: f64, dy: f64) -> Vec<Loop> {
-    let m = |p: [f64; 2]| [p[0] * k + dx, p[1] * k + dy];
+fn moved(s: &Shapes, kx: f64, ky: f64, dx: f64, dy: f64) -> Vec<Loop> {
+    let m = |p: [f64; 2]| [p[0] * kx + dx, p[1] * ky + dy];
     s.loops
         .iter()
         .map(|l| Loop {
@@ -172,19 +208,8 @@ fn moved(s: &Shapes, k: f64, dx: f64, dy: f64) -> Vec<Loop> {
 pub(super) fn run_canvas(_: &Engine, i: &HashMap<String, Value>, p: &P) -> Result<Outputs, String> {
     let mut layers: Vec<Placed> = INPUTS
         .iter()
-        .filter_map(|n| i.get(*n))
-        .filter_map(art_of)
-        .map(|(art, x, y, scale)| {
-            let (w, h) = art.size();
-            Placed {
-                art,
-                x,
-                y,
-                w: (w * scale).max(1.0),
-                h: (h * scale).max(1.0),
-                scale,
-            }
-        })
+        .filter_map(|n| Some((*n, art_of(i.get(*n)?)?)))
+        .map(|(n, (art, x, y, sx, sy))| Placed::new(n, art, x, y, sx, sy))
         .collect();
     if layers.is_empty() {
         return Err("connect at least one picture, paint mask or outlines to layer_1".into());
@@ -195,10 +220,66 @@ pub(super) fn run_canvas(_: &Engine, i: &HashMap<String, Value>, p: &P) -> Resul
         p.f("layer_gap"),
         p.s("layer_align"),
     );
+    let fixed =
+        (p.s("canvas_size") == "fixed").then(|| (p.f("canvas_width"), p.f("canvas_height")));
+    compose(
+        layers,
+        p.f("canvas_margin"),
+        fixed,
+        p.s("overlap") == "later on top",
+    )
+}
 
-    let margin = p.f("canvas_margin");
-    let (ox, oy, cw, ch) = if p.s("canvas_size") == "fixed" {
-        (0.0, 0.0, p.f("canvas_width"), p.f("canvas_height"))
+const MAX_COPIES: usize = 1000;
+
+pub(super) fn run_repeat(_: &Engine, i: &HashMap<String, Value>, p: &P) -> Result<Outputs, String> {
+    let (art, x, y, sx, sy) = i.get("item").and_then(art_of).ok_or(
+        "nothing is connected to the 'content' input: connect a picture, a paint mask or outlines",
+    )?;
+    let (cols, rows) = (p.f("columns") as usize, p.f("rows") as usize);
+    if cols * rows > MAX_COPIES {
+        return Err(format!(
+            "{cols} x {rows} is {} copies; the most is {MAX_COPIES}",
+            cols * rows
+        ));
+    }
+    let one = Placed::new("", art, 0.0, 0.0, sx, sy);
+    let (gx, gy) = (p.f("gap_x"), p.f("gap_y"));
+    let stagger = p.f("stagger_pct") / 100.0;
+    let (stepx, stepy) = (one.w + gx, one.h + gy);
+    let layers = (0..rows * cols)
+        .map(|k| {
+            let (r, c) = (k / cols, k % cols);
+            let shift = if r % 2 == 1 { stagger * stepx } else { 0.0 };
+            let mut l = Placed::new(
+                &format!("copy {}", k + 1),
+                one.art.clone_art(),
+                x + c as f64 * stepx + shift,
+                y + r as f64 * stepy,
+                sx,
+                sy,
+            );
+            l.label = format!("row {} column {}", r + 1, c + 1);
+            l
+        })
+        .collect();
+    compose(
+        layers,
+        p.f("repeat_margin"),
+        None,
+        p.s("overlap") == "later on top",
+    )
+}
+
+/// Draws the layers on a canvas and offers what they can make.
+fn compose(
+    layers: Vec<Placed>,
+    margin: f64,
+    fixed: Option<(f64, f64)>,
+    cover: bool,
+) -> Result<Outputs, String> {
+    let (ox, oy, cw, ch) = if let Some((w, h)) = fixed {
+        (0.0, 0.0, w, h)
     } else {
         let x0 = layers.iter().map(|l| l.x).fold(f64::MAX, f64::min) - margin;
         let y0 = layers.iter().map(|l| l.y).fold(f64::MAX, f64::min) - margin;
@@ -212,7 +293,6 @@ pub(super) fn run_canvas(_: &Engine, i: &HashMap<String, Value>, p: &P) -> Resul
         ));
     }
     let (cw, ch) = (cw as usize, ch as usize);
-    let cover = p.s("overlap") == "later on top";
     let tile = |l: &Placed| {
         (
             (l.x - ox).round() as i64,
@@ -222,15 +302,21 @@ pub(super) fn run_canvas(_: &Engine, i: &HashMap<String, Value>, p: &P) -> Resul
         )
     };
     let has_picture = layers.iter().any(|l| matches!(l.art, Art::Image(_)));
+    let mut rgb_cache: HashMap<(usize, usize, usize), Rc<Vec<u8>>> = HashMap::new();
+    let mut paint_cache: HashMap<(usize, usize, usize), Rc<Vec<bool>>> = HashMap::new();
 
     let mut out: Outputs = Vec::new();
     if has_picture {
         let mut rgb = vec![255u8; cw * ch * 3];
         for l in &layers {
             let (x0, y0, tw, th) = tile(l);
+            let key = (art_id(&l.art), tw, th);
             match &l.art {
                 Art::Image(img) => {
-                    let src = resized_rgb(img, tw, th);
+                    let src = rgb_cache
+                        .entry(key)
+                        .or_insert_with(|| Rc::new(resized_rgb(img, tw, th)))
+                        .clone();
                     each_pixel(cw, ch, x0, y0, tw, th, |d, s| {
                         for c in 0..3 {
                             let v = src[s * 3 + c];
@@ -240,7 +326,10 @@ pub(super) fn run_canvas(_: &Engine, i: &HashMap<String, Value>, p: &P) -> Resul
                     });
                 }
                 art => {
-                    let paint = paint_of(art, tw, th);
+                    let paint = paint_cache
+                        .entry(key)
+                        .or_insert_with(|| Rc::new(paint_of(art, tw, th)))
+                        .clone();
                     each_pixel(cw, ch, x0, y0, tw, th, |d, s| {
                         if paint[s] {
                             rgb[d * 3..d * 3 + 3].fill(0);
@@ -259,7 +348,11 @@ pub(super) fn run_canvas(_: &Engine, i: &HashMap<String, Value>, p: &P) -> Resul
         let mut paint = vec![false; cw * ch];
         for l in &layers {
             let (x0, y0, tw, th) = tile(l);
-            let src = paint_of(&l.art, tw, th);
+            let key = (art_id(&l.art), tw, th);
+            let src = paint_cache
+                .entry(key)
+                .or_insert_with(|| Rc::new(paint_of(&l.art, tw, th)))
+                .clone();
             each_pixel(cw, ch, x0, y0, tw, th, |d, s| {
                 paint[d] = if cover { src[s] } else { paint[d] || src[s] };
             });
@@ -291,7 +384,7 @@ pub(super) fn run_canvas(_: &Engine, i: &HashMap<String, Value>, p: &P) -> Resul
         let loops = layers
             .iter()
             .flat_map(|l| match &l.art {
-                Art::Shapes(s) => moved(s, l.scale, l.x - ox, l.y - oy),
+                Art::Shapes(s) => moved(s, l.sx, l.sy, l.x - ox, l.y - oy),
                 _ => Vec::new(),
             })
             .collect();
@@ -304,5 +397,18 @@ pub(super) fn run_canvas(_: &Engine, i: &HashMap<String, Value>, p: &P) -> Resul
             })),
         ));
     }
+    let kind = |a: &Art| match a {
+        Art::Image(_) => "image",
+        Art::Mask(_) => "mask",
+        Art::Shapes(_) => "shapes",
+    };
+    let list: Vec<Json> = layers
+        .iter()
+        .map(|l| json!({"input": l.label, "kind": kind(&l.art), "x": (l.x - ox).round(), "y": (l.y - oy).round(), "w": l.w.round(), "h": l.h.round(), "scale_x": l.sx, "scale_y": l.sy}))
+        .collect();
+    out.push((
+        "layout",
+        Value::Layout(Rc::new(json!({"width": cw, "height": ch, "layers": list}))),
+    ));
     Ok(out)
 }

@@ -60,6 +60,8 @@ pub enum Value {
     Tiles(Rc<crate::tile_first::Layout>),
     /// A picture, paint mask or outlines with a position and size on a canvas.
     Layer(Rc<Layer>),
+    /// Where a Collage or Repeat put each layer, for the layers panel. Never a port.
+    Layout(Rc<Json>),
 }
 
 pub enum Art {
@@ -91,7 +93,8 @@ pub struct Layer {
     pub art: Art,
     pub x: f64,
     pub y: f64,
-    pub scale: f64,
+    pub sx: f64,
+    pub sy: f64,
 }
 
 impl Value {
@@ -104,6 +107,7 @@ impl Value {
             Value::Parts(_) => "parts",
             Value::Tiles(_) => "tiles",
             Value::Layer(_) => "layer",
+            Value::Layout(_) => "layout",
         }
     }
 
@@ -122,6 +126,7 @@ impl Value {
                 Ok(("image/png", png(w, h, image::ColorType::Rgb8, &rgb)?))
             }
             Value::Layer(l) => l.art.value().encode(),
+            Value::Layout(j) => Ok(("application/json", j.to_string().into_bytes())),
             Value::Parts(p) => match p.files.as_slice() {
                 [(_, b)] => Ok(("model/stl", b.clone())),
                 files => Ok(("application/zip", crate::zip::zip(files))),
@@ -143,9 +148,14 @@ impl Value {
             Value::Solid(s) => {
                 json!({"kind": "solid", "stats": s.stats, "bytes": s.stl.len(), "tiles": []})
             }
+            Value::Layout(j) => {
+                let mut o = (**j).clone();
+                o["kind"] = json!("layout");
+                o
+            }
             Value::Layer(l) => {
                 let (w, h) = l.art.size();
-                json!({"kind": "layer", "width": (w * l.scale).round(), "height": (h * l.scale).round(), "x": l.x, "y": l.y, "scale": l.scale})
+                json!({"kind": "layer", "width": (w * l.sx).round(), "height": (h * l.sy).round(), "x": l.x, "y": l.y, "scale_x": l.sx, "scale_y": l.sy})
             }
             Value::Tiles(l) => {
                 let pocket_list: Vec<Json> = l

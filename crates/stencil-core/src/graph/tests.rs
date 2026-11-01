@@ -1523,8 +1523,8 @@ fn collage_rows_columns_gaps_and_chained_places() {
     // moves add up and scales multiply along a chain of Place nodes
     let chain = json!({
         "nodes": [source("a"), source("b"),
-                  {"id": "p1", "type": "place", "params": {"move_x": 30, "scale_pct": 50}},
-                  {"id": "p2", "type": "place", "params": {"move_x": 30, "scale_pct": 50}},
+                  {"id": "p1", "type": "place", "params": {"move_x": 30, "scale_w_pct": 50, "scale_h_pct": 50}},
+                  {"id": "p2", "type": "place", "params": {"move_x": 30, "scale_w_pct": 50, "scale_h_pct": 50}},
                   {"id": "c", "type": "canvas", "params": {}}],
         "edges": [edge("a", "image", "c", "layer_1"), edge("b", "image", "p1", "item"),
                   edge("p1", "layer", "p2", "item"), edge("p2", "layer", "c", "layer_2")]
@@ -1630,4 +1630,36 @@ fn collage_refuses_a_canvas_too_big_and_needs_a_layer() {
     let none = json!({"nodes": [{"id": "c", "type": "canvas", "params": {}}], "edges": []});
     let (_, r) = run_collage(&none);
     assert_eq!(r["nodes"]["c"]["state"], "error");
+}
+
+#[test]
+fn place_scales_width_and_height_separately() {
+    let g = json!({
+        "nodes": [source("a"), {"id": "p", "type": "place", "params": {"scale_w_pct": 50, "height_px": 60}},
+                  {"id": "c", "type": "canvas", "params": {}}],
+        "edges": [edge("a", "image", "p", "item"), edge("p", "layer", "c", "layer_1")]
+    });
+    let (e, r) = run_collage(&g);
+    let (w, h, _) = collage_image(&e, &r, "c");
+    assert_eq!((w, h), (60, 60), "{r}");
+}
+
+#[test]
+fn repeat_tiles_a_grid_and_caps_copies() {
+    let mk = |params: Json| {
+        json!({
+            "nodes": [source("a"), {"id": "r", "type": "repeat", "params": params}],
+            "edges": [edge("a", "image", "r", "item")]
+        })
+    };
+    let (e, r) = run_collage(&mk(
+        json!({"columns": 3, "rows": 2, "gap_x": 10, "gap_y": 5}),
+    ));
+    let (w, h, _) = collage_image(&e, &r, "r");
+    assert_eq!((w, h), (3 * 120 + 20, 2 * 120 + 5), "{r}");
+    let (e, r) = run_collage(&mk(json!({"columns": 2, "rows": 1, "stagger_pct": 50})));
+    let (w, _, _) = collage_image(&e, &r, "r");
+    assert_eq!(w, 240, "one row is not shifted: {r}");
+    let (_, r) = run_collage(&mk(json!({"columns": 50, "rows": 50})));
+    assert_eq!(r["nodes"]["r"]["state"], "error", "{r}");
 }

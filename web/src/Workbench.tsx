@@ -28,6 +28,7 @@ export default function Workbench() {
   const [view, setView] = useState('')
   const [mode, setMode] = useState<'plate' | 'tiles'>('plate')
   const [info, setInfo] = useState<Record<string, any> | null>(null)
+  const [layout, setLayout] = useState<Record<string, any> | null>(null)
 
   const problems = useNodeFindings(id).filter((b) => b.level !== 'info').length
   const t = node && types[node.data.type]
@@ -50,6 +51,11 @@ export default function Workbench() {
     setInfo(null)
     if (cur?.key) api.info(cur.key, cur.out).then(setInfo).catch(() => setInfo(null))
   }, [cur?.key, cur?.out])
+
+  useEffect(() => {
+    setLayout(null)
+    if (t?.id === 'canvas' && run?.key) api.info(run.key, 'layout').then(setLayout).catch(() => setLayout(null))
+  }, [t?.id, run?.key])
 
   if (!id || !node || !t) return null
   const imageFor = (key?: string) => {
@@ -112,6 +118,7 @@ export default function Workbench() {
             {cur?.kind === 'parts' && <Viewer3D parts={partsList()} plate={info?.meta?.plate} />}
           </Suspense>
         </section>
+        {t.id === 'canvas' && <LayersPanel canvasId={node.id} layout={layout} />}
       </div>
       <div className="bench-foot">
         <div className="stats">
@@ -123,5 +130,51 @@ export default function Workbench() {
         <Console nodeId={id} height={130} />
       </div>
     </div>
+  )
+}
+
+/** The layers of a Collage: where each one sits on the canvas and where it comes from. */
+function LayersPanel({ canvasId, layout }: { canvasId: string; layout: Record<string, any> | null }) {
+  const nodes = useStudio((s) => s.nodes)
+  const edges = useStudio((s) => s.edges)
+  const runs = useStudio((s) => s.runs)
+  const types = useStudio((s) => s.types)
+  const open = useStudio((s) => s.openBench)
+  const layers: any[] = layout?.layers ?? []
+  const origin = (input: string) => {
+    let e = edges.find((x) => x.target === canvasId && x.targetHandle === input)
+    let place: string | undefined
+    while (e) {
+      const n = nodes.find((x) => x.id === e!.source)
+      if (!n) return undefined
+      if (n.data.type !== 'place') return { n, out: e.sourceHandle ?? 'image', place }
+      place ??= n.id
+      e = edges.find((x) => x.target === n.id && x.targetHandle === 'item')
+    }
+    return undefined
+  }
+  return (
+    <aside className="bench-layers" aria-label="Layers">
+      <h4>Layers{layout && <small> · canvas {layout.width}×{layout.height}px</small>}</h4>
+      {layers.length === 0 && <div className="mut">no layers yet</div>}
+      {layers.map((l, k) => {
+        const o = origin(l.input)
+        const key = o && runs[o.n.id]?.key
+        const kind = o && types[o.n.data.type]?.outputs.find((x) => x.name === o.out)?.type
+        return (
+          <div className="layer-row" key={l.input}>
+            <span className="layer-thumb">{key && (kind === 'image' || kind === 'mask' || kind === 'shapes') && <img src={artifactUrl(key, o.out, 48)} alt="" />}</span>
+            <div>
+              <b>{k + 1}. {o?.n.data.title ?? l.input}</b>
+              <small>{l.kind} · at {l.x}, {l.y} · {l.w}×{l.h}px{(l.scale_x !== 1 || l.scale_y !== 1) && <> · scale {Math.round(l.scale_x * 100)}% × {Math.round(l.scale_y * 100)}%</>}</small>
+              <span className="layer-actions">
+                {o?.place && <button onClick={() => open(o.place!)}>move / scale</button>}
+                {o && <button onClick={() => open(o.n.id)}>open source</button>}
+              </span>
+            </div>
+          </div>
+        )
+      })}
+    </aside>
   )
 }

@@ -444,6 +444,17 @@ test('the Collage template joins a picture and a placed copy on one canvas, with
   await expect(col.locator('.port.out.empty')).toHaveCount(2)
 })
 
+test('the Collage workbench lists its layers, and Repeat is in the menu', async ({ page }) => {
+  await open(page)
+  await page.getByRole('button', { name: /Templates/ }).click()
+  await page.locator('.menu button').filter({ hasText: /^Collage/ }).click()
+  const col = page.locator('.react-flow__node').filter({ hasText: 'Collage' }).first()
+  await expect(col.locator('.node-foot, .dot.done').first()).toBeVisible({ timeout: 60000 })
+  await col.dispatchEvent('dblclick')
+  await expect(page.locator('.bench-layers .layer-row')).toHaveCount(2, { timeout: 30000 })
+  await expect(page.locator('.bench-layers')).toContainText('move / scale')
+})
+
 test('the Multi-colour pack template builds a registered multi-colour graph', async ({ page }) => {
   await open(page)
   await page.getByRole('button', { name: /Templates/ }).click()

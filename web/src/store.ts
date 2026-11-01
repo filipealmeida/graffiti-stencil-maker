@@ -356,7 +356,7 @@ export const useStudio = create<State>((set, get) => ({
     const { addNode, connect } = get()
     set({ nodes: [], edges: [], runs: {}, selected: null })
     const src = addNode('source', { image_id: imageId }, { x: 40, y: 60 }, title)
-    const place = addNode('place', { move_x: 40, move_y: 40, scale_pct: 60 }, { x: 330, y: 330 })
+    const place = addNode('place', { move_x: 40, move_y: 40, scale_w_pct: 60, scale_h_pct: 60 }, { x: 330, y: 330 })
     const col = addNode('canvas', {}, { x: 640, y: 60 })
     const thr = addNode('threshold', {}, { x: 900, y: 60 })
     const st = addNode('stencil', {}, { x: stageColumn('stencil').x + 30, y: 60 })
