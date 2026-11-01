@@ -1663,3 +1663,15 @@ fn repeat_tiles_a_grid_and_caps_copies() {
     let (_, r) = run_collage(&mk(json!({"columns": 50, "rows": 50})));
     assert_eq!(r["nodes"]["r"]["state"], "error", "{r}");
 }
+
+#[test]
+fn collage_layer_moves_offset_a_layer_from_its_arranged_place() {
+    let g = json!({
+        "nodes": [source("a"), source("b"),
+                  {"id": "c", "type": "canvas", "params": {"layer_moves": "{\"layer_2\":[200,-10]}"}}],
+        "edges": [edge("a", "image", "c", "layer_1"), edge("b", "image", "c", "layer_2")]
+    });
+    let (e, r) = run_collage(&g);
+    let (w, h, _) = collage_image(&e, &r, "c");
+    assert_eq!((w, h), (320, 130), "{r}");
+}

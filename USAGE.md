@@ -101,7 +101,7 @@ outlines, and *outlines* needs all layers to be outlines that do not overlap (ov
 even-odd fill). A picture is never turned into paint by the Collage: put a Threshold after it. The *Collage* template
 builds the whole chain.
 
-**Repeat** tiles one picture, paint mask or outlines into a grid of copies (columns, rows, gaps, an optional brick shift) with the same picture, paint and outlines outputs as Collage; at most 1000 copies. Place scales width and height separately. Opening a Collage shows a Layers panel on the right with each layer's position, size and scale, and buttons to open its Place node or its source.
+**Repeat** tiles one picture, paint mask or outlines into a grid of copies (columns, rows, gaps, an optional brick shift) with the same picture, paint and outlines outputs as Collage; at most 1000 copies. Place scales width and height separately. Opening a Collage shows a Layers panel on the right with each layer's position, size and scale, and buttons to open its Place node or its source. Drag a layer in the preview, or type its x and y, to move it; the moves are kept on the Collage as offsets from its arranged position, and Reset moves clears them.
 
 The graph is arranged into three stages:
 

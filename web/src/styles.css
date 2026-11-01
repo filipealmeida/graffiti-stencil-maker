@@ -1568,3 +1568,14 @@ header {
   position: relative;
   z-index: 50;
 }
+.layer-row.on {
+  background: rgba(255, 176, 32, 0.12);
+}
+.layer-xy {
+  display: flex;
+  gap: 6px;
+  margin-top: 4px;
+}
+.layer-xy input {
+  width: 64px;
+}

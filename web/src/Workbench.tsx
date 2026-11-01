@@ -2,7 +2,7 @@ import { STAGE_LABEL } from './ports'
 import { Suspense, lazy, useEffect, useState } from 'react'
 import { api, artifactUrl, partUrl, type Kind } from './api'
 import Console from './Console'
-import ImageView from './ImageView'
+import ImageView, { type LayersProps } from './ImageView'
 import ParamForm from './ParamForm'
 import SourceActions from './SourceActions'
 import Presets from './Presets'
@@ -29,6 +29,7 @@ export default function Workbench() {
   const [mode, setMode] = useState<'plate' | 'tiles'>('plate')
   const [info, setInfo] = useState<Record<string, any> | null>(null)
   const [layout, setLayout] = useState<Record<string, any> | null>(null)
+  const [picked, setPicked] = useState<string>()
 
   const problems = useNodeFindings(id).filter((b) => b.level !== 'info').length
   const t = node && types[node.data.type]
@@ -58,6 +59,17 @@ export default function Workbench() {
   }, [t?.id, run?.key])
 
   if (!id || !node || !t) return null
+  const moves = (): Record<string, [number, number]> => {
+    try { const v = JSON.parse(String(node.data.params.layer_moves || '{}')); return v && typeof v === 'object' ? v : {} } catch { return {} }
+  }
+  const moveLayer = (input: string, dx: number, dy: number) => {
+    const m = moves(), [ox, oy] = m[input] ?? [0, 0]
+    m[input] = [ox + dx, oy + dy]
+    setParam(node.id, 'layer_moves', JSON.stringify(m))
+  }
+  const layerProps: LayersProps | undefined = t.id === 'canvas' && layout?.layers?.length && cur?.id.startsWith('out:')
+    ? { width: layout.width, height: layout.height, boxes: layout.layers, selected: picked, onSelect: setPicked, onMove: moveLayer }
+    : undefined
   const imageFor = (key?: string) => {
     const e = edges.find((x) => x.target === node.id && ['image', 'size'].includes(x.targetHandle ?? ''))
     const up = e && runs[e.source]
@@ -111,14 +123,15 @@ export default function Workbench() {
               layout={cur.kind === 'tiles' && cur.id.startsWith('out:') && node.data.type === 'tile_layout' && info?.kind === 'tiles' && info.pocket_list
                 ? { info: info as LayoutInfo, edits: parseEdits(node.data.params.edits),
                     onCommit: (e) => setParam(node.id, 'edits', stringify(e)), onReset: () => setParam(node.id, 'edits', '') }
-                : undefined} />
+                : undefined}
+              layers={layerProps} />
           )}
           <Suspense fallback={<div className="mut center">loading 3D viewer…</div>}>
             {cur?.kind === 'solid' && <Viewer3D parts={solidParts()} />}
             {cur?.kind === 'parts' && <Viewer3D parts={partsList()} plate={info?.meta?.plate} />}
           </Suspense>
         </section>
-        {t.id === 'canvas' && <LayersPanel canvasId={node.id} layout={layout} />}
+        {t.id === 'canvas' && <LayersPanel canvasId={node.id} layout={layout} picked={picked} onPick={setPicked} onMove={moveLayer} moved={Object.keys(moves()).length > 0} onReset={() => setParam(node.id, 'layer_moves', '')} />}
       </div>
       <div className="bench-foot">
         <div className="stats">
@@ -134,7 +147,10 @@ export default function Workbench() {
 }
 
 /** The layers of a Collage: where each one sits on the canvas and where it comes from. */
-function LayersPanel({ canvasId, layout }: { canvasId: string; layout: Record<string, any> | null }) {
+function LayersPanel({ canvasId, layout, picked, onPick, onMove, moved, onReset }: {
+  canvasId: string; layout: Record<string, any> | null; picked?: string; onPick: (i: string) => void
+  onMove: (input: string, dx: number, dy: number) => void; moved: boolean; onReset: () => void
+}) {
   const nodes = useStudio((s) => s.nodes)
   const edges = useStudio((s) => s.edges)
   const runs = useStudio((s) => s.runs)
@@ -157,16 +173,22 @@ function LayersPanel({ canvasId, layout }: { canvasId: string; layout: Record<st
     <aside className="bench-layers" aria-label="Layers">
       <h4>Layers{layout && <small> · canvas {layout.width}×{layout.height}px</small>}</h4>
       {layers.length === 0 && <div className="mut">no layers yet</div>}
+      {layers.length > 0 && <div className="mut">Drag a layer in the preview, or type its position.</div>}
+      {moved && <button onClick={onReset} title="Forget the hand moves">Reset moves</button>}
       {layers.map((l, k) => {
         const o = origin(l.input)
         const key = o && runs[o.n.id]?.key
         const kind = o && types[o.n.data.type]?.outputs.find((x) => x.name === o.out)?.type
         return (
-          <div className="layer-row" key={l.input}>
+          <div className={`layer-row${picked === l.input ? ' on' : ''}`} key={l.input} onClick={() => onPick(l.input)}>
             <span className="layer-thumb">{key && (kind === 'image' || kind === 'mask' || kind === 'shapes') && <img src={artifactUrl(key, o.out, 48)} alt="" />}</span>
             <div>
               <b>{k + 1}. {o?.n.data.title ?? l.input}</b>
-              <small>{l.kind} · at {l.x}, {l.y} · {l.w}×{l.h}px{(l.scale_x !== 1 || l.scale_y !== 1) && <> · scale {Math.round(l.scale_x * 100)}% × {Math.round(l.scale_y * 100)}%</>}</small>
+              <small>{l.kind} · {l.w}×{l.h}px{(l.scale_x !== 1 || l.scale_y !== 1) && <> · scale {Math.round(l.scale_x * 100)}% × {Math.round(l.scale_y * 100)}%</>}</small>
+              <span className="layer-xy">
+                <label>x <input type="number" aria-label={`${l.input} x`} value={l.x} onChange={(e) => e.target.value !== '' && onMove(l.input, +e.target.value - l.x, 0)} /></label>
+                <label>y <input type="number" aria-label={`${l.input} y`} value={l.y} onChange={(e) => e.target.value !== '' && onMove(l.input, 0, +e.target.value - l.y)} /></label>
+              </span>
               <span className="layer-actions">
                 {o?.place && <button onClick={() => open(o.place!)}>move / scale</button>}
                 {o && <button onClick={() => open(o.n.id)}>open source</button>}

@@ -35,8 +35,14 @@ pub(super) fn run_place(_: &Engine, i: &HashMap<String, Value>, p: &P) -> Result
     let (sx, sy) = match (width > 0.0, height > 0.0) {
         (true, true) => (width / aw.max(1.0), height / ah.max(1.0)),
         (true, false) => (width / aw.max(1.0), width / aw.max(1.0) * sy / sx.max(1e-9)),
-        (false, true) => (height / ah.max(1.0) * sx / sy.max(1e-9), height / ah.max(1.0)),
-        (false, false) => (by_scale(sx, p.f("scale_w_pct")), by_scale(sy, p.f("scale_h_pct"))),
+        (false, true) => (
+            height / ah.max(1.0) * sx / sy.max(1e-9),
+            height / ah.max(1.0),
+        ),
+        (false, false) => (
+            by_scale(sx, p.f("scale_w_pct")),
+            by_scale(sy, p.f("scale_h_pct")),
+        ),
     };
     Ok(vec![(
         "layer",
@@ -220,6 +226,18 @@ pub(super) fn run_canvas(_: &Engine, i: &HashMap<String, Value>, p: &P) -> Resul
         p.f("layer_gap"),
         p.s("layer_align"),
     );
+    // hand moves from the preview, in canvas pixels, on top of the arrangement
+    if let Ok(Json::Object(moves)) = serde_json::from_str::<Json>(p.s("layer_moves")) {
+        for l in layers.iter_mut() {
+            let by = moves
+                .get(&l.label)
+                .and_then(|v| serde_json::from_value::<[f64; 2]>(v.clone()).ok());
+            if let Some([dx, dy]) = by {
+                l.x += dx;
+                l.y += dy;
+            }
+        }
+    }
     let fixed =
         (p.s("canvas_size") == "fixed").then(|| (p.f("canvas_width"), p.f("canvas_height")));
     compose(

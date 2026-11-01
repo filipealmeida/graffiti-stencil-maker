@@ -10,16 +10,21 @@ const usePrefs = create<{ overlay: boolean; opacity: number; set: (p: Partial<{ 
 
 /** Lets the tile layout be edited by hand: the plate's seams and connector blocks are drawn over the preview. */
 export interface LayoutProps { info: LayoutInfo; edits: LayoutEdits; onCommit: (e: LayoutEdits) => void; onReset: () => void }
-interface Props { src: string; under?: string; kind: 'image' | 'mask'; layout?: LayoutProps }
+/** Lets Collage layers be dragged: their rectangles (canvas pixels, y down) are drawn over the preview. */
+export interface LayerBox { input: string; x: number; y: number; w: number; h: number }
+export interface LayersProps { width: number; height: number; boxes: LayerBox[]; selected?: string; onSelect: (input: string) => void; onMove: (input: string, dx: number, dy: number) => void }
+interface Props { src: string; under?: string; kind: 'image' | 'mask'; layout?: LayoutProps; layers?: LayersProps }
 
 /** Zoomable, pannable raster view. A mask can be laid over the image it was derived from. */
-export default function ImageView({ src, under, kind, layout }: Props) {
+export default function ImageView({ src, under, kind, layout, layers }: Props) {
   const [view, setView] = useState({ k: 1, x: 0, y: 0 })
   const { overlay, opacity, set: setPrefs } = usePrefs()
   const drag = useRef<{ x: number; y: number } | null>(null)
   const host = useRef<HTMLDivElement>(null)
   const grab = useRef<Drag | null>(null)
   const [live, setLive] = useState<(Drag & { why?: string }) | null>(null)
+  const lgrab = useRef<{ input: string; x: number; y: number } | null>(null)
+  const [lmove, setLmove] = useState<{ input: string; dx: number; dy: number } | null>(null)
   const [note, setNote] = useState('')
   const [cursor, setCursor] = useState('')
   const noteTimer = useRef<number>()
@@ -81,7 +86,19 @@ export default function ImageView({ src, under, kind, layout }: Props) {
     } else if (kind === 'mask') g.fillRect(-bw / 2, -bh / 2, bw, bh)
     g.drawImage(top, -bw / 2, -bh / 2, bw, bh)
     if (layout) drawLayout(g, layout.info, bw, bh, view.k, live)
-  }, [imgs, box, view, opacity, showUnder, kind, layout, live])
+    if (layers) drawLayers(g, layers, bw, bh, view.k, lmove)
+  }, [imgs, box, view, opacity, showUnder, kind, layout, live, layers, lmove])
+
+  /** Canvas pixels under a pointer, when layers are shown. */
+  const canvasAt = (e: React.PointerEvent) => {
+    const top = imgs.top
+    if (!top || !layers) return null
+    const r = host.current!.getBoundingClientRect()
+    const bw = Math.min(box.w * 0.9, 900), bh = bw * top.naturalHeight / top.naturalWidth
+    const lx = (e.clientX - r.left - box.w / 2 - view.x) / view.k, ly = (e.clientY - r.top - box.h / 2 - view.y) / view.k
+    return { x: ((lx + bw / 2) / bw) * layers.width, y: ((ly + bh / 2) / bh) * layers.height }
+  }
+  const layerAt = (p: { x: number; y: number }) => [...(layers?.boxes ?? [])].reverse().find((b) => p.x >= b.x && p.x <= b.x + b.w && p.y >= b.y && p.y <= b.y + b.h)
 
   /** Plate millimetres under a pointer, and the scale (px per mm at zoom 1). */
   const plateAt = (e: React.PointerEvent) => {
@@ -98,6 +115,14 @@ export default function ImageView({ src, under, kind, layout }: Props) {
     noteTimer.current = window.setTimeout(() => setNote(''), 7000)
   }
   const down = (e: React.PointerEvent) => {
+    const cp = canvasAt(e), hit = cp && layerAt(cp)
+    if (cp && hit) {
+      lgrab.current = { input: hit.input, x: cp.x, y: cp.y }
+      layers!.onSelect(hit.input)
+      setLmove({ input: hit.input, dx: 0, dy: 0 })
+      ;(e.target as Element).setPointerCapture?.(e.pointerId)
+      return
+    }
     const p = plateAt(e)
     const h = p && layout ? hitTest(layout.info, p.x, p.y, 7 / p.mm) : null
     if (h) {
@@ -109,6 +134,12 @@ export default function ImageView({ src, under, kind, layout }: Props) {
     ;(e.target as Element).setPointerCapture?.(e.pointerId)
   }
   const move = (e: React.PointerEvent) => {
+    const lg = lgrab.current, cp = canvasAt(e)
+    if (lg && cp) {
+      setLmove({ input: lg.input, dx: Math.round(cp.x - lg.x), dy: Math.round(cp.y - lg.y) })
+      return
+    }
+    if (cp && !drag.current) setCursor(layerAt(cp) ? 'move' : '')
     const g = grab.current, p = plateAt(e)
     if (g && p && layout) {
       if (g.kind === 'seam') {
@@ -129,6 +160,13 @@ export default function ImageView({ src, under, kind, layout }: Props) {
     }
   }
   const up = () => {
+    const m = lmove
+    if (lgrab.current) {
+      lgrab.current = null
+      setLmove(null)
+      if (m && layers && (m.dx || m.dy)) layers.onMove(m.input, m.dx, m.dy)
+      return
+    }
     drag.current = null
     const l = live
     grab.current = null
@@ -143,12 +181,12 @@ export default function ImageView({ src, under, kind, layout }: Props) {
         ref={host} className="imgstage" onWheel={onWheel} onDoubleClick={() => setView({ k: 1, x: 0, y: 0 })}
         style={cursor ? { cursor } : undefined}
         onPointerDown={down} onPointerMove={move} onPointerUp={up}
-        onPointerCancel={() => { drag.current = null; grab.current = null; setLive(null) }}
+        onPointerCancel={() => { lgrab.current = null; setLmove(null); drag.current = null; grab.current = null; setLive(null) }}
       >
         <canvas ref={canvas} className="imgcanvas" />
       </div>
       <div className="imgbar">
-        <span>{Math.round(view.k * 100)}% · wheel zoom, drag pan, double-click reset{layout && ' · drag a seam or block to edit the layout'}</span>
+        <span>{Math.round(view.k * 100)}% · wheel zoom, drag pan, double-click reset{layout && ' · drag a seam or block to edit the layout'}{layers && ' · drag a layer to move it'}</span>
         {layout && !isEmpty(layout.edits) && <button onClick={layout.onReset} title="Go back to the automatic layout">Reset layout</button>}
         {layout && layout.info.edits_ignored > 0 && <span className="warn">{layout.info.edits_ignored} edit(s) no longer fit and were ignored</span>}
         <span role="status" aria-live="polite" className="layout-note">{live?.why ? `Can't drop here: ${live.why}.` : note}</span>
@@ -202,6 +240,20 @@ function drawLayout(g: CanvasRenderingContext2D, L: LayoutInfo, bw: number, bh: 
     }
     g.strokeStyle = c; g.fillStyle = c + '33'
     g.beginPath(); g.rect(X(x0), Y(y1), (x1 - x0) * px, (y1 - y0) * px); g.fill(); g.stroke()
+  }
+  g.restore()
+}
+
+/** Layer rectangles; the one being dragged is drawn where it would land. */
+function drawLayers(g: CanvasRenderingContext2D, L: LayersProps, bw: number, bh: number, k: number, live: { input: string; dx: number; dy: number } | null) {
+  const px = bw / L.width
+  g.save()
+  g.lineWidth = 1.5 / k
+  for (const b of L.boxes) {
+    const on = b.input === L.selected, d = live?.input === b.input ? live : null
+    g.strokeStyle = on ? ACCENT : 'rgba(255,176,32,0.55)'
+    g.setLineDash(on ? [] : [5 / k, 4 / k])
+    g.strokeRect((b.x + (d?.dx ?? 0)) * px - bw / 2, (b.y + (d?.dy ?? 0)) * px - bh / 2, b.w * px, b.h * px)
   }
   g.restore()
 }

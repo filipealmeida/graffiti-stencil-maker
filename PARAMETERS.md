@@ -44,6 +44,7 @@
 | Parameter | Label | Type | Default | Range or choices |
 |---|---|---|---|---|
 | `arrange` | Arrange | choice | `"manual"` | manual \| row \| column |
+| `layer_moves` | Layer moves | text | `""` | text |
 | `layer_gap` | Gap between layers (px) | int | `0.0` | 0.0 to 2000.0 |
 | `layer_align` | Align | choice | `"start"` | start \| centre \| end |
 | `canvas_size` | Canvas size | choice | `"fit layers"` | fit layers \| fixed |

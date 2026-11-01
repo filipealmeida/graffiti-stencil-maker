@@ -108,7 +108,7 @@ pub(super) fn catalogue() -> Vec<NodeDef> {
                 num("width_px", "Or set the width to (px, 0 = use the scale)", 0.0, 0.0, 20000.0, 1.0, Some("Size"), true),
                 num("height_px", "Or set the height to (px, 0 = use the scale)", 0.0, 0.0, 20000.0, 1.0, Some("Size"), true),
             ],
-            doc: "Gives a picture, a paint mask or outlines a position and size on a Collage. Connect it between the source and the Collage. Without it a layer sits at the top-left corner at its own size. Moving is in canvas pixels, right and down, and scaling keeps the top-left corner in place. Width and height scale separately, so a layer can be stretched or squeezed; set both to the same percentage to keep its proportions. Place nodes can be chained: moves add up and scales multiply, unless an exact width or height is set, which then wins; set on one side alone it keeps the proportions.",
+            doc: "Gives a picture, a paint mask or outlines a position and size on a Collage. Connect it between the source and the Collage. Without it a layer sits at the top-left corner at its own size. Moving is in canvas pixels, right and down, and scaling keeps the top-left corner in place. Width and height scale separately, so a layer can be stretched or squeezed; set both to the same percentage to keep its proportions. Layers can also be dragged in the preview or typed into the Layers panel; those moves are kept on the Collage as offsets from the arranged position. Place nodes can be chained: moves add up and scales multiply, unless an exact width or height is set, which then wins; set on one side alone it keeps the proportions.",
             run: canvas::run_place,
         },
         NodeDef {
@@ -119,6 +119,7 @@ pub(super) fn catalogue() -> Vec<NodeDef> {
             outputs: vec![("image", "image"), ("mask", "mask"), ("shapes", "shapes")],
             params: vec![
                 choice("arrange", "Arrange", "manual", &["manual", "row", "column"], Some("Layout")),
+                json!({"name": "layer_moves", "label": "Layer moves", "kind": "text", "default": "", "group": null}),
                 num("layer_gap", "Gap between layers (px)", 0.0, 0.0, 2000.0, 1.0, Some("Layout"), true),
                 choice("layer_align", "Align", "start", &["start", "centre", "end"], Some("Layout")),
                 choice("canvas_size", "Canvas size", "fit layers", &["fit layers", "fixed"], Some("Canvas")),

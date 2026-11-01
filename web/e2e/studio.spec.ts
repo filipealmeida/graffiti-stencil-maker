@@ -453,6 +453,11 @@ test('the Collage workbench lists its layers, and Repeat is in the menu', async 
   await col.dispatchEvent('dblclick')
   await expect(page.locator('.bench-layers .layer-row')).toHaveCount(2, { timeout: 30000 })
   await expect(page.locator('.bench-layers')).toContainText('move / scale')
+  const x2 = page.getByLabel('layer_2 x')
+  const before = Number(await x2.inputValue())
+  await x2.fill(String(before + 25))
+  await expect(page.getByRole('button', { name: 'Reset moves' })).toBeVisible({ timeout: 30000 })
+  await expect.poll(async () => Number(await x2.inputValue()), { timeout: 30000 }).toBe(before + 25)
 })
 
 test('the Multi-colour pack template builds a registered multi-colour graph', async ({ page }) => {
