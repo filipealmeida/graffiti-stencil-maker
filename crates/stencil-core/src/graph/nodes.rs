@@ -1417,3 +1417,55 @@ fn connector_shape(p: &P) -> crate::tiles::Shape {
         _ => crate::tiles::Shape::Hex,
     }
 }
+
+pub(super) fn run_cut_sheet(
+    _: &Engine,
+    i: &HashMap<String, Value>,
+    p: &P,
+) -> Result<Outputs, String> {
+    use crate::tile_first as tf;
+    let owned;
+    let layout: &tf::Layout = match (i.get("tiles"), i.get("shapes")) {
+        (Some(Value::Tiles(l)), None) => l,
+        (None, Some(Value::Shapes(s))) => {
+            owned = tf::from_shapes(
+                s,
+                &tf::LayoutParams {
+                    edits: tf::Edits::default(),
+                    width: p.f("width_mm"),
+                    margin: p.f("margin_mm"),
+                    max_x: 1e6,
+                    max_y: 1e6,
+                    seam_shift: 0.0,
+                    spec: tf::Connectors {
+                        shape: crate::tiles::Shape::None,
+                        diameter: 3.0,
+                        clearance: 0.2,
+                        depth: 10.0,
+                        segments: 48,
+                        spacing: 30.0,
+                        seam_gap: 0.0,
+                    },
+                },
+            )?;
+            &owned
+        }
+        (None, None) => return Err("connect a tile plan or outlines".into()),
+        _ => return Err("connect either a tile plan or outlines, not both".into()),
+    };
+    let laser = p.s("machine") == "laser";
+    let cuts = crate::cut_sheet::make(
+        layout,
+        &crate::cut_sheet::Params {
+            laser,
+            tool: p.f("tool_mm"),
+            bridge: p.f("bridge_mm"),
+            bridges_per_island: p.f("bridges_per_island") as usize,
+            sheet_w: p.f("sheet_w"),
+            sheet_h: p.f("sheet_h"),
+            gap: p.f("gap_mm"),
+        },
+    )?;
+    let sheet = Value::Shapes(Rc::new(cuts.shapes()));
+    Ok(vec![("sheet", sheet), ("cuts", Value::Cuts(Rc::new(cuts)))])
+}

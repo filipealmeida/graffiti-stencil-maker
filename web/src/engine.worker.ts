@@ -57,7 +57,7 @@ function collect(result: any): Artifact[] {
     const infoText = e.info(f.key, f.out)
     const info = infoText ? JSON.parse(infoText) : null
     const parts: Record<string, Uint8Array> = {}
-    for (const name of [...Object.keys(info?.files ?? {}), ...(info?.tile_files ?? [])]) parts[name] = e.part(f.key, f.out, name)
+    for (const name of [...Object.keys(info?.files ?? {}), ...(info?.tile_files ?? []), ...(info?.cut_files ?? [])]) parts[name] = e.part(f.key, f.out, name)
     if (info?.kind === 'solid') parts.plate = bytes
     const dxf = info?.kind === 'shapes' ? (e.dxf(f.key, f.out) as Uint8Array<ArrayBuffer>) : undefined
     out.push({ key: f.key, out: f.out, mime, bytes, info, parts, dxf })

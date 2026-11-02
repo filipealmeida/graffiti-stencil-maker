@@ -115,6 +115,7 @@ interface State {
   colourSetStarter: (imageId: string, title: string) => void
   tiledStarter: (imageId: string, title: string) => void
   tilesFirstStarter: (imageId: string, title: string) => void
+  cutSheetStarter: (imageId: string, title: string) => void
   graph: () => GraphJson
   setRuns: (r: Record<string, NodeRun>, busy: boolean, error?: string | null) => void
   canUndo: boolean
@@ -351,6 +352,20 @@ export const useStudio = create<State>((set, get) => ({
     connect({ source: br, sourceHandle: 'parts', target: pads, targetHandle: 'parts' })
     connect({ source: pads, sourceHandle: 'parts', target: hw, targetHandle: 'parts' })
     set({ selected: lay })
+  },
+  cutSheetStarter: (imageId, title) => {
+    const { addNode, connect } = get()
+    set({ nodes: [], edges: [], runs: {}, selected: null })
+    const src = addNode('source', { image_id: imageId }, { x: 40, y: 60 }, title)
+    const thr = addNode('threshold', {}, { x: 400, y: 60 })
+    const tr = addNode('trace', {}, { x: 700, y: 60 })
+    const lay = addNode('tile_layout', { width_mm: 400, margin_mm: 12, max_x: 200, max_y: 200, connector: 'none' }, { x: stageColumn('stencil').x + 30, y: 60 })
+    const cut = addNode('cut_sheet', { sheet_w: 600, sheet_h: 600 }, { x: stageColumn('post').x + 30, y: 60 })
+    connect({ source: src, sourceHandle: 'image', target: thr, targetHandle: 'image' })
+    connect({ source: thr, sourceHandle: 'mask', target: tr, targetHandle: 'mask' })
+    connect({ source: tr, sourceHandle: 'shapes', target: lay, targetHandle: 'shapes' })
+    connect({ source: lay, sourceHandle: 'tiles', target: cut, targetHandle: 'tiles' })
+    set({ selected: cut })
   },
   collageStarter: (imageId, title) => {
     const { addNode, connect } = get()

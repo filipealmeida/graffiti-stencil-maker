@@ -180,7 +180,7 @@ pub fn clip_polygon(poly: &[Pt], r: [f64; 4]) -> Vec<Vec<Pt>> {
     out
 }
 
-fn rect_poly(r: [f64; 4]) -> Vec<Pt> {
+pub(crate) fn rect_poly(r: [f64; 4]) -> Vec<Pt> {
     vec![[r[0], r[1]], [r[2], r[1]], [r[2], r[3]], [r[0], r[3]]]
 }
 
@@ -198,7 +198,7 @@ fn svg_path(polys: &[Vec<Pt>], map: impl Fn(Pt) -> Pt) -> String {
 
 impl Layout {
     /// The artwork as closed polygons in plate millimetres, y up.
-    fn art(&self) -> &Vec<Vec<Pt>> {
+    pub(crate) fn art(&self) -> &Vec<Vec<Pt>> {
         self.art.get_or_init(|| match &self.source {
             Source::Vector(shapes) => {
                 let s = (self.width - 2.0 * self.margin) / shapes.w as f64;

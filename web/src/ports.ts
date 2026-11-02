@@ -45,6 +45,7 @@ const TABLE: Table = {
   shapes_to_mask: { in: { shapes: outlines }, out: { mask: paint } },
   stencil: { in: { mask: { ...paint, hint: 'Connect this, or a tile plan', either: true }, tiles: { ...plan, or: true } }, out: { solid: { label: 'solid', hint: 'The whole plate as one 3D model' }, parts: { label: 'parts', hint: 'One part per tile (with a tile plan), otherwise the plate' } } },
   vector_stencil: { in: { shapes: { ...outlines, hint: 'Connect this, or a tile plan', either: true }, tiles: { ...plan, or: true } }, out: { solid: { label: 'solid', hint: 'The whole plate as one 3D model' }, parts: { label: 'parts', hint: 'One part per tile (with a tile plan), otherwise the plate' } } },
+  cut_sheet: { in: { tiles: { ...plan, hint: 'Connect this or outlines', either: true }, shapes: { ...outlines, hint: 'Connect this or a tile plan', or: true } }, out: { sheet: { label: 'sheet', hint: 'The cut lines of every part on the sheets, in millimetres' } } },
   tile_layout: { in: { mask: { ...paint, hint: 'Connect this or outlines', either: true }, shapes: { ...outlines, hint: 'Connect this or paint', or: true } } },
   bridges: { out: { solid: { label: 'solid', hint: 'The bridged model (with a solid in)' }, parts: { label: 'parts', hint: 'The bridged tiles' } } },
   place: { in: { item: { label: 'content', hint: 'A picture, a paint mask, outlines, or another placed layer' } }, out: { layer: { label: 'layer', hint: 'The content with its position and size, for a Collage' } } },

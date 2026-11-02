@@ -62,6 +62,8 @@ pub enum Value {
     Layer(Rc<Layer>),
     /// Where a Collage or Repeat put each layer, for the layers panel. Never a port.
     Layout(Rc<Json>),
+    /// The parts of a Cut sheet, for its panel. Never a port.
+    Cuts(Rc<crate::cut_sheet::Cuts>),
 }
 
 pub enum Art {
@@ -108,6 +110,7 @@ impl Value {
             Value::Tiles(_) => "tiles",
             Value::Layer(_) => "layer",
             Value::Layout(_) => "layout",
+            Value::Cuts(_) => "cuts",
         }
     }
 
@@ -126,6 +129,7 @@ impl Value {
                 None => self.encode_png(),
             },
             Value::Layer(l) => l.art.value().encode(),
+            Value::Cuts(c) => Ok(("image/svg+xml", c.shapes().to_svg().into_bytes())),
             Value::Layout(j) => Ok(("application/json", j.to_string().into_bytes())),
             Value::Parts(p) => match p.files.as_slice() {
                 [(_, b)] => Ok(("model/stl", b.clone())),
@@ -167,6 +171,7 @@ impl Value {
             Value::Solid(s) => {
                 json!({"kind": "solid", "stats": s.stats, "bytes": s.stl.len(), "tiles": []})
             }
+            Value::Cuts(c) => c.info(),
             Value::Layout(j) => {
                 let mut o = (**j).clone();
                 o["kind"] = json!("layout");
@@ -222,6 +227,7 @@ impl Value {
                 .map(|(_, b)| b.clone()),
             Value::Solid(s) if name == "plate" => Some(s.stl.clone()),
             Value::Tiles(l) => l.tile_file(name),
+            Value::Cuts(c) => c.file(name),
             _ => None,
         }
     }

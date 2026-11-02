@@ -226,6 +226,20 @@
 | `segments` | Round segments | int | `48.0` | 24.0 to 128.0 |
 | `edits` | Layout edits | text | `""` | text |
 
+### Cut sheet (`cut_sheet`)
+
+| Parameter | Label | Type | Default | Range or choices |
+|---|---|---|---|---|
+| `machine` | Machine | choice | `"laser"` | laser \| router |
+| `tool_mm` | Kerf or bit diameter (mm) | float | `0.2` | 0.05 to 20.0 |
+| `bridge_mm` | Bridge width (mm) | float | `2.0` | 0.5 to 20.0 |
+| `bridges_per_island` | Bridges per island | int | `1.0` | 1.0 to 6.0 |
+| `sheet_w` | Sheet width (mm, 0 = no sheet) | float | `0.0` | 0.0 to 5000.0 |
+| `sheet_h` | Sheet height (mm, 0 = no sheet) | float | `0.0` | 0.0 to 5000.0 |
+| `gap_mm` | Gap between parts (mm) | float | `3.0` | 0.0 to 50.0 |
+| `width_mm` | Plate width (mm, outlines only) | float | `100.0` | 20.0 to 2000.0 |
+| `margin_mm` | Margin (mm, outlines only) | float | `8.0` | 0.0 to 500.0 |
+
 ### Simplify mesh (`remesh`)
 
 | Parameter | Label | Type | Default | Range or choices |

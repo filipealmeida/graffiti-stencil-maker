@@ -7,6 +7,7 @@ import ParamForm from './ParamForm'
 import SourceActions from './SourceActions'
 import Presets from './Presets'
 import TilesPanel from './TilesPanel'
+import CutsPanel from './CutsPanel'
 import { NodeActions, DeleteNode, downloadFor, runSummary } from './NodeActions'
 import Findings, { useNodeFindings } from './Findings'
 import ImageInfoPanel from './ImageInfo'
@@ -31,6 +32,7 @@ export default function Workbench() {
   const [mode, setMode] = useState<'plate' | 'tiles'>('plate')
   const [info, setInfo] = useState<Record<string, any> | null>(null)
   const [layout, setLayout] = useState<Record<string, any> | null>(null)
+  const [cuts, setCuts] = useState<Record<string, any> | null>(null)
   const [picked, setPicked] = useState<string>()
   const [editing, setEditing] = useState(false)
   // hand moves wait here until the user stops interacting, so the engine is not asked again for every step
@@ -65,6 +67,11 @@ export default function Workbench() {
     // the previous layout stays until the new one arrives, so the layers do not jump while the engine works
     if (t?.id !== 'canvas') setLayout(null)
     else if (run?.key) api.info(run.key, 'layout').then(setLayout).catch(() => setLayout(null))
+  }, [t?.id, run?.key])
+
+  useEffect(() => {
+    if (t?.id !== 'cut_sheet') setCuts(null)
+    else if (run?.key) api.info(run.key, 'cuts').then(setCuts).catch(() => setCuts(null))
   }, [t?.id, run?.key])
 
   useEffect(() => () => commitRef.current(), [])
@@ -174,6 +181,7 @@ export default function Workbench() {
           </Suspense>
         </section>
         {t.id === 'tile_layout' && info?.kind === 'tiles' && info.tile_list && cur?.key && <TilesPanel info={info} keyOf={cur.key} out={cur.out} />}
+        {t.id === 'cut_sheet' && cuts?.piece_list && run?.key && <CutsPanel info={cuts} keyOf={run.key} />}
         {t.id === 'canvas' && <LayersPanel updating={updating} layout={shown} picked={picked} onPick={setPicked} onMove={moveLayer} moved={Object.keys(draft ?? committed).length > 0} onReset={() => { draftRef.current = null; setDraft(null); window.clearTimeout(timer.current); setParam(node.id, 'layer_moves', '') }} />}
       </div>
       <div className="bench-foot">

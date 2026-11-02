@@ -414,6 +414,11 @@ function Canvas() {
       "image → threshold → tile plan → stencil (per tile) → pads & holes → screws. Cut into tiles before bridging, so every tile is island-free by itself.",
       s.tilesFirstStarter,
     ],
+    [
+      "Cut sheet",
+      "image → threshold → trace → tile plan → cut sheet. Flat parts for a laser or CNC router, bridged and laid out on sheets as SVG and DXF.",
+      s.cutSheetStarter,
+    ],
   ] as const;
   const runTemplate = (make: (imageId: string, title: string) => void) => {
     const src = s.nodes.find((n) => n.data.type === "source");

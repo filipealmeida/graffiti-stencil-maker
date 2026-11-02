@@ -149,6 +149,10 @@ struct Args {
     /// tile border and the connector blocks) into this folder
     #[arg(long, value_name = "DIR")]
     tile_drawings: Option<PathBuf>,
+    /// Write every part and sheet of every Cut sheet node in the graph as SVG and DXF files (millimetres) into this
+    /// folder
+    #[arg(long, value_name = "DIR")]
+    cut_sheets: Option<PathBuf>,
     /// Print the print-readiness report (findings and the slowest nodes)
     #[arg(long)]
     report: bool,
@@ -371,6 +375,9 @@ fn main() {
     }
     if let Some(dir) = &a.tile_drawings {
         layouts += write_tile_drawings(&engine, &graph, &result, dir);
+    }
+    if let Some(dir) = &a.cut_sheets {
+        layouts += write_cut_sheets(&engine, &graph, &result, dir);
     }
     for (flag, ext) in [(&a.svg, "svg"), (&a.dxf, "dxf")] {
         if let Some(base) = flag {
@@ -1061,6 +1068,41 @@ fn write_tile_drawings(engine: &Engine, graph: &Json, result: &Json, dir: &Path)
         }
     }
     eprintln!("wrote {n} tile drawings to {}", dir.display());
+    1
+}
+
+/// --cut-sheets: every part and sheet of every Cut sheet as `NAME.svg` and `NAME.dxf` (with the node id when there are several).
+fn write_cut_sheets(engine: &Engine, graph: &Json, result: &Json, dir: &Path) -> usize {
+    let cuts: Vec<(String, &stencil_core::graph::Value)> = graph["nodes"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|n| {
+            let id = n["id"].as_str()?;
+            let key = result["nodes"][id]["key"].as_str()?;
+            Some((id.to_string(), engine.value(key, "cuts")?))
+        })
+        .collect();
+    if cuts.is_empty() {
+        fail("--cut-sheets: the graph has no Cut sheet node");
+    }
+    fs::create_dir_all(dir)
+        .unwrap_or_else(|e| fail(&format!("cannot create {}: {e}", dir.display())));
+    let many = cuts.len() > 1;
+    let mut n = 0;
+    for (id, v) in cuts {
+        for name in v.info()["cut_files"].as_array().into_iter().flatten() {
+            let name = name.as_str().unwrap_or("");
+            let file = if many {
+                format!("{id}-{name}")
+            } else {
+                name.to_string()
+            };
+            write(&dir.join(file), &v.part(name).unwrap_or_default());
+            n += 1;
+        }
+    }
+    eprintln!("wrote {n} cut files to {}", dir.display());
     1
 }
 

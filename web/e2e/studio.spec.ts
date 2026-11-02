@@ -1301,3 +1301,17 @@ test('a Tile plan with no connectors hides their settings and plans no blocks', 
   await settled(page)
   await expect(page.locator('aside.tilepanel')).toBeVisible({ timeout: 80_000 })
 })
+
+test('a Cut sheet lists its sheets and parts with SVG and DXF downloads', async ({ page }) => {
+  await open(page)
+  await page.getByRole('button', { name: /Templates/ }).click()
+  await page.locator('.menu button').filter({ hasText: 'Cut sheet' }).click()
+  await page.locator('.react-flow__node').filter({ hasText: 'Cut sheet' }).first().dispatchEvent('dblclick')
+  const panel = page.locator('aside.tilepanel')
+  await expect(panel).toContainText('Sheets', { timeout: 120_000 })
+  const dxf = await panel.locator('a', { hasText: 'DXF' }).first().getAttribute('href')
+  const body = await page.evaluate(async (u) => (await (await fetch(u!)).text()), dxf)
+  expect(body).toContain('CUT_2_OUTER')
+  const svg = await panel.locator('a', { hasText: 'SVG' }).first().getAttribute('href')
+  expect(await page.evaluate(async (u) => (await (await fetch(u!)).text()), svg)).toContain('<svg')
+})

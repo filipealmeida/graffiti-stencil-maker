@@ -9,6 +9,7 @@ use islands::*;
 use layered::*;
 
 pub mod colour;
+mod cut_sheet;
 mod decimate;
 mod decode;
 mod dxf;
