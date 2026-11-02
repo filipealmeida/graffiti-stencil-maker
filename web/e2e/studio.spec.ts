@@ -1309,11 +1309,13 @@ test('a Cut sheet lists its sheets and parts with SVG and DXF downloads', async 
   await page.locator('.react-flow__node').filter({ hasText: 'Cut sheet' }).first().dispatchEvent('dblclick')
   const panel = page.locator('aside.tilepanel')
   await expect(panel).toContainText('Sheets', { timeout: 120_000 })
-  const dxf = await panel.locator('a', { hasText: 'DXF' }).first().getAttribute('href')
-  const body = await page.evaluate(async (u) => (await (await fetch(u!)).text()), dxf)
-  expect(body).toContain('CUT_2_OUTER')
-  const svg = await panel.locator('a', { hasText: 'SVG' }).first().getAttribute('href')
-  expect(await page.evaluate(async (u) => (await (await fetch(u!)).text()), svg)).toContain('<svg')
+  // the files are drawn by the engine when the button is clicked
+  const dxfDl = page.waitForEvent('download')
+  await panel.getByRole('button', { name: 'DXF' }).first().click()
+  expect(readFileSync((await (await dxfDl).path())!, 'utf8')).toContain('CUT_2_OUTER')
+  const svgDl = page.waitForEvent('download')
+  await panel.getByRole('button', { name: 'SVG' }).first().click()
+  expect(readFileSync((await (await svgDl).path())!, 'utf8')).toContain('<svg')
   // the preview draws only the ticked parts, like the volume split panel
   await expect(page.locator('.bench-view .imgcanvas')).toBeVisible({ timeout: 30_000 })
   const boxes = panel.locator('.v3part input[type=checkbox]')

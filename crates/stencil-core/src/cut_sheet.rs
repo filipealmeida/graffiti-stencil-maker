@@ -79,6 +79,42 @@ fn dist2(a: Pt, b: Pt) -> f64 {
     (a[0] - b[0]).powi(2) + (a[1] - b[1]).powi(2)
 }
 
+/// Thins a closed contour: a run of points becomes its chord while every dropped point stays within `eps` of it.
+/// For measuring areas only - the real cut path keeps every point.
+fn decimate(c: &[Pt], eps: f64) -> Vec<Pt> {
+    if c.len() < 8 {
+        return c.to_vec();
+    }
+    let e2 = eps * eps;
+    let fits = |a: Pt, b: Pt, q: Pt| {
+        let d = [b[0] - a[0], b[1] - a[1]];
+        let l2 = (d[0] * d[0] + d[1] * d[1]).max(1e-18);
+        let v = [q[0] - a[0], q[1] - a[1]];
+        let t = ((v[0] * d[0] + v[1] * d[1]) / l2).clamp(0.0, 1.0);
+        dist2([a[0] + d[0] * t, a[1] + d[1] * t], q) <= e2
+    };
+    let mut out = vec![c[0]];
+    let mut i = 0;
+    while i + 1 < c.len() {
+        // the longest chord from c[i] whose skipped points all stay within eps
+        let mut j = i + 1;
+        while j + 1 < c.len() && (i + 1..=j).all(|k| fits(c[i], c[j + 1], c[k])) {
+            j += 1;
+        }
+        out.push(c[j]);
+        i = j;
+    }
+    out
+}
+
+/// `decimate` over every contour of every shape.
+fn decimate_all(shapes: &[Shape], eps: f64) -> Vec<Shape> {
+    shapes
+        .iter()
+        .map(|s| s.iter().map(|c| decimate(c, eps)).collect())
+        .collect()
+}
+
 /// At most `n` of the points, evenly spread.
 fn sample(v: &[Pt], n: usize) -> Vec<Pt> {
     let step = v.len().div_ceil(n).max(1);
@@ -162,16 +198,23 @@ fn cut_tile(art: &[Vec<Pt>], r: [f64; 4], prm: &Params) -> Cut {
             .collect();
         islands = rest.len();
         let mut strips: Vec<Vec<Pt>> = Vec::new();
+        // Linking only ever adds points, so each island's distance to the linked material is cached and refreshed
+        // against the newly linked outline alone, instead of rescanning everything every round.
+        let conn = sample(&linked, 1500);
+        let mut best: Vec<f64> = rest
+            .iter()
+            .map(|c| nearest(&sample(c, 1500), &conn).map_or(f64::MAX, |n| n.0))
+            .collect();
         while !rest.is_empty() {
-            let conn = sample(&linked, 1500);
-            let pick = rest
+            let pick = best
                 .iter()
                 .enumerate()
-                .filter_map(|(i, c)| nearest(&sample(c, 1500), &conn).map(|n| (i, n.0)))
-                .min_by(|a, b| a.1.total_cmp(&b.1))
+                .min_by(|a, b| a.1.total_cmp(b.1))
                 .map(|x| x.0)
                 .unwrap_or(0);
             let isl = rest.swap_remove(pick);
+            best.swap_remove(pick);
+            let conn = sample(&linked, 1500);
             let k = prm.bridges_per_island.max(1).min(isl.len() / 3 + 1);
             for chunk in 0..k {
                 let part: Vec<Pt> = isl
@@ -185,12 +228,20 @@ fn cut_tile(art: &[Vec<Pt>], r: [f64; 4], prm: &Params) -> Cut {
                     bridges += 1;
                 }
             }
+            let newly = sample(&isl, 1500);
+            for (i, c) in rest.iter().enumerate() {
+                if let Some((d, _, _)) = nearest(&sample(c, 1500), &newly) {
+                    best[i] = best[i].min(d);
+                }
+            }
             linked.extend(isl);
         }
         keep = material.overlay(&strips, OverlayRule::Union, FillRule::NonZero);
     }
     let path = grow(&keep, prm.tool / 2.0, prm.laser);
-    // What the tool can reach: wherever its centre fits outside the grown material, swept by its radius.
+    // What the tool can reach: wherever its centre fits outside the grown material, swept by its radius. This is a
+    // measure, not a cut path, so the contours are thinned to 0.02 mm and the joins mitred: both keep the point
+    // count down and the corner error is far below the 0.1 mm² the figure reports.
     let t = prm.tool;
     let big = vec![rect_poly([
         r[0] - 2.0 * t,
@@ -199,11 +250,11 @@ fn cut_tile(art: &[Vec<Pt>], r: [f64; 4], prm: &Params) -> Cut {
         r[3] + 2.0 * t,
     ])];
     let centre: Vec<Shape> = big.overlay(
-        &grow(&keep, t / 2.0, false),
+        &grow(&decimate_all(&keep, 0.02), t / 2.0, true),
         OverlayRule::Difference,
         FillRule::NonZero,
     );
-    let swept = grow(&centre, t / 2.0, false);
+    let swept = grow(&decimate_all(&centre, 0.02), t / 2.0, true);
     let opened: f64 = rect
         .overlay(&swept, OverlayRule::Intersect, FillRule::NonZero)
         .iter()
@@ -241,8 +292,10 @@ pub fn make(layout: &Layout, prm: &Params) -> Result<Cuts, String> {
         return Err("the tool size must be above 0".into());
     }
     let art = layout.art();
-    let mut pieces = Vec::new();
-    for t in layout.tile_rects() {
+    // The tiles are independent, so they are cut in parallel where threads exist. Sub-step progress comes from the
+    // thread running the node, so the lot reports as one step.
+    let rects = layout.tile_rects();
+    let pieces: Vec<Piece> = crate::par::map(&rects, |t| {
         let c = cut_tile(art, [t.x0, t.y0, t.x1, t.y1], prm);
         let b = bounds(&c.shapes);
         let shapes = c
@@ -258,20 +311,17 @@ pub fn make(layout: &Layout, prm: &Params) -> Result<Cuts, String> {
                     .collect()
             })
             .collect();
-        pieces.push(Piece {
-            name: t.name,
+        Piece {
+            name: t.name.clone(),
             w: b[2] - b[0],
             h: b[3] - b[1],
             shapes,
             islands: c.islands,
             bridges: c.bridges,
             lost_mm2: (c.lost_mm2 * 10.0).round() / 10.0,
-        });
-        crate::progress::step(
-            "cut tiles",
-            0.9 * pieces.len() as f64 / layout.tile_rects().len().max(1) as f64,
-        );
-    }
+        }
+    });
+    crate::progress::step("cut tiles", 0.9);
     let sheets = lay_out(&pieces, layout, prm)?;
     Ok(Cuts {
         pieces,
