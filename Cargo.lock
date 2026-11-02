@@ -873,6 +873,7 @@ dependencies = [
  "serde_json",
  "stencil-core",
  "tiny_http",
+ "ttf-parser",
 ]
 
 [[package]]

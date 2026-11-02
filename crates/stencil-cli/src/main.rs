@@ -1,3 +1,4 @@
+mod fonts;
 mod studio;
 
 use base64::Engine as _;
@@ -163,6 +164,16 @@ struct Args {
         requires = "list_params"
     )]
     params_format: String,
+    /// Use this font file for a Text node's system font: NAME=PATH, NAME being the PostScript name the studio saved
+    /// (see --list-fonts). Repeatable. Fonts the project needs are otherwise looked up in the system's font folders
+    #[arg(long, value_name = "NAME=PATH")]
+    font: Vec<String>,
+    /// Also look for system fonts in this folder (repeatable)
+    #[arg(long, value_name = "DIR")]
+    font_dir: Vec<PathBuf>,
+    /// List the fonts found (name, family and style, path), then exit. With --project: only the fonts it uses, found or missing
+    #[arg(long)]
+    list_fonts: bool,
     /// With --project: use this picture in the project's Image node instead of the saved one
     #[arg(long, value_name = "FILE")]
     source: Option<PathBuf>,
@@ -207,6 +218,14 @@ fn main() {
         list_params(node, &a.params_format);
         return;
     }
+    if a.list_fonts {
+        let graph = a
+            .project
+            .as_ref()
+            .map(|p| load_project(&mut Engine::new(), p).0);
+        fonts::list(graph.as_ref(), &a.font, &a.font_dir);
+        return;
+    }
     if a.batch.is_some() || !a.sweep.is_empty() {
         run_many(&a, &argv);
         return;
@@ -241,6 +260,7 @@ fn main() {
         use_picture(&mut engine, &mut graph, pic);
     }
     apply_sets(&mut graph, &a.set);
+    fonts::prepare(&mut engine, &mut graph, &a.font, &a.font_dir);
     let result = engine.run(&graph, None, &|| t.elapsed().as_secs_f64() * 1000.0);
     for l in result["log"].as_array().into_iter().flatten() {
         if l["level"] == "error" {
@@ -986,7 +1006,7 @@ fn write(path: &Path, bytes: &[u8]) {
         .unwrap_or_else(|e| fail(&format!("cannot write {}: {e}", path.display())));
 }
 
-fn fail(msg: &str) -> ! {
+pub fn fail(msg: &str) -> ! {
     eprintln!("error: {msg}");
     std::process::exit(1);
 }
