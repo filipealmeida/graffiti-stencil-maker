@@ -1610,3 +1610,11 @@ header {
     opacity: 0.4;
   }
 }
+.outline-downloads .actions {
+  align-items: center;
+  margin-bottom: 4px;
+}
+.outline-downloads .mut {
+  font-size: 11px;
+  flex: 1;
+}

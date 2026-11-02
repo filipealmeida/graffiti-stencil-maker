@@ -646,6 +646,32 @@ fn shape_cleanup_nodes_feed_a_vector_stencil() {
     assert!(info("ri", "removed")["kind"] == "shapes");
 }
 
+#[test]
+fn outlines_export_as_dxf_with_one_closed_polyline_per_loop() {
+    let mut e = Engine::new();
+    let g = json!({
+        "nodes": [
+            {"id": "t", "type": "text", "params": {"text": "AO"}},
+            {"id": "tr", "type": "trace", "params": {}},
+        ],
+        "edges": [{"from": ["t", "mask"], "to": ["tr", "mask"]}]
+    });
+    let r = e.run(&g, None, &|| 0.0);
+    let v = e
+        .value(r["nodes"]["tr"]["key"].as_str().unwrap(), "shapes")
+        .unwrap();
+    let loops = v.info()["loops"].as_u64().unwrap() as usize;
+    let dxf = String::from_utf8(v.dxf().unwrap()).unwrap();
+    assert!(loops >= 3, "A, its hole and O with its hole");
+    assert_eq!(dxf.matches("\nPOLYLINE\n").count(), loops);
+    assert_eq!(dxf.matches("\nSEQEND\n").count(), loops);
+    assert!(dxf.starts_with("0\nSECTION") && dxf.ends_with("0\nEOF\n"));
+    let mask = e
+        .value(r["nodes"]["t"]["key"].as_str().unwrap(), "mask")
+        .unwrap();
+    assert!(mask.dxf().is_none());
+}
+
 fn colour_set_graph(id: &str, margin: f64, second_margin: f64, params: Json) -> Json {
     json!({
         "nodes": [

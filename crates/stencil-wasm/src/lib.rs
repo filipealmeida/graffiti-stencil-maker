@@ -219,6 +219,14 @@ impl Engine {
         v.encode().map(|(_, b)| b).map_err(|e| JsError::new(&e))
     }
 
+    /// The outlines of a result as DXF.
+    pub fn dxf(&self, key: &str, out: &str) -> Result<Vec<u8>, JsError> {
+        self.inner
+            .value(key, out)
+            .and_then(|v| v.dxf())
+            .ok_or_else(|| JsError::new("no outlines to export"))
+    }
+
     pub fn part(&self, key: &str, out: &str, name: &str) -> Result<Vec<u8>, JsError> {
         self.inner
             .value(key, out)

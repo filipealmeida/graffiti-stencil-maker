@@ -185,6 +185,11 @@ test('3D views show dimensions and the trace node exports SVG', async ({ page })
   const href = await link.getAttribute('href')
   const text = await page.evaluate((h) => fetch(h!).then((r) => r.text()), href)
   expect(text).toContain('<svg')
+  const dxf = page.locator('.bench').getByRole('link', { name: 'Download DXF' })
+  await expect(dxf).toBeVisible()
+  const dxfText = await page.evaluate((h) => fetch(h!).then((r) => r.text()), await dxf.getAttribute('href'))
+  expect(dxfText).toContain('POLYLINE')
+  expect(dxfText.trim().endsWith('EOF')).toBe(true)
 })
 
 test('the Crop & rotate node can be added and rotates the picture', async ({ page }) => {

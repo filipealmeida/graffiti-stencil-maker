@@ -234,6 +234,9 @@ export const api = {
           retain(a.key)
           const prev = blobs.get(`${a.key}/${a.out}`)
           if (prev) URL.revokeObjectURL(prev)
+          const prevDxf = blobs.get(`${a.key}/${a.out}.dxf`)
+          if (prevDxf) URL.revokeObjectURL(prevDxf)
+          if (a.dxf?.length) blobs.set(`${a.key}/${a.out}.dxf`, URL.createObjectURL(new Blob([a.dxf as BlobPart], { type: 'image/vnd.dxf' })))
           if (a.bytes.length) blobs.set(`${a.key}/${a.out}`, URL.createObjectURL(new Blob([a.bytes as BlobPart], { type: a.mime })))
           for (const [name, bytes] of Object.entries<Uint8Array>(a.parts)) blobs.set(`${a.key}/${a.out}/${name}`, URL.createObjectURL(new Blob([bytes as BlobPart], { type: 'model/stl' })))
           if (a.info) infos.set(`${a.key}/${a.out}`, a.info)
@@ -283,4 +286,5 @@ export const api = {
 
 const missing = ''
 export const artifactUrl = (key: string, out: string, _size = 0) => blobs.get(`${key}/${out}`) ?? missing
+export const dxfUrl = (key: string, out: string) => blobs.get(`${key}/${out}.dxf`) ?? missing
 export const partUrl = (key: string, out: string, name: string) => blobs.get(`${key}/${out}/${name}`) ?? missing

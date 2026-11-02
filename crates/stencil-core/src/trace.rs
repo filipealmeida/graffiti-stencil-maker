@@ -375,6 +375,33 @@ impl Shapes {
         )
     }
 
+    /// ASCII DXF (R12, readable by every CAD and cutter program): one closed polyline per outline on the layer
+    /// `OUTLINE`, in picture pixels with y pointing up. Curves are flattened to within 0.05 px.
+    pub fn to_dxf(&self) -> String {
+        let mut d = String::from(
+            "0\nSECTION\n2\nHEADER\n9\n$ACADVER\n1\nAC1009\n0\nENDSEC\n\
+             0\nSECTION\n2\nTABLES\n0\nTABLE\n2\nLAYER\n70\n1\n\
+             0\nLAYER\n2\nOUTLINE\n70\n0\n62\n7\n6\nCONTINUOUS\n0\nENDTAB\n0\nENDSEC\n\
+             0\nSECTION\n2\nENTITIES\n",
+        );
+        for poly in self.flatten(0.05) {
+            if poly.len() < 3 {
+                continue;
+            }
+            d += "0\nPOLYLINE\n8\nOUTLINE\n66\n1\n70\n1\n";
+            for p in &poly {
+                d += &format!(
+                    "0\nVERTEX\n8\nOUTLINE\n10\n{:.4}\n20\n{:.4}\n30\n0.0\n",
+                    p[0],
+                    self.h as f64 - p[1]
+                );
+            }
+            d += "0\nSEQEND\n8\nOUTLINE\n";
+        }
+        d += "0\nENDSEC\n0\nEOF\n";
+        d
+    }
+
     pub fn segment_count(&self) -> usize {
         self.loops.iter().map(|l| l.segs.len()).sum()
     }

@@ -1,5 +1,5 @@
 import { zipSync, strToU8 } from 'fflate'
-import { api, artifactUrl, partUrl } from './api'
+import { api, artifactUrl, dxfUrl, partUrl } from './api'
 import { badgesFor } from './badges'
 import { useStudio } from './store'
 
@@ -90,7 +90,10 @@ export async function exportEverything() {
       if (!['solid', 'parts', 'shapes'].includes(o.type) || s.edges.some((e) => e.source === n.id && e.sourceHandle === o.name)) continue
       const base = safeName(label)
       if (o.type === 'solid') files[`models/${uniq(base, 'stl')}`] = await fetchBytes(artifactUrl(run.key, o.name))
-      else if (o.type === 'shapes') files[`models/${uniq(base, 'svg')}`] = await fetchBytes(artifactUrl(run.key, o.name))
+      else if (o.type === 'shapes') {
+        files[`models/${uniq(base, 'svg')}`] = await fetchBytes(artifactUrl(run.key, o.name))
+        files[`models/${uniq(base, 'dxf')}`] = await fetchBytes(dxfUrl(run.key, o.name))
+      }
       else for (const part of Object.keys(info?.files ?? {})) {
         const url = partUrl(run.key, o.name, part)
         if (url) files[`models/${base}/${part}`] = await fetchBytes(url)

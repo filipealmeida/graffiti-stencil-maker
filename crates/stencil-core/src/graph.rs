@@ -134,6 +134,14 @@ impl Value {
         }
     }
 
+    /// The outlines as a DXF file; `None` for anything but outlines.
+    pub fn dxf(&self) -> Option<Vec<u8>> {
+        match self {
+            Value::Shapes(s) => Some(s.to_dxf().into_bytes()),
+            _ => None,
+        }
+    }
+
     pub fn info(&self) -> Json {
         match self {
             Value::Image(i) => json!({"kind": "image", "width": i.w, "height": i.h}),

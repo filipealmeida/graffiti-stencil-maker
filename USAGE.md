@@ -52,6 +52,11 @@ Options that only apply to `--project`:
 - `--font NAME=PATH` (repeatable) uses a font file for a system font, `NAME` being the PostScript name the studio
   saved. `--font-dir DIR` (repeatable) adds a folder to search. Without them the project's fonts are looked up in the
   system's font folders; a font that cannot be found gives a warning and that Text node uses its built-in font.
+- `--svg FILE.svg` and `--dxf FILE.dxf` write the outlines the graph holds (the `shapes` of a Trace node and of the
+  nodes after it) as SVG or DXF. With several outline outputs the node and port are added to the name
+  (`FILE-trace-shapes.dxf`). The DXF is for CAD and cutters: one closed polyline per outline on the layer `OUTLINE`,
+  in picture pixels with y up. The studio has the same: on every node that takes or gives outlines, **Download SVG**
+  and **Download DXF** sit side by side, and the other outlines of the node get an SVG / DXF pair each.
 - `--source FILE` swaps the picture in the project's single Image node.
 - `--batch DIR` runs the project once for every picture in DIR (png, jpg, bmp, svg); `--sweep NODE.PARAM=a,b,c`
   (repeatable, combinations are all run) runs it once for every value. With either, `-o` names a folder that gets one

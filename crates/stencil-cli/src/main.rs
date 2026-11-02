@@ -164,6 +164,13 @@ struct Args {
         requires = "list_params"
     )]
     params_format: String,
+    /// Write the graph's outlines (the 'shapes' of Trace and the nodes after it) as an SVG file. With several outline
+    /// outputs the node and port names are added to the file name
+    #[arg(long, value_name = "FILE.svg")]
+    svg: Option<PathBuf>,
+    /// Like --svg, as a DXF file for CAD and cutters (R12, picture pixels, y up, layer OUTLINE)
+    #[arg(long, value_name = "FILE.dxf")]
+    dxf: Option<PathBuf>,
     /// Use this font file for a Text node's system font: NAME=PATH, NAME being the PostScript name the studio saved
     /// (see --list-fonts). Repeatable. Fonts the project needs are otherwise looked up in the system's font folders
     #[arg(long, value_name = "NAME=PATH")]
@@ -347,6 +354,11 @@ fn main() {
             write(&path, &bytes);
             eprintln!("wrote the tile plan to {}", path.display());
             layouts += 1;
+        }
+    }
+    for (flag, ext) in [(&a.svg, "svg"), (&a.dxf, "dxf")] {
+        if let Some(base) = flag {
+            layouts += write_outlines(&engine, &graph, &result, base, ext);
         }
     }
     let worst = report["findings"]
@@ -999,6 +1011,55 @@ fn load_project(engine: &mut Engine, path: &Path) -> (Json, String, PathBuf) {
         stem,
         path.parent().map(Path::to_path_buf).unwrap_or_default(),
     )
+}
+
+/// --svg and --dxf: every outline output of the graph, to `base` or, when there are several, `base-NODE-PORT.ext`.
+fn write_outlines(engine: &Engine, graph: &Json, result: &Json, base: &Path, ext: &str) -> usize {
+    let mut found: Vec<(String, Vec<u8>)> = Vec::new();
+    for n in graph["nodes"].as_array().into_iter().flatten() {
+        let id = n["id"].as_str().unwrap_or("");
+        let Some(key) = result["nodes"][id]["key"].as_str() else {
+            continue;
+        };
+        for (port, meta) in result["nodes"][id]["outputs"]
+            .as_object()
+            .into_iter()
+            .flatten()
+        {
+            if meta["type"] != "shapes" || meta["available"].as_bool() == Some(false) {
+                continue;
+            }
+            let Some(v) = engine.value(key, port) else {
+                continue;
+            };
+            let bytes = if ext == "dxf" {
+                v.dxf()
+            } else {
+                v.encode().ok().map(|e| e.1)
+            };
+            found.extend(bytes.map(|b| (format!("{id}-{port}"), b)));
+        }
+    }
+    if found.is_empty() {
+        fail(&format!(
+            "--{ext}: the graph has no outlines (add a Trace node)"
+        ));
+    }
+    let many = found.len() > 1;
+    for (name, bytes) in &found {
+        let path = if many {
+            let stem = base.file_stem().map(|s| s.to_string_lossy().to_string());
+            base.with_file_name(format!(
+                "{}-{name}.{ext}",
+                stem.unwrap_or_else(|| "outlines".into())
+            ))
+        } else {
+            base.to_path_buf()
+        };
+        write(&path, bytes);
+        eprintln!("wrote the outlines to {}", path.display());
+    }
+    found.len()
 }
 
 fn write(path: &Path, bytes: &[u8]) {

@@ -1,4 +1,5 @@
-import { artifactUrl, type Kind, type NodeRun } from './api'
+import { artifactUrl, dxfUrl, type Kind, type NodeRun } from './api'
+import { portText } from './ports'
 import { checkpoint, undo, useStudio } from './store'
 import { safeName } from './project'
 
@@ -8,7 +9,7 @@ export function downloadFor(kind: Kind | undefined, key: string | undefined, out
   if (!kind || !key || !out) return null
   const href = artifactUrl(key, out)
   if (kind === 'solid') return { href, label: 'Download STL', file: `${name}.stl` }
-  if (kind === 'shapes') return { href, label: 'Download SVG', file: `${name}.svg` }
+  if (kind === 'shapes') return { href, label: 'Download SVG', file: `${name}.svg`, dxf: { href: dxfUrl(key, out), label: 'Download DXF', file: `${name}.dxf` } }
   if (kind === 'parts') return { href, label: files > 1 ? 'Download ZIP' : 'Download STL', file: files > 1 ? `${name}-parts.zip` : `${name}.stl` }
   return null
 }
@@ -16,10 +17,52 @@ export function downloadFor(kind: Kind | undefined, key: string | undefined, out
 /** The row of actions for every node: preview (side panel only) and the download of what is on show. Delete lives in `NodeFooter`. */
 export function NodeActions({ id, preview, download }: { id: string; preview?: boolean; download: ReturnType<typeof downloadFor> }) {
   const { openBench } = useStudio.getState()
+  const dxf = download && 'dxf' in download ? download.dxf : undefined
   return (
-    <div className="actions">
-      {download && <a className="btn primary" href={download.href} download={download.file}>{download.label}</a>}
-      {preview && <button className="btn" onClick={() => openBench(id)} title="Double-click a node to open it">⤢ Open preview</button>}
+    <>
+      <div className="actions">
+        {download && <a className="btn primary" href={download.href} download={download.file}>{download.label}</a>}
+        {dxf && <a className="btn primary" href={dxf.href} download={dxf.file} title="Closed polylines on the layer OUTLINE, in picture pixels, for CAD and cutters">{dxf.label}</a>}
+        {preview && <button className="btn" onClick={() => openBench(id)} title="Double-click a node to open it">⤢ Open preview</button>}
+      </div>
+      <OutlineDownloads id={id} shown={download?.href} />
+    </>
+  )
+}
+
+/** Every outline the node takes in or gives out, each as SVG and DXF; the one already on show has its own buttons above. */
+function OutlineDownloads({ id, shown }: { id: string; shown?: string }) {
+  const node = useStudio((s) => s.nodes.find((n) => n.id === id))
+  const t = useStudio((s) => (node ? s.types[node.data.type] : undefined))
+  const edges = useStudio((s) => s.edges)
+  const runs = useStudio((s) => s.runs)
+  const pname = useStudio((s) => s.pname)
+  if (!node || !t) return null
+  const name = safeName(pname)
+  const rows: { label: string; key: string; out: string }[] = []
+  for (const o of t.outputs) {
+    const key = runs[id]?.key
+    if (o.type === 'shapes' && key && runs[id]?.outputs?.[o.name]?.available) rows.push({ label: `${portText(t.id, 'out', o.name).label} (out)`, key, out: o.name })
+  }
+  for (const i of t.inputs) {
+    const e = i.type === 'shapes' ? edges.find((x) => x.target === id && x.targetHandle === i.name) : undefined
+    const up = e && runs[e.source]
+    if (e && up?.key && up.outputs?.[e.sourceHandle!]?.available) rows.push({ label: `${portText(t.id, 'in', i.name).label} (in)`, key: up.key, out: e.sourceHandle! })
+  }
+  const others = rows.filter((r) => artifactUrl(r.key, r.out) !== shown)
+  if (!others.length) return null
+  return (
+    <div className="outline-downloads">
+      {others.map((r) => {
+        const file = `${name}-${r.label.replace(/[^a-z0-9]+/gi, '-').replace(/^-|-$/g, '').toLowerCase()}`
+        return (
+          <div className="actions" key={r.label}>
+            <span className="mut">{r.label}</span>
+            <a className="btn" href={artifactUrl(r.key, r.out)} download={`${file}.svg`}>SVG</a>
+            <a className="btn" href={dxfUrl(r.key, r.out)} download={`${file}.dxf`}>DXF</a>
+          </div>
+        )
+      })}
     </div>
   )
 }

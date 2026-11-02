@@ -45,7 +45,7 @@ const ready = (async () => {
   engine = new st.Engine()
 })()
 
-interface Artifact { key: string; out: string; mime: string; bytes: Uint8Array; info: unknown; parts: Record<string, Uint8Array> }
+interface Artifact { key: string; out: string; mime: string; bytes: Uint8Array; info: unknown; parts: Record<string, Uint8Array>; dxf?: Uint8Array }
 
 function collect(result: any): Artifact[] {
   const e = engine!
@@ -59,7 +59,8 @@ function collect(result: any): Artifact[] {
     const parts: Record<string, Uint8Array> = {}
     for (const name of Object.keys(info?.files ?? {})) parts[name] = e.part(f.key, f.out, name)
     if (info?.kind === 'solid') parts.plate = bytes
-    out.push({ key: f.key, out: f.out, mime, bytes, info, parts })
+    const dxf = info?.kind === 'shapes' ? (e.dxf(f.key, f.out) as Uint8Array<ArrayBuffer>) : undefined
+    out.push({ key: f.key, out: f.out, mime, bytes, info, parts, dxf })
   }
   return out
 }
@@ -103,6 +104,7 @@ function post(id: number, step: unknown, artifacts: Artifact[] = []) {
   for (const a of artifacts) {
     transfer.push(a.bytes.buffer as ArrayBuffer)
     for (const p of Object.values(a.parts)) if (p.buffer !== a.bytes.buffer) transfer.push(p.buffer as ArrayBuffer)
+    if (a.dxf) transfer.push(a.dxf.buffer as ArrayBuffer)
   }
   ;(self as any).postMessage({ id, step: { ...(step as object), artifacts } }, transfer)
 }
