@@ -144,6 +144,10 @@ struct Args {
     /// cover paint, seams red) to this PNG; with several layouts the node id is added to the name
     #[arg(long, value_name = "FILE.png")]
     layout: Option<PathBuf>,
+    /// Write every tile of every tile layout in the graph as SVG and DXF files (millimetres: the paint to cut, the
+    /// tile border and the connector blocks) into this folder
+    #[arg(long, value_name = "DIR")]
+    tile_drawings: Option<PathBuf>,
     /// Print the print-readiness report (findings and the slowest nodes)
     #[arg(long)]
     report: bool,
@@ -335,18 +339,26 @@ fn main() {
             else {
                 continue;
             };
-            found.push((id.to_string(), v.encode().map(|e| e.1).unwrap_or_default()));
+            let svg = base
+                .extension()
+                .is_some_and(|e| e.eq_ignore_ascii_case("svg"));
+            let encoded = if svg { v.encode() } else { v.encode_png() };
+            found.push((id.to_string(), encoded.map(|e| e.1).unwrap_or_default()));
         }
         if found.is_empty() {
             fail("--layout: the graph has no Tile plan node");
         }
         let many = found.len() > 1;
+        let svg = base
+            .extension()
+            .is_some_and(|e| e.eq_ignore_ascii_case("svg"));
         for (id, bytes) in found {
             let path = if many {
                 let stem = base.file_stem().map(|s| s.to_string_lossy().to_string());
                 base.with_file_name(format!(
-                    "{}-{id}.png",
-                    stem.unwrap_or_else(|| "layout".into())
+                    "{}-{id}.{}",
+                    stem.unwrap_or_else(|| "layout".into()),
+                    if svg { "svg" } else { "png" }
                 ))
             } else {
                 base.clone()
@@ -355,6 +367,9 @@ fn main() {
             eprintln!("wrote the tile plan to {}", path.display());
             layouts += 1;
         }
+    }
+    if let Some(dir) = &a.tile_drawings {
+        layouts += write_tile_drawings(&engine, &graph, &result, dir);
     }
     for (flag, ext) in [(&a.svg, "svg"), (&a.dxf, "dxf")] {
         if let Some(base) = flag {
@@ -1011,6 +1026,41 @@ fn load_project(engine: &mut Engine, path: &Path) -> (Json, String, PathBuf) {
         stem,
         path.parent().map(Path::to_path_buf).unwrap_or_default(),
     )
+}
+
+/// --tile-drawings: every tile of every Tile plan as `NAME.svg` and `NAME.dxf` (with the node id when there are several plans).
+fn write_tile_drawings(engine: &Engine, graph: &Json, result: &Json, dir: &Path) -> usize {
+    let plans: Vec<(String, &stencil_core::graph::Value)> = graph["nodes"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|n| {
+            let id = n["id"].as_str()?;
+            let key = result["nodes"][id]["key"].as_str()?;
+            Some((id.to_string(), engine.value(key, "tiles")?))
+        })
+        .collect();
+    if plans.is_empty() {
+        fail("--tile-drawings: the graph has no Tile plan node");
+    }
+    fs::create_dir_all(dir)
+        .unwrap_or_else(|e| fail(&format!("cannot create {}: {e}", dir.display())));
+    let many = plans.len() > 1;
+    let mut n = 0;
+    for (id, v) in plans {
+        for name in v.info()["tile_files"].as_array().into_iter().flatten() {
+            let name = name.as_str().unwrap_or("");
+            let file = if many {
+                format!("{id}-{name}")
+            } else {
+                name.to_string()
+            };
+            write(&dir.join(file), &v.part(name).unwrap_or_default());
+            n += 1;
+        }
+    }
+    eprintln!("wrote {n} tile drawings to {}", dir.display());
+    1
 }
 
 /// --svg and --dxf: every outline output of the graph, to `base` or, when there are several, `base-NODE-PORT.ext`.

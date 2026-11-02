@@ -238,7 +238,7 @@ export const api = {
           if (prevDxf) URL.revokeObjectURL(prevDxf)
           if (a.dxf?.length) blobs.set(`${a.key}/${a.out}.dxf`, URL.createObjectURL(new Blob([a.dxf as BlobPart], { type: 'image/vnd.dxf' })))
           if (a.bytes.length) blobs.set(`${a.key}/${a.out}`, URL.createObjectURL(new Blob([a.bytes as BlobPart], { type: a.mime })))
-          for (const [name, bytes] of Object.entries<Uint8Array>(a.parts)) blobs.set(`${a.key}/${a.out}/${name}`, URL.createObjectURL(new Blob([bytes as BlobPart], { type: 'model/stl' })))
+          for (const [name, bytes] of Object.entries<Uint8Array>(a.parts)) blobs.set(`${a.key}/${a.out}/${name}`, URL.createObjectURL(new Blob([bytes as BlobPart], { type: name.endsWith('.svg') ? 'image/svg+xml' : name.endsWith('.dxf') ? 'image/vnd.dxf' : 'model/stl' })))
           if (a.info) infos.set(`${a.key}/${a.out}`, a.info)
         }
         onStep({

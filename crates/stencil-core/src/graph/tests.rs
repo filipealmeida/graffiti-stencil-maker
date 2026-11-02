@@ -672,6 +672,104 @@ fn outlines_export_as_dxf_with_one_closed_polyline_per_loop() {
     assert!(mask.dxf().is_none());
 }
 
+fn svg_cut_area(svg: &str) -> f64 {
+    // the CUT path is made of M/L/Z runs; add up the shoelace areas of its loops (even-odd: outer minus holes would
+    // need nesting, so the sum of absolute areas is only compared between runs with the same loop structure)
+    let d = svg
+        .split("id=\"CUT\" d=\"")
+        .nth(1)
+        .unwrap()
+        .split('"')
+        .next()
+        .unwrap();
+    d.split('Z')
+        .filter(|l| !l.is_empty())
+        .map(|l| {
+            let pts: Vec<(f64, f64)> = l
+                .split(|c| c == 'M' || c == 'L')
+                .filter(|s| !s.is_empty())
+                .map(|s| {
+                    let mut v = s.split_whitespace().map(|x| x.parse::<f64>().unwrap());
+                    (v.next().unwrap(), v.next().unwrap())
+                })
+                .collect();
+            (0..pts.len())
+                .map(|i| {
+                    let (a, b) = (pts[i], pts[(i + 1) % pts.len()]);
+                    a.0 * b.1 - b.0 * a.1
+                })
+                .sum::<f64>()
+                .abs()
+                / 2.0
+        })
+        .sum()
+}
+
+#[test]
+fn a_plan_from_outlines_is_a_drawing_with_a_svg_and_dxf_for_every_tile() {
+    let mut e = Engine::new();
+    let g = json!({
+        "nodes": [
+            {"id": "t", "type": "text", "params": {"text": "AO"}},
+            {"id": "tr", "type": "trace", "params": {}},
+            {"id": "pl", "type": "tile_layout", "params": {"width_mm": 120, "max_x": 70, "max_y": 70}},
+        ],
+        "edges": [
+            {"from": ["t", "mask"], "to": ["tr", "mask"]},
+            {"from": ["tr", "shapes"], "to": ["pl", "shapes"]}
+        ]
+    });
+    let r = e.run(&g, None, &|| 0.0);
+    assert_eq!(r["nodes"]["pl"]["state"], "done", "{r}");
+    let v = e
+        .value(r["nodes"]["pl"]["key"].as_str().unwrap(), "tiles")
+        .unwrap();
+    assert_eq!(v.encode().unwrap().0, "image/svg+xml");
+    assert_eq!(v.encode_png().unwrap().0, "image/png");
+    let info = v.info();
+    assert_eq!(info["vector"], true);
+    let tiles = info["tile_list"].as_array().unwrap();
+    assert!(tiles.len() >= 2, "{info}");
+    let files = info["tile_files"].as_array().unwrap();
+    assert_eq!(files.len(), tiles.len() * 2);
+    let mut total = 0.0;
+    for t in tiles {
+        let name = t["name"].as_str().unwrap();
+        let svg = String::from_utf8(v.part(&format!("{name}.svg")).unwrap()).unwrap();
+        assert!(svg.contains(&format!("width=\"{:.2}mm\"", t["w"].as_f64().unwrap())));
+        total += svg_cut_area(&svg);
+        let dxf = String::from_utf8(v.part(&format!("{name}.dxf")).unwrap()).unwrap();
+        assert!(dxf.contains("\nCUT\n") && dxf.contains("\nTILE\n") && dxf.ends_with("0\nEOF\n"));
+    }
+    assert!(total > 100.0, "the tiles carry the artwork: {total}");
+    assert!(v.part("nope.svg").is_none());
+}
+
+#[test]
+fn a_plan_from_a_mask_still_has_a_picture_and_drawings() {
+    let mut e = Engine::new();
+    let g = json!({
+        "nodes": [
+            {"id": "t", "type": "text", "params": {"text": "AO"}},
+            {"id": "pl", "type": "tile_layout", "params": {"width_mm": 120, "max_x": 70, "max_y": 70}},
+        ],
+        "edges": [{"from": ["t", "mask"], "to": ["pl", "mask"]}]
+    });
+    let r = e.run(&g, None, &|| 0.0);
+    assert_eq!(r["nodes"]["pl"]["state"], "done", "{r}");
+    let v = e
+        .value(r["nodes"]["pl"]["key"].as_str().unwrap(), "tiles")
+        .unwrap();
+    assert_eq!(v.encode().unwrap().0, "image/png");
+    assert_eq!(v.info()["vector"], false);
+    let first = v.info()["tile_list"][0]["name"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let svg = String::from_utf8(v.part(&format!("{first}.svg")).unwrap()).unwrap();
+    assert!(svg.contains("id=\"CUT\""));
+}
+
 fn colour_set_graph(id: &str, margin: f64, second_margin: f64, params: Json) -> Json {
     json!({
         "nodes": [

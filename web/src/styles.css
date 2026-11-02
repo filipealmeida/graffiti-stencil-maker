@@ -1618,3 +1618,25 @@ header {
   font-size: 11px;
   flex: 1;
 }
+.tilepanel-note {
+  margin: 0 0 6px;
+  font-size: 11px;
+}
+
+/* one small-button size for secondary controls everywhere */
+.console-bar button,
+.help-toggle,
+.node-actions .btn,
+.node-actions button,
+.v3parts button,
+.v3parts a.btn {
+  min-height: 24px;
+  padding: 2px 8px;
+  font-size: 12px;
+  border-radius: 6px;
+  line-height: 18px;
+  box-sizing: border-box;
+}
+.help-toggle {
+  margin: 0 0 6px;
+}

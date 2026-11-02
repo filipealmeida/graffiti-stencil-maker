@@ -598,6 +598,15 @@ test('a connector block slides along its seam and an overlap is refused', async 
   await expect(page.getByRole('button', { name: 'Reset layout' })).toBeVisible({ timeout: 80_000 })
   // far off the seam is refused with a reason
   await page.mouse.move(x, y0)
+  // the block moved a little: find it again
+  let y1 = 0
+  for (let y = y0 - 30; y < y0 + 30 && !y1; y += 2) {
+    await page.mouse.move(x, y)
+    if ((await stage.evaluate((el) => (el as HTMLElement).style.cursor)) === 'grab') y1 = y + 2
+  }
+  expect(y1).toBeGreaterThan(0)
+  y0 = y1
+  await page.mouse.move(x, y0)
   await page.mouse.down()
   await page.mouse.move(x, y0 + 400, { steps: 6 })
   await expect(page.locator('.layout-note')).toContainText("Can't drop here")
@@ -1269,4 +1278,15 @@ test('Stop halts a long run at once and Rerun brings the button back', async ({ 
   await expect(stop).toHaveCount(0)
   await expect(page.getByRole('button', { name: 'Rerun' })).toBeEnabled()
   await expect(page.locator('.crash')).toHaveCount(0)
+})
+
+test('the Tile plan lists every tile with SVG and DXF downloads', async ({ page }) => {
+  await openLayoutPreview(page)
+  const panel = page.locator('aside.tilepanel')
+  await expect(panel).toContainText('Tiles')
+  const href = await panel.locator('a', { hasText: 'DXF' }).first().getAttribute('href')
+  const body = await page.evaluate(async (u) => (await (await fetch(u!)).text()), href)
+  expect(body).toContain('ENTITIES')
+  const svg = await panel.locator('a', { hasText: 'SVG' }).first().getAttribute('href')
+  expect(await page.evaluate(async (u) => (await (await fetch(u!)).text()), svg)).toContain('<svg')
 })

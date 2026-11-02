@@ -191,6 +191,8 @@ pub struct Layout {
     pub edits_ignored: usize,
     pub source: Source,
     cover: Cover,
+    /// The artwork as polygons in plate millimetres, made when a tile is drawn.
+    pub(crate) art: std::sync::OnceLock<Vec<Vec<crate::trace::Pt>>>,
 }
 
 pub struct LayoutParams {
@@ -304,6 +306,7 @@ pub fn from_mask(
             paint: full,
         },
         cover,
+        art: Default::default(),
     })
 }
 
@@ -353,6 +356,7 @@ pub fn from_shapes(shapes: &Shapes, lp: &LayoutParams) -> Result<Layout, String>
         edits_ignored,
         source: Source::Vector(shapes.clone()),
         cover,
+        art: Default::default(),
     })
 }
 

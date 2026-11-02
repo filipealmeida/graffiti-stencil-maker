@@ -121,16 +121,27 @@ impl Value {
             }
             Value::Shapes(s) => Ok(("image/svg+xml", s.to_svg().into_bytes())),
             Value::Solid(s) => Ok(("model/stl", s.stl.clone())),
-            Value::Tiles(l) => {
-                let (w, h, rgb) = l.preview();
-                Ok(("image/png", png(w, h, image::ColorType::Rgb8, &rgb)?))
-            }
+            Value::Tiles(l) => match l.preview_svg() {
+                Some(svg) => Ok(("image/svg+xml", svg.into_bytes())),
+                None => self.encode_png(),
+            },
             Value::Layer(l) => l.art.value().encode(),
             Value::Layout(j) => Ok(("application/json", j.to_string().into_bytes())),
             Value::Parts(p) => match p.files.as_slice() {
                 [(_, b)] => Ok(("model/stl", b.clone())),
                 files => Ok(("application/zip", crate::zip::zip(files))),
             },
+        }
+    }
+
+    /// The tile plan as a picture, always a PNG (a plan made from outlines is a drawing in `encode`).
+    pub fn encode_png(&self) -> Result<(&'static str, Vec<u8>), String> {
+        match self {
+            Value::Tiles(l) => {
+                let (w, h, rgb) = l.preview();
+                Ok(("image/png", png(w, h, image::ColorType::Rgb8, &rgb)?))
+            }
+            _ => self.encode(),
         }
     }
 
@@ -186,6 +197,9 @@ impl Value {
                     "min_tile": crate::tiles::min_tile(l.spec.depth),
                     "max": [l.max_x, l.max_y], "gap": 1.5, "quantum": l.quantum,
                     "edits_ignored": l.edits_ignored,
+                    "vector": matches!(l.source, crate::tile_first::Source::Vector(_)),
+                    "tile_list": l.tile_list(),
+                    "tile_files": l.tile_rects().iter().flat_map(|t| [format!("{}.svg", t.name), format!("{}.dxf", t.name)]).collect::<Vec<_>>(),
                 })
             }
             Value::Parts(p) => {
@@ -207,6 +221,7 @@ impl Value {
                 .find(|(n, _)| n == name)
                 .map(|(_, b)| b.clone()),
             Value::Solid(s) if name == "plate" => Some(s.stl.clone()),
+            Value::Tiles(l) => l.tile_file(name),
             _ => None,
         }
     }

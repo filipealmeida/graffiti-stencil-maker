@@ -6,6 +6,7 @@ import ImageView, { type LayersProps } from './ImageView'
 import ParamForm from './ParamForm'
 import SourceActions from './SourceActions'
 import Presets from './Presets'
+import TilesPanel from './TilesPanel'
 import { NodeActions, DeleteNode, downloadFor, runSummary } from './NodeActions'
 import Findings, { useNodeFindings } from './Findings'
 import ImageInfoPanel from './ImageInfo'
@@ -172,6 +173,7 @@ export default function Workbench() {
             {cur?.kind === 'parts' && <Viewer3D parts={partsList()} plate={info?.meta?.plate} />}
           </Suspense>
         </section>
+        {t.id === 'tile_layout' && info?.kind === 'tiles' && info.tile_list && cur?.key && <TilesPanel info={info} keyOf={cur.key} out={cur.out} />}
         {t.id === 'canvas' && <LayersPanel updating={updating} layout={shown} picked={picked} onPick={setPicked} onMove={moveLayer} moved={Object.keys(draft ?? committed).length > 0} onReset={() => { draftRef.current = null; setDraft(null); window.clearTimeout(timer.current); setParam(node.id, 'layer_moves', '') }} />}
       </div>
       <div className="bench-foot">
