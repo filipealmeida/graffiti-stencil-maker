@@ -724,7 +724,6 @@ function Canvas() {
             minZoom={0.1}
             autoPanOnNodeDrag={false}
             translateExtent={extent}
-            proOptions={{ hideAttribution: true }}
             defaultViewport={{ x: 20, y: 60, zoom: 0.7 }}
             defaultEdgeOptions={{
               style: { stroke: KIND_COLOR.any, strokeWidth: 2 },
