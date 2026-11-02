@@ -252,6 +252,8 @@ export const api = {
   /** Stops whatever is computing right now, even a node in the middle of its work. */
   stop: () => stopRun(true),
   info: async (key: string, out: string) => infos.get(`${key}/${out}`) ?? {},
+  /** One file of a finished output, made by the engine on demand (e.g. the cut sheet preview). */
+  part: (key: string, out: string, name: string) => call<Uint8Array>({ op: 'part', key, out, name }),
   /** The info of a finished output when it is already in memory. */
   peekInfo: (key: string, out: string) => infos.get(`${key}/${out}`),
 

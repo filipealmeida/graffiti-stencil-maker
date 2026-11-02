@@ -33,6 +33,9 @@ export default function Workbench() {
   const [info, setInfo] = useState<Record<string, any> | null>(null)
   const [layout, setLayout] = useState<Record<string, any> | null>(null)
   const [cuts, setCuts] = useState<Record<string, any> | null>(null)
+  const [hideCut, setHideCut] = useState<Set<string>>(new Set())
+  const [cutsUrl, setCutsUrl] = useState('')
+  const cutsUrlRef = useRef('')
   const [picked, setPicked] = useState<string>()
   const [editing, setEditing] = useState(false)
   // hand moves wait here until the user stops interacting, so the engine is not asked again for every step
@@ -73,6 +76,25 @@ export default function Workbench() {
     if (t?.id !== 'cut_sheet') setCuts(null)
     else if (run?.key) api.info(run.key, 'cuts').then(setCuts).catch(() => setCuts(null))
   }, [t?.id, run?.key])
+
+  useEffect(() => { setHideCut(new Set()) }, [id])
+
+  // the cut sheet preview is drawn by the engine on demand, with only the ticked parts, so the view stays light
+  useEffect(() => {
+    const drop = () => { if (cutsUrlRef.current) { URL.revokeObjectURL(cutsUrlRef.current); cutsUrlRef.current = '' } }
+    if (t?.id !== 'cut_sheet' || !run?.key || !cuts?.piece_list) { drop(); setCutsUrl(''); return }
+    let alive = true
+    const shown = (cuts.piece_list as any[]).map((p) => String(p.name)).filter((n) => !hideCut.has(n))
+    api.part(run.key, 'cuts', `preview:${shown.join(',')}`).then((b) => {
+      if (!alive) return
+      drop()
+      cutsUrlRef.current = URL.createObjectURL(new Blob([b as BlobPart], { type: 'image/svg+xml' }))
+      setCutsUrl(cutsUrlRef.current)
+    }).catch(() => { if (alive) setCutsUrl('') })
+    return () => { alive = false }
+  }, [t?.id, run?.key, cuts, hideCut])
+
+  useEffect(() => () => { if (cutsUrlRef.current) URL.revokeObjectURL(cutsUrlRef.current) }, [])
 
   useEffect(() => () => commitRef.current(), [])
 
@@ -133,6 +155,8 @@ export default function Workbench() {
     return [{ name: 'plate', url: artifactUrl(cur.key, cur.out) }]
   }
   const partsList = () => (info?.files ? Object.keys(info.files).map((n) => ({ name: n, url: partUrl(cur!.key!, cur!.out, n) })) : [])
+  // the Cut sheet's own output is shown as the light preview, never as the full drawing
+  const cutView = t.id === 'cut_sheet' && cur?.id === 'out:sheet'
 
   return (
     <div className="bench">
@@ -166,7 +190,10 @@ export default function Workbench() {
         </aside>
         <section className="bench-view">
           {!cur && <div className="mut center">{run?.state === 'error' ? run.error : 'nothing computed yet'}</div>}
-          {cur && (cur.kind === 'image' || cur.kind === 'mask' || cur.kind === 'shapes' || cur.kind === 'tiles' || cur.kind === 'layer' || cur.kind === 'any') && cur.key && (
+          {cutView && (cutsUrl
+            ? <ImageView key="cuts" src={cutsUrl} kind="image" />
+            : <div className="mut center">drawing the sheets…</div>)}
+          {cur && !cutView && (cur.kind === 'image' || cur.kind === 'mask' || cur.kind === 'shapes' || cur.kind === 'tiles' || cur.kind === 'layer' || cur.kind === 'any') && cur.key && (
             <ImageView key={`${cur.id}`} src={artifactUrl(cur.key, cur.out)} kind={cur.kind === 'mask' ? 'mask' : 'image'}
               under={cur.kind === 'mask' && cur.id.startsWith('out:') ? imageFor(cur.key) : undefined}
               layout={cur.kind === 'tiles' && cur.id.startsWith('out:') && node.data.type === 'tile_layout' && info?.kind === 'tiles' && info.pocket_list
@@ -181,7 +208,7 @@ export default function Workbench() {
           </Suspense>
         </section>
         {t.id === 'tile_layout' && info?.kind === 'tiles' && info.tile_list && cur?.key && <TilesPanel info={info} keyOf={cur.key} out={cur.out} />}
-        {t.id === 'cut_sheet' && cuts?.piece_list && run?.key && <CutsPanel info={cuts} keyOf={run.key} />}
+        {t.id === 'cut_sheet' && cuts?.piece_list && run?.key && <CutsPanel info={cuts} keyOf={run.key} hidden={hideCut} onHidden={setHideCut} />}
         {t.id === 'canvas' && <LayersPanel updating={updating} layout={shown} picked={picked} onPick={setPicked} onMove={moveLayer} moved={Object.keys(draft ?? committed).length > 0} onReset={() => { draftRef.current = null; setDraft(null); window.clearTimeout(timer.current); setParam(node.id, 'layer_moves', '') }} />}
       </div>
       <div className="bench-foot">

@@ -6,6 +6,7 @@ type Req =
   | { id: number; op: 'has'; imageId: string }
   | { id: number; op: 'imageinfo'; imageId: string; resolution: number }
   | { id: number; op: 'run'; graph: string; targets: string; costs?: Record<string, number> }
+  | { id: number; op: 'part'; key: string; out: string; name: string }
   | { id: number; op: 'cancel' }
   | { id: number; op: 'threads' }
   | { id: number; op: 'font'; name: string; bytes: ArrayBuffer }
@@ -173,6 +174,10 @@ self.onmessage = async (ev: MessageEvent<Req>) => {
     if (m.op === 'image') return self.postMessage({ id: m.id, ok: JSON.parse(e.add_image(new Uint8Array(m.bytes))) })
     if (m.op === 'font') { e.add_font(m.name, new Uint8Array(m.bytes)); return self.postMessage({ id: m.id, ok: true }) }
     if (m.op === 'hasfont') return self.postMessage({ id: m.id, ok: e.has_font(m.name) })
+    if (m.op === 'part') {
+      const b = e.part(m.key, m.out, m.name) as Uint8Array<ArrayBuffer>
+      return (self as any).postMessage({ id: m.id, ok: b }, [b.buffer])
+    }
     if (m.op === 'cancel') { runToken++; return }
     if (m.op === 'threads') return self.postMessage({ id: m.id, ok: { n: threads, why, version: e.version() } })
     self.postMessage({ id: m.id, ...(await runGraph(m)) })

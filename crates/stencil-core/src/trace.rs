@@ -8,6 +8,23 @@ pub type Pt = [f64; 2];
 #[derive(Clone, Copy, Debug)]
 pub struct Cubic(pub [Pt; 4]);
 
+impl Cubic {
+    /// Both handles lie on the chord, so the segment is a straight line.
+    pub fn is_straight(&self) -> bool {
+        let [p, a, b, e] = self.0;
+        let d = [e[0] - p[0], e[1] - p[1]];
+        let l2 = d[0] * d[0] + d[1] * d[1];
+        let off = |q: Pt| {
+            let v = [q[0] - p[0], q[1] - p[1]];
+            let t = (v[0] * d[0] + v[1] * d[1]) / l2.max(1e-18);
+            (0.0..=1.0).contains(&t)
+                && (v[0] * d[1] - v[1] * d[0]).powi(2)
+                    <= 1e-12 * l2.max(1e-18) * l2.max(1e-18) + 1e-18
+        };
+        off(a) && off(b)
+    }
+}
+
 /// Closed outline. Outlines are filled with the even-odd rule, so holes need no special handling.
 #[derive(Clone, Debug)]
 pub struct Loop {
@@ -361,10 +378,14 @@ impl Shapes {
             d += &format!("M{:.2} {:.2}", s[0], s[1]);
             for c in &l.segs {
                 let [_, a, b, e] = c.0;
-                d += &format!(
-                    "C{:.2} {:.2} {:.2} {:.2} {:.2} {:.2}",
-                    a[0], a[1], b[0], b[1], e[0], e[1]
-                );
+                if c.is_straight() {
+                    d += &format!("L{:.2} {:.2}", e[0], e[1]);
+                } else {
+                    d += &format!(
+                        "C{:.2} {:.2} {:.2} {:.2} {:.2} {:.2}",
+                        a[0], a[1], b[0], b[1], e[0], e[1]
+                    );
+                }
             }
             d += "Z";
         }

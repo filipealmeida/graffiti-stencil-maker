@@ -190,28 +190,32 @@ fn cut_tile(art: &[Vec<Pt>], r: [f64; 4], prm: &Params) -> Cut {
         keep = material.overlay(&strips, OverlayRule::Union, FillRule::NonZero);
     }
     let path = grow(&keep, prm.tool / 2.0, prm.laser);
-    // What the tool leaves of the paint: the holes of the path, grown back by the tool radius.
-    let holes: Vec<Vec<Pt>> = path
+    // What the tool can reach: wherever its centre fits outside the grown material, swept by its radius.
+    let t = prm.tool;
+    let big = vec![rect_poly([
+        r[0] - 2.0 * t,
+        r[1] - 2.0 * t,
+        r[2] + 2.0 * t,
+        r[3] + 2.0 * t,
+    ])];
+    let centre: Vec<Shape> = big.overlay(
+        &grow(&keep, t / 2.0, false),
+        OverlayRule::Difference,
+        FillRule::NonZero,
+    );
+    let swept = grow(&centre, t / 2.0, false);
+    let opened: f64 = rect
+        .overlay(&swept, OverlayRule::Intersect, FillRule::NonZero)
         .iter()
-        .flat_map(|s| s.iter().skip(1).cloned().map(ccw))
-        .collect();
-    let opened: Vec<Shape> = if holes.is_empty() {
-        vec![]
-    } else {
-        grow(
-            &holes.iter().cloned().map(|h| vec![h]).collect::<Vec<_>>(),
-            prm.tool / 2.0,
-            prm.laser,
-        )
-    };
+        .map(shape_area)
+        .sum();
     let kept: f64 = keep.iter().map(shape_area).sum();
     let free = area(&rect[0]).abs() - kept;
-    let cut: f64 = opened.iter().map(shape_area).sum();
     Cut {
         shapes: path,
         islands,
         bridges,
-        lost_mm2: (free - cut).max(0.0),
+        lost_mm2: (free - opened).max(0.0),
     }
 }
 
@@ -276,86 +280,75 @@ pub fn make(layout: &Layout, prm: &Params) -> Result<Cuts, String> {
     })
 }
 
+/// Places the parts in the plan's reading order (row 1 at the top, left to right), one shelf per plan row; a row that
+/// does not fit the sheet's width wraps to a new shelf and a shelf that does not fit its height starts a new sheet.
 fn lay_out(pieces: &[Piece], layout: &Layout, prm: &Params) -> Result<Vec<Sheet>, String> {
     let g = prm.gap;
-    if prm.sheet_w <= 0.0 || prm.sheet_h <= 0.0 {
-        // The plan's rows, left to right.
-        let rows = layout
-            .tile_rects()
-            .iter()
-            .map(|t| t.row)
-            .collect::<Vec<_>>();
-        let (mut items, mut x, mut y, mut row_h, mut width) = (vec![], g, g, 0.0f64, 0.0f64);
-        let mut row = rows.first().copied().unwrap_or(1);
-        for (i, p) in pieces.iter().enumerate() {
-            if rows[i] != row {
-                row = rows[i];
-                y += row_h + g;
-                x = g;
-                row_h = 0.0;
-            }
-            items.push((i, x, y));
-            x += p.w + g;
-            row_h = row_h.max(p.h);
-            width = width.max(x);
-        }
-        return Ok(vec![Sheet {
-            name: "sheet_1".into(),
-            w: width,
-            h: y + row_h + g,
-            items,
-        }]);
-    }
-    let (sw, sh) = (prm.sheet_w, prm.sheet_h);
-    let mut order: Vec<usize> = (0..pieces.len()).collect();
-    order.sort_by(|&a, &b| pieces[b].h.total_cmp(&pieces[a].h));
-    // Per sheet: the shelves as (y, height, next x).
-    type Shelves = Vec<(f64, f64, f64)>;
-    type Items = Vec<(usize, f64, f64)>;
-    let mut sheets: Vec<(Shelves, Items)> = vec![];
-    for i in order {
-        let p = &pieces[i];
-        if p.w + 2.0 * g > sw + 1e-9 || p.h + 2.0 * g > sh + 1e-9 {
+    let rows: Vec<usize> = layout.tile_rects().iter().map(|t| t.row).collect();
+    let sized = prm.sheet_w > 0.0 && prm.sheet_h > 0.0;
+    let (sw, sh) = if sized {
+        (prm.sheet_w, prm.sheet_h)
+    } else {
+        (f64::INFINITY, f64::INFINITY)
+    };
+    // Per sheet: the parts with their top left corner measured down from the sheet's top.
+    let mut sheets: Vec<Vec<(usize, f64, f64)>> = vec![vec![]];
+    let (mut x, mut top, mut shelf_h) = (g, g, 0.0f64);
+    let mut row = rows.first().copied().unwrap_or(1);
+    for (i, p) in pieces.iter().enumerate() {
+        if sized && (p.w + 2.0 * g > sw + 1e-9 || p.h + 2.0 * g > sh + 1e-9) {
             return Err(format!(
                 "{} ({:.1} x {:.1} mm with the cut) does not fit the {sw} x {sh} mm sheet",
                 p.name, p.w, p.h
             ));
         }
-        let mut done = false;
-        for (shelves, items) in sheets.iter_mut() {
-            for s in shelves.iter_mut() {
-                if p.h <= s.1 + 1e-9 && s.2 + p.w + g <= sw + 1e-9 {
-                    items.push((i, s.2, s.0));
-                    s.2 += p.w + g;
-                    done = true;
-                    break;
-                }
-            }
-            if done {
-                break;
-            }
-            let top = shelves.last().map_or(g, |s| s.0 + s.1 + g);
-            if top + p.h + g <= sh + 1e-9 {
-                shelves.push((top, p.h, g + p.w + g));
-                items.push((i, g, top));
-                done = true;
-                break;
-            }
+        let new_row = rows.get(i).is_some_and(|&r| r != row);
+        if new_row || (x > g && x + p.w + g > sw + 1e-9) {
+            top += shelf_h + g;
+            x = g;
+            shelf_h = 0.0;
         }
-        if !done {
-            sheets.push((vec![(g, p.h, g + p.w + g)], vec![(i, g, g)]));
+        row = rows.get(i).copied().unwrap_or(row);
+        if top + p.h.max(shelf_h) + g > sh + 1e-9 {
+            sheets.push(vec![]);
+            top = g;
+            x = g;
+            shelf_h = 0.0;
         }
+        sheets.last_mut().unwrap().push((i, x, top));
+        x += p.w + g;
+        shelf_h = shelf_h.max(p.h);
     }
-    Ok(sheets
+    let out = sheets
         .into_iter()
         .enumerate()
-        .map(|(n, (_, items))| Sheet {
-            name: format!("sheet_{}", n + 1),
-            w: sw,
-            h: sh,
-            items,
+        .map(|(n, items)| {
+            let (w, h) = if sized {
+                (sw, sh)
+            } else {
+                let right = items
+                    .iter()
+                    .map(|&(i, x, _)| x + pieces[i].w)
+                    .fold(0.0, f64::max);
+                let bottom = items
+                    .iter()
+                    .map(|&(i, _, y)| y + pieces[i].h)
+                    .fold(0.0, f64::max);
+                (right + g, bottom + g)
+            };
+            Sheet {
+                name: format!("sheet_{}", n + 1),
+                w,
+                h,
+                // DXF and the stored positions have y up from the sheet's lower edge.
+                items: items
+                    .into_iter()
+                    .map(|(i, x, t)| (i, x, h - t - pieces[i].h))
+                    .collect(),
+            }
         })
-        .collect())
+        .collect();
+    Ok(out)
 }
 
 fn layers_of(shapes: &[Shape], dx: f64, dy: f64) -> (Vec<Vec<Pt>>, Vec<Vec<Pt>>) {
@@ -466,7 +459,53 @@ impl Cuts {
             .collect()
     }
 
+    /// A light picture of the sheets side by side, with only the named parts drawn (filled, simplified to 0.1 mm), for
+    /// the preview. The sheet borders are always drawn.
+    pub fn preview(&self, shown: &[&str]) -> String {
+        const PX: f64 = 3.0;
+        let total_h = self.sheets.iter().map(|s| s.h).fold(0.0, f64::max);
+        let total_w: f64 = self.sheets.iter().map(|s| s.w).sum::<f64>() + 10.0 * (self.sheets.len().max(1) - 1) as f64;
+        let (mut d, mut frames, mut x0) = (String::new(), String::new(), 0.0);
+        for s in &self.sheets {
+            frames += &format!(
+                "<rect x=\"{:.1}\" y=\"{:.1}\" width=\"{:.1}\" height=\"{:.1}\"/>",
+                x0 * PX, (total_h - s.h) * PX, s.w * PX, s.h * PX
+            );
+            for (p, x, y) in self.placed(s) {
+                if !shown.contains(&p.name.as_str()) {
+                    continue;
+                }
+                for c in p.shapes.iter().flatten() {
+                    let mut last: Option<Pt> = None;
+                    for (i, q) in c.iter().enumerate() {
+                        if last.is_some_and(|l| dist2(l, *q) < 0.01) && i + 1 < c.len() {
+                            continue;
+                        }
+                        last = Some(*q);
+                        d += &format!(
+                            "{}{:.1} {:.1}",
+                            if i == 0 { "M" } else { "L" },
+                            (x0 + x + q[0]) * PX,
+                            (total_h - y - q[1]) * PX
+                        );
+                    }
+                    d += "Z";
+                }
+            }
+            x0 += s.w + 10.0;
+        }
+        format!(
+            "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"{w:.0}\" height=\"{h:.0}\" viewBox=\"0 0 {w:.1} {h:.1}\"><g fill=\"#f4f1ea\" stroke=\"#999\" stroke-width=\"2\">{frames}</g><path d=\"{d}\" fill=\"#4a4a4a\" fill-rule=\"evenodd\" stroke=\"#000\" stroke-width=\"1\"/></svg>",
+            w = (total_w * PX).max(1.0),
+            h = (total_h * PX).max(1.0)
+        )
+    }
+
     pub fn file(&self, file: &str) -> Option<Vec<u8>> {
+        if let Some(list) = file.strip_prefix("preview:") {
+            let shown: Vec<&str> = list.split(',').filter(|n| !n.is_empty()).collect();
+            return Some(self.preview(&shown).into_bytes());
+        }
         let (stem, ext) = file.rsplit_once('.')?;
         let (items, w, h): (Vec<(&Piece, f64, f64)>, f64, f64) =
             if let Some(p) = self.pieces.iter().find(|p| p.name == stem) {
@@ -496,7 +535,11 @@ impl Cuts {
             .iter()
             .map(|s| {
                 json!({"name": s.name, "w": (s.w * 10.0).round() / 10.0, "h": (s.h * 10.0).round() / 10.0,
-                    "pieces": s.items.iter().map(|&(i, _, _)| self.pieces[i].name.clone()).collect::<Vec<_>>()})
+                    "pieces": s.items.iter().map(|&(i, _, _)| self.pieces[i].name.clone()).collect::<Vec<_>>(),
+                    "items": s.items.iter().map(|&(i, x, y)| {
+                        let p = &self.pieces[i];
+                        json!({"name": p.name, "x": (x * 1e3).round() / 1e3, "y": ((s.h - y - p.h) * 1e3).round() / 1e3})
+                    }).collect::<Vec<_>>()})
             })
             .collect();
         json!({"kind": "cuts", "tool": self.tool, "piece_list": pieces, "sheet_list": sheets, "cut_files": self.file_names()})
@@ -555,6 +598,81 @@ mod tests {
         assert_eq!(c.islands, 1);
         assert_eq!(c.bridges, 1);
         assert_eq!(c.shapes.len(), 1, "one piece");
+    }
+
+    #[test]
+    fn paint_at_the_tile_edge_is_not_counted_as_lost() {
+        let edge = vec![vec![[0.0, 5.0], [10.0, 5.0], [10.0, 12.0], [0.0, 12.0]]];
+        let c = cut_tile(&edge, [0.0, 0.0, 20.0, 20.0], &prm(true, 0.2));
+        assert!(c.lost_mm2 < 1.0, "{}", c.lost_mm2);
+    }
+
+    #[test]
+    fn the_parts_keep_the_plan_order_from_the_top() {
+        let piece = |n: &str| Piece {
+            name: n.into(),
+            w: 50.0,
+            h: 40.0,
+            shapes: vec![],
+            islands: 0,
+            bridges: 0,
+            lost_mm2: 0.0,
+        };
+        let pieces: Vec<Piece> = ["a", "b", "c", "d"].iter().map(|n| piece(n)).collect();
+        let sq = |x: f64, y: f64| {
+            let line = |a: Pt, b: Pt| Cubic([a, a, b, b]);
+            Loop {
+                segs: vec![
+                    line([x, y], [x + 5.0, y]),
+                    line([x + 5.0, y], [x + 5.0, y + 5.0]),
+                    line([x + 5.0, y + 5.0], [x, y + 5.0]),
+                    line([x, y + 5.0], [x, y]),
+                ],
+            }
+        };
+        let shapes = crate::trace::Shapes {
+            w: 200,
+            h: 160,
+            loops: vec![sq(0.0, 0.0), sq(195.0, 155.0)],
+        };
+        let lp = crate::tile_first::LayoutParams {
+            width: 200.0,
+            margin: 0.0,
+            max_x: 100.0,
+            max_y: 80.0,
+            seam_shift: 0.0,
+            edits: Default::default(),
+            spec: crate::tile_first::Connectors {
+                shape: crate::tiles::Shape::None,
+                diameter: 3.0,
+                clearance: 0.2,
+                depth: 10.0,
+                segments: 48,
+                spacing: 30.0,
+                seam_gap: 0.0,
+            },
+        };
+        let l = crate::tile_first::from_shapes(&shapes, &lp).unwrap();
+        assert_eq!(l.tile_rects().len(), 4);
+        let mut q = prm(true, 0.2);
+        for (sw, sh) in [(0.0, 0.0), (400.0, 400.0)] {
+            q.sheet_w = sw;
+            q.sheet_h = sh;
+            let s = lay_out(&pieces, &l, &q).unwrap();
+            assert_eq!(s.len(), 1);
+            let at: Vec<(f64, f64)> = s[0].items.iter().map(|&(_, x, y)| (x, y)).collect();
+            // a and b side by side on top, c and d below them
+            assert!(at[0].1 == at[1].1 && at[0].0 < at[1].0, "{at:?}");
+            assert!(at[2].1 < at[0].1 && at[2].0 == at[0].0, "{at:?}");
+        }
+        q.sheet_w = 100.0;
+        q.sheet_h = 50.0;
+        let s = lay_out(&pieces, &l, &q).unwrap();
+        assert_eq!(s.len(), 4, "one shelf of one part per sheet");
+        assert_eq!(
+            s.iter().map(|s| s.items[0].0).collect::<Vec<_>>(),
+            vec![0, 1, 2, 3]
+        );
     }
 
     #[test]

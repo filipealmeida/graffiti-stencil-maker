@@ -129,7 +129,7 @@ impl Value {
                 None => self.encode_png(),
             },
             Value::Layer(l) => l.art.value().encode(),
-            Value::Cuts(c) => Ok(("image/svg+xml", c.shapes().to_svg().into_bytes())),
+            Value::Cuts(c) => Ok(("application/json", c.info().to_string().into_bytes())),
             Value::Layout(j) => Ok(("application/json", j.to_string().into_bytes())),
             Value::Parts(p) => match p.files.as_slice() {
                 [(_, b)] => Ok(("model/stl", b.clone())),
