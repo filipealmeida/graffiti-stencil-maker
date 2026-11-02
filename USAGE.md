@@ -238,6 +238,7 @@ Chain **Tile plan → Stencil (or Vector stencil) → Pads → Screws**. The mas
 - **Command palette**: press `Ctrl+K` (or the ⌘ button) and type a node or template name to insert it quickly.
 - **3D viewer controls**: `shading` switches between smooth and flat normals, and `detail` can force high/low detail (or auto, which shows low detail while orbiting and high detail when still).
 - **Threaded WebAssembly**: when `web/public/pkg-mt/` is built and the page is cross-origin isolated, the engine uses a worker pool sized to half the CPU cores and never all cores; otherwise it falls back to one worker automatically.
+- **Two engines for wide graphs**: when a graph fans out into branches that cost enough (priced with the previous run's timings), a second engine computes one group of branches beside the first. Each engine keeps its own cache, so the split only happens when the time saved clearly outweighs what the second engine has to re-derive; chains and small graphs always stay on one engine.
 
 ## Projects
 

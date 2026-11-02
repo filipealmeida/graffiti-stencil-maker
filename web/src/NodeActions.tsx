@@ -1,4 +1,4 @@
-import { artifactUrl, dxfUrl, type Kind, type NodeRun } from './api'
+import { api, artifactUrl, saveFile, type Kind, type NodeRun } from './api'
 import { portText } from './ports'
 import { checkpoint, undo, useStudio } from './store'
 import { safeName } from './project'
@@ -9,9 +9,17 @@ export function downloadFor(kind: Kind | undefined, key: string | undefined, out
   if (!kind || !key || !out) return null
   const href = artifactUrl(key, out)
   if (kind === 'solid') return { href, label: 'Download STL', file: `${name}.stl` }
-  if (kind === 'shapes') return { href, label: 'Download SVG', file: `${name}.svg`, dxf: { href: dxfUrl(key, out), label: 'Download DXF', file: `${name}.dxf` } }
+  if (kind === 'shapes') return { href, label: 'Download SVG', file: `${name}.svg`, dxf: { key, out, label: 'Download DXF', file: `${name}.dxf` } }
   if (kind === 'parts') return { href, label: files > 1 ? 'Download ZIP' : 'Download STL', file: files > 1 ? `${name}-parts.zip` : `${name}.stl` }
   return null
+}
+
+/** The engine draws the DXF when the button is clicked, so a run does not pay for downloads nobody asks for. */
+function saveDxf(key: string, out: string, file: string) {
+  api.dxf(key, out).then(
+    (b) => saveFile(file, b, 'image/vnd.dxf'),
+    () => useStudio.getState().toast(`Could not make ${file}: run the node again`, { level: 'error' }),
+  )
 }
 
 /** The row of actions for every node: preview (side panel only) and the download of what is on show. Delete lives in `NodeFooter`. */
@@ -22,7 +30,7 @@ export function NodeActions({ id, preview, download }: { id: string; preview?: b
     <>
       <div className="actions">
         {download && <a className="btn primary" href={download.href} download={download.file}>{download.label}</a>}
-        {dxf && <a className="btn primary" href={dxf.href} download={dxf.file} title="Closed polylines on the layer OUTLINE, in picture pixels, for CAD and cutters">{dxf.label}</a>}
+        {dxf && <button className="btn primary" onClick={() => saveDxf(dxf.key, dxf.out, dxf.file)} title="Closed polylines on the layer OUTLINE, in picture pixels, for CAD and cutters">{dxf.label}</button>}
         {preview && <button className="btn" onClick={() => openBench(id)} title="Double-click a node to open it">⤢ Open preview</button>}
       </div>
       <OutlineDownloads id={id} shown={download?.href} />
@@ -59,7 +67,7 @@ function OutlineDownloads({ id, shown }: { id: string; shown?: string }) {
           <div className="actions" key={r.label}>
             <span className="mut">{r.label}</span>
             <a className="btn" href={artifactUrl(r.key, r.out)} download={`${file}.svg`}>SVG</a>
-            <a className="btn" href={dxfUrl(r.key, r.out)} download={`${file}.dxf`}>DXF</a>
+            <button className="btn" onClick={() => saveDxf(r.key, r.out, `${file}.dxf`)}>DXF</button>
           </div>
         )
       })}

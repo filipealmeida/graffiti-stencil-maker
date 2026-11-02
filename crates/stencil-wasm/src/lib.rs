@@ -4,6 +4,95 @@ use wasm_bindgen::prelude::*;
 #[cfg(feature = "threads")]
 pub use wasm_bindgen_rayon::init_thread_pool;
 
+/// A per-thread cache of small blocks in front of the system allocator. The threaded build shares one dlmalloc
+/// behind a global lock, which serialises the allocation-heavy geometry work across the worker pool; most of that
+/// churn is alloc/free of small buffers, which this layer serves from thread-local free lists without the lock.
+#[cfg(feature = "threads")]
+mod magazine {
+    use core::cell::RefCell;
+    use std::alloc::{GlobalAlloc, Layout, System};
+
+    /// Size granularity and the alignment every cached block has.
+    const CLASS: usize = 16;
+    /// Blocks up to CLASS * CLASSES bytes are cached.
+    const CLASSES: usize = 256;
+    /// Kept blocks per class and thread; beyond that they go back to the system allocator.
+    const PER: usize = 16;
+
+    struct Bins {
+        len: [u8; CLASSES],
+        slot: [[*mut u8; PER]; CLASSES],
+    }
+
+    thread_local! {
+        static BINS: RefCell<Bins> = const {
+            RefCell::new(Bins { len: [0; CLASSES], slot: [[core::ptr::null_mut(); PER]; CLASSES] })
+        };
+    }
+
+    pub struct Magazine;
+
+    /// The rounded layout a cached class is really allocated with.
+    #[inline]
+    fn rounded(class: usize) -> Layout {
+        unsafe { Layout::from_size_align_unchecked((class + 1) * CLASS, CLASS) }
+    }
+
+    #[inline]
+    fn class_of(l: Layout) -> Option<usize> {
+        (l.align() <= CLASS && l.size() > 0 && l.size() <= CLASS * CLASSES)
+            .then(|| (l.size() - 1) / CLASS)
+    }
+
+    unsafe impl GlobalAlloc for Magazine {
+        unsafe fn alloc(&self, l: Layout) -> *mut u8 {
+            if let Some(c) = class_of(l) {
+                let hit = BINS
+                    .try_with(|b| {
+                        let mut b = b.borrow_mut();
+                        let n = b.len[c] as usize;
+                        if n > 0 {
+                            b.len[c] = (n - 1) as u8;
+                            Some(b.slot[c][n - 1])
+                        } else {
+                            None
+                        }
+                    })
+                    .unwrap_or(None);
+                return hit.unwrap_or_else(|| System.alloc(rounded(c)));
+            }
+            System.alloc(l)
+        }
+
+        unsafe fn dealloc(&self, p: *mut u8, l: Layout) {
+            if let Some(c) = class_of(l) {
+                let kept = BINS
+                    .try_with(|b| {
+                        let mut b = b.borrow_mut();
+                        let n = b.len[c] as usize;
+                        if n < PER {
+                            b.slot[c][n] = p;
+                            b.len[c] = (n + 1) as u8;
+                            true
+                        } else {
+                            false
+                        }
+                    })
+                    .unwrap_or(false);
+                if !kept {
+                    System.dealloc(p, rounded(c));
+                }
+                return;
+            }
+            System.dealloc(p, l);
+        }
+    }
+}
+
+#[cfg(feature = "threads")]
+#[global_allocator]
+static ALLOC: magazine::Magazine = magazine::Magazine;
+
 #[wasm_bindgen]
 pub struct StencilResult {
     stl: Vec<u8>,

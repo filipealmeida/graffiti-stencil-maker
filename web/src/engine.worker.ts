@@ -1,4 +1,5 @@
 import type { Engine } from '../pkg/stencil_wasm.js'
+import { plan, type GEdge, type GNode } from './plan'
 
 type Req =
   | { id: number; op: 'types' }
@@ -7,6 +8,7 @@ type Req =
   | { id: number; op: 'imageinfo'; imageId: string; resolution: number }
   | { id: number; op: 'run'; graph: string; targets: string; costs?: Record<string, number> }
   | { id: number; op: 'part'; key: string; out: string; name: string }
+  | { id: number; op: 'dxf'; key: string; out: string }
   | { id: number; op: 'cancel' }
   | { id: number; op: 'threads' }
   | { id: number; op: 'font'; name: string; bytes: ArrayBuffer }
@@ -46,7 +48,7 @@ const ready = (async () => {
   engine = new st.Engine()
 })()
 
-interface Artifact { key: string; out: string; mime: string; bytes: Uint8Array; info: unknown; parts: Record<string, Uint8Array>; dxf?: Uint8Array }
+interface Artifact { key: string; out: string; mime: string; bytes: Uint8Array; info: unknown; parts: Record<string, Uint8Array> }
 
 function collect(result: any): Artifact[] {
   const e = engine!
@@ -61,41 +63,9 @@ function collect(result: any): Artifact[] {
     // cut sheet files (info.cut_files) are not extracted here: they are made on demand with the 'part' op
     for (const name of [...Object.keys(info?.files ?? {}), ...(info?.tile_files ?? [])]) parts[name] = e.part(f.key, f.out, name)
     if (info?.kind === 'solid') parts.plate = bytes
-    const dxf = info?.kind === 'shapes' ? (e.dxf(f.key, f.out) as Uint8Array<ArrayBuffer>) : undefined
-    out.push({ key: f.key, out: f.out, mime, bytes, info, parts, dxf })
+    out.push({ key: f.key, out: f.out, mime, bytes, info, parts })
   }
   return out
-}
-
-interface GNode { id: string; type: string }
-interface GEdge { from: [string, string]; to: [string, string] }
-
-/**
- * Parents-first order of `targets` and everything they depend on, or null when the graph has a cycle.
- * Of the nodes that are ready, the one that took least last time goes first, so a slow node holds up only what
- * depends on it and not the quick branches beside it.
- */
-function plan(nodes: GNode[], edges: GEdge[], targets: string[] | null, costs: Record<string, number> = {}): string[] | null {
-  const ids = new Set(nodes.map((n) => n.id))
-  const ups = new Map<string, string[]>()
-  for (const e of edges) if (ids.has(e.from[0]) && ids.has(e.to[0])) ups.set(e.to[0], [...(ups.get(e.to[0]) ?? []), e.from[0]])
-  const want = new Set<string>()
-  const visit = (id: string) => { if (want.has(id)) return; want.add(id); (ups.get(id) ?? []).forEach(visit) }
-  ;(targets ?? nodes.map((n) => n.id)).forEach((id) => ids.has(id) && visit(id))
-  const order: string[] = []
-  const done = new Set<string>()
-  for (;;) {
-    let pick: string | null = null
-    for (const n of nodes) {
-      if (!want.has(n.id) || done.has(n.id)) continue
-      if (!(ups.get(n.id) ?? []).every((u) => done.has(u))) continue
-      if (pick === null || (costs[n.id] ?? 0) < (costs[pick] ?? 0)) pick = n.id
-    }
-    if (pick === null) break
-    done.add(pick)
-    order.push(pick)
-  }
-  return order.length === want.size ? order : null
 }
 
 let runToken = 0
@@ -106,7 +76,6 @@ function post(id: number, step: unknown, artifacts: Artifact[] = []) {
   for (const a of artifacts) {
     transfer.push(a.bytes.buffer as ArrayBuffer)
     for (const p of Object.values(a.parts)) if (p.buffer !== a.bytes.buffer) transfer.push(p.buffer as ArrayBuffer)
-    if (a.dxf) transfer.push(a.dxf.buffer as ArrayBuffer)
   }
   ;(self as any).postMessage({ id, step: { ...(step as object), artifacts } }, transfer)
 }
@@ -177,6 +146,10 @@ self.onmessage = async (ev: MessageEvent<Req>) => {
     if (m.op === 'hasfont') return self.postMessage({ id: m.id, ok: e.has_font(m.name) })
     if (m.op === 'part') {
       const b = e.part(m.key, m.out, m.name) as Uint8Array<ArrayBuffer>
+      return (self as any).postMessage({ id: m.id, ok: b }, [b.buffer])
+    }
+    if (m.op === 'dxf') {
+      const b = e.dxf(m.key, m.out) as Uint8Array<ArrayBuffer>
       return (self as any).postMessage({ id: m.id, ok: b }, [b.buffer])
     }
     if (m.op === 'cancel') { runToken++; return }

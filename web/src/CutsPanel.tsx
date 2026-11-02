@@ -1,4 +1,4 @@
-import { api } from './api'
+import { api, saveFile } from './api'
 import { useStudio } from './store'
 
 interface Piece { name: string; w: number; h: number; islands: number; bridges: number; lost_mm2: number }
@@ -8,13 +8,7 @@ interface Sheet { name: string; w: number; h: number; pieces: string[] }
 function Files({ keyOf, name, what }: { keyOf: string; name: string; what: string }) {
   const get = (ext: string, mime: string) => async () => {
     try {
-      const b = await api.part(keyOf, 'cuts', `${name}.${ext}`)
-      const url = URL.createObjectURL(new Blob([b as BlobPart], { type: mime }))
-      const a = document.createElement('a')
-      a.href = url
-      a.download = `${name}.${ext}`
-      a.click()
-      setTimeout(() => URL.revokeObjectURL(url), 10_000)
+      saveFile(`${name}.${ext}`, await api.part(keyOf, 'cuts', `${name}.${ext}`), mime)
     } catch {
       useStudio.getState().toast(`Could not make ${name}.${ext}: run the node again`, { level: 'error' })
     }
