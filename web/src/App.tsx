@@ -78,6 +78,7 @@ function Canvas() {
   }, [s.nodes]);
   const bar = useRef<HTMLDivElement>(null);
   const tpl = useRef<HTMLDivElement>(null);
+  const pm = useRef<HTMLDivElement>(null);
   const sliding = useRef(false);
   const hasSource = s.nodes.some((n) => n.data.type === "source");
   useEffect(() => {
@@ -87,12 +88,14 @@ function Canvas() {
         !tpl.current?.contains(e.target as Node)
       )
         setMenu(null);
+      if (!pm.current?.contains(e.target as Node)) setPmenu(false);
     };
     const esc = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         // one step back each press: menus, then the preview, then the selection
         const menuOpen = !!document.querySelector(".menu, .cmdpal");
         setMenu(null);
+        setPmenu(false);
         setCmdOpen(false);
         if (menuOpen) return;
         const st = useStudio.getState();
@@ -139,6 +142,8 @@ function Canvas() {
         rerun();
       } else if (k === "k") {
         e.preventDefault();
+        setMenu(null);
+        setPmenu(false);
         setCmdOpen((o) => !o);
       }
     };
@@ -153,13 +158,13 @@ function Canvas() {
         runGraph();
       }
     };
-    window.addEventListener("mousedown", away);
+    window.addEventListener("mousedown", away, true);
     window.addEventListener("keydown", esc);
     window.addEventListener("pointerdown", down);
     window.addEventListener("pointerup", up);
     window.addEventListener("pointercancel", up);
     return () => {
-      window.removeEventListener("mousedown", away);
+      window.removeEventListener("mousedown", away, true);
       window.removeEventListener("keydown", esc);
       window.removeEventListener("pointerdown", down);
       window.removeEventListener("pointerup", up);
@@ -475,7 +480,7 @@ function Canvas() {
                 className={`stage-${st}${menu === st ? " on" : ""}`}
                 aria-haspopup="true"
                 aria-expanded={menu === st}
-                onClick={() => setMenu(menu === st ? null : st)}
+                onClick={() => { setPmenu(false); setMenu(menu === st ? null : st) }}
               >
                 + {STAGE_LABEL[st]}
               </button>
@@ -500,7 +505,7 @@ function Canvas() {
               className={menu === "all" ? "on" : ""}
               aria-haspopup="true"
               aria-expanded={menu === "all"}
-              onClick={() => setMenu(menu === "all" ? null : "all")}
+              onClick={() => { setPmenu(false); setMenu(menu === "all" ? null : "all") }}
               title="Every node, most used first"
             >
               + All
@@ -546,7 +551,7 @@ function Canvas() {
             className={menu === "templates" ? "on" : ""}
             aria-haspopup="true"
             aria-expanded={menu === "templates"}
-            onClick={() => setMenu(menu === "templates" ? null : "templates")}
+            onClick={() => { setPmenu(false); setMenu(menu === "templates" ? null : "templates") }}
             title="Templates: rebuild the graph around the current picture"
             aria-label="Templates"
           >
@@ -573,7 +578,7 @@ function Canvas() {
           )}
         </div>
         <button
-          onClick={() => setCmdOpen(true)}
+          onClick={() => { setMenu(null); setPmenu(false); setCmdOpen(true) }}
           title="Command palette (Ctrl+K)"
           aria-label="Command palette"
         >
@@ -593,7 +598,7 @@ function Canvas() {
           <Icon name="redo" />
         </button>
         <span className="spacer" />
-        <div className="pal project">
+        <div className="pal project" ref={pm}>
           <input
             className="pname"
             value={pname}
@@ -606,7 +611,7 @@ function Canvas() {
             className={pmenu ? "on" : ""}
             aria-haspopup="true"
             aria-expanded={pmenu}
-            onClick={() => setPmenu(!pmenu)}
+            onClick={() => { setMenu(null); setPmenu(!pmenu) }}
             title="Project: save, open, export"
           >
             <Icon name="folder" /> Project ▾
@@ -731,7 +736,7 @@ function Canvas() {
           >
             <Background gap={24} color="#2a2f37" />
             <Controls showInteractive={false} />
-            <MiniMap pannable zoomable />
+            {s.nodes.length > 0 && <MiniMap pannable zoomable />}
           </ReactFlow>
           {!s.nodes.length && (
             <div className="hint">

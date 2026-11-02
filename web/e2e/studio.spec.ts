@@ -1330,3 +1330,33 @@ test('a Cut sheet lists its sheets and parts with SVG and DXF downloads', async 
   await panel.getByRole('button', { name: 'all', exact: true }).click()
   expect(await boxes.evaluateAll((els) => els.every((e) => (e as HTMLInputElement).checked))).toBe(true)
 })
+
+test('menus are exclusive and dismissable, minimap hides when empty', async ({ page }) => {
+  await page.goto('/')
+  // empty canvas: no minimap
+  await expect(page.locator('.react-flow__minimap')).toHaveCount(0)
+  // open Project, then a stage menu: only one menu at a time
+  await page.getByRole('button', { name: /Project/ }).click()
+  await expect(page.locator('.menu.pmenu')).toBeVisible()
+  await page.getByRole('button', { name: '+ prepare' }).click()
+  await expect(page.locator('.menu.pmenu')).toHaveCount(0)
+  await expect(page.locator('.menu')).toHaveCount(1)
+  // Escape closes it
+  await page.keyboard.press('Escape')
+  await expect(page.locator('.menu')).toHaveCount(0)
+  // Project menu closes on outside click
+  await page.getByRole('button', { name: /Project/ }).click()
+  await expect(page.locator('.menu.pmenu')).toBeVisible()
+  await page.locator('.react-flow').click({ position: { x: 200, y: 300 } })
+  await expect(page.locator('.menu.pmenu')).toHaveCount(0)
+  // Escape closes the Project menu too
+  await page.getByRole('button', { name: /Project/ }).click()
+  await page.keyboard.press('Escape')
+  await expect(page.locator('.menu.pmenu')).toHaveCount(0)
+  // the palette closes any open menu
+  await page.getByRole('button', { name: /Project/ }).click()
+  await page.keyboard.press('Control+k')
+  await expect(page.locator('.menu.pmenu')).toHaveCount(0)
+  await expect(page.locator('.cmdpal')).toBeVisible()
+  await page.keyboard.press('Escape')
+})

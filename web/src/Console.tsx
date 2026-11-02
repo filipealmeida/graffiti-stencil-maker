@@ -19,7 +19,7 @@ export default function Console({ nodeId, height }: { nodeId?: string; height?: 
     URL.revokeObjectURL(url)
   }
   return (
-    <div className="console" style={height ? { height } : undefined}>
+    <section className="console" style={height ? { height } : undefined} aria-label="Console">
       <div className="console-bar"><b>Console</b><span className="mut">{shown.length} lines</span><button onClick={exportLog} disabled={!shown.length}>Export</button><button onClick={clear}>Clear</button></div>
       <div className="console-lines" ref={box} tabIndex={0} role="log" aria-label="Engine log">
         {shown.map((l) => (
@@ -27,6 +27,6 @@ export default function Console({ nodeId, height }: { nodeId?: string; height?: 
         ))}
         {!shown.length && <div className="mut">no messages yet</div>}
       </div>
-    </div>
+    </section>
   )
 }
