@@ -138,6 +138,16 @@ impl Engine {
             .map_err(|e| JsError::new(&e))
     }
 
+    pub fn add_font(&mut self, name: &str, bytes: Vec<u8>) -> Result<(), JsError> {
+        self.inner
+            .add_font(name, bytes)
+            .map_err(|e| JsError::new(&e))
+    }
+
+    pub fn has_font(&self, name: &str) -> bool {
+        self.inner.has_font(name)
+    }
+
     pub fn image_info(&self, id: &str, resolution: u32) -> Result<String, JsError> {
         self.inner
             .image_info(id, resolution)

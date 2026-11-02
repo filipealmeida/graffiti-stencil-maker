@@ -1592,3 +1592,21 @@ header {
   color: #fff;
   border-color: var(--acc);
 }
+.bench-layers.updating .layer-row,
+.bench-layers.updating .layer-actions {
+  opacity: 0.55;
+}
+.bench-layers.updating .layer-actions button {
+  pointer-events: none;
+}
+.updating-tag {
+  color: var(--acc);
+  font-style: normal;
+  font-weight: 400;
+  animation: pulse 1s ease-in-out infinite;
+}
+@keyframes pulse {
+  50% {
+    opacity: 0.4;
+  }
+}

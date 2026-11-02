@@ -61,13 +61,11 @@ export default function Workbench() {
   }, [cur?.key, cur?.out])
 
   useEffect(() => {
-    setLayout(null)
-    if (t?.id === 'canvas' && run?.key) api.info(run.key, 'layout').then(setLayout).catch(() => setLayout(null))
+    // the previous layout stays until the new one arrives, so the layers do not jump while the engine works
+    if (t?.id !== 'canvas') setLayout(null)
+    else if (run?.key) api.info(run.key, 'layout').then(setLayout).catch(() => setLayout(null))
   }, [t?.id, run?.key])
 
-  useEffect(() => {
-    if (layout) { draftRef.current = null; setDraft(null) }
-  }, [layout])
   useEffect(() => () => commitRef.current(), [])
 
   if (!id || !node || !t) return null
@@ -80,7 +78,9 @@ export default function Workbench() {
     if (!d) return
     const kept = Object.fromEntries(Object.entries(d).filter(([, v]) => v[0] || v[1]))
     const text = Object.keys(kept).length ? JSON.stringify(kept) : ''
-    if (text === String(node.data.params.layer_moves || '')) { draftRef.current = null; setDraft(null) } else setParam(node.id, 'layer_moves', text)
+    if (text !== String(node.data.params.layer_moves || '')) setParam(node.id, 'layer_moves', text)
+    draftRef.current = null
+    setDraft(null)
   }
   commitRef.current = commit
   const moveLayer = (input: string, dx: number, dy: number, now = false) => {
@@ -93,19 +93,23 @@ export default function Workbench() {
     else timer.current = window.setTimeout(() => commitRef.current(), 700)
   }
   const committed = moves()
+  // each layer is drawn where the user put it: the position the engine used, plus the hand move that has not been applied yet
+  let outdated = false
   const shown: Record<string, any> | null = layout && {
     ...layout,
     layers: (layout.layers as any[]).map((l) => {
-      const c = committed[l.input] ?? [0, 0], d = draft?.[l.input] ?? c
+      const want = (draft ?? committed)[l.input] ?? [0, 0]
+      if (want[0] !== (l.move_x ?? 0) || want[1] !== (l.move_y ?? 0)) outdated = true
       const o = layerOrigin(nodes, edges, node.id, l.input)
       const key = o && runs[o.n.id]?.key
       const kind = o && types[o.n.data.type]?.outputs.find((x) => x.name === o.out)?.type
       const src = key && (kind === 'image' || kind === 'mask' || kind === 'shapes') ? artifactUrl(key, o.out) : undefined
-      return { ...l, x: l.x + d[0] - c[0], y: l.y + d[1] - c[1], src }
+      return { ...l, x: l.x - (l.move_x ?? 0) + want[0], y: l.y - (l.move_y ?? 0) + want[1], src }
     }),
   }
+  const updating = outdated || run?.state === 'running'
   const layerProps: LayersProps | undefined = t.id === 'canvas' && shown?.layers?.length && cur?.id.startsWith('out:')
-    ? { width: shown.width, height: shown.height, boxes: shown.layers, preview: draft !== null, editing, onEditing: setEditing, selected: picked, onSelect: setPicked, onMove: moveLayer }
+    ? { width: shown.width, height: shown.height, boxes: shown.layers, preview: outdated, editing, onEditing: setEditing, selected: picked, onSelect: setPicked, onMove: moveLayer }
     : undefined
   const imageFor = (key?: string) => {
     const e = edges.find((x) => x.target === node.id && ['image', 'size'].includes(x.targetHandle ?? ''))
@@ -168,7 +172,7 @@ export default function Workbench() {
             {cur?.kind === 'parts' && <Viewer3D parts={partsList()} plate={info?.meta?.plate} />}
           </Suspense>
         </section>
-        {t.id === 'canvas' && <LayersPanel layout={shown} picked={picked} onPick={setPicked} onMove={moveLayer} moved={Object.keys(draft ?? committed).length > 0} onReset={() => { draftRef.current = null; setDraft(null); window.clearTimeout(timer.current); setParam(node.id, 'layer_moves', '') }} />}
+        {t.id === 'canvas' && <LayersPanel updating={updating} layout={shown} picked={picked} onPick={setPicked} onMove={moveLayer} moved={Object.keys(draft ?? committed).length > 0} onReset={() => { draftRef.current = null; setDraft(null); window.clearTimeout(timer.current); setParam(node.id, 'layer_moves', '') }} />}
       </div>
       <div className="bench-foot">
         <div className="stats">
@@ -184,8 +188,8 @@ export default function Workbench() {
 }
 
 /** The layers of a Collage: where each one sits on the canvas and where it comes from. */
-function LayersPanel({ layout, picked, onPick, onMove, moved, onReset }: {
-  layout: Record<string, any> | null; picked?: string; onPick: (i: string) => void
+function LayersPanel({ updating, layout, picked, onPick, onMove, moved, onReset }: {
+  updating: boolean; layout: Record<string, any> | null; picked?: string; onPick: (i: string) => void
   onMove: (input: string, dx: number, dy: number, now?: boolean) => void; moved: boolean; onReset: () => void
 }) {
   const nodes = useStudio((s) => s.nodes)
@@ -197,8 +201,8 @@ function LayersPanel({ layout, picked, onPick, onMove, moved, onReset }: {
   const canvasId = useStudio((s) => s.bench) ?? ''
   const origin = (input: string) => layerOrigin(nodes, edges, canvasId, input)
   return (
-    <aside className="bench-layers" aria-label="Layers">
-      <h4>Layers{layout && <small> · canvas {layout.width}×{layout.height}px</small>}</h4>
+    <aside className={`bench-layers${updating ? ' updating' : ''}`} aria-label="Layers" aria-busy={updating}>
+      <h4>Layers{updating && <em className="updating-tag"> updating…</em>}{layout && <small> · canvas {layout.width}×{layout.height}px</small>}</h4>
       {layers.length === 0 && <div className="mut">no layers yet</div>}
       {layers.length > 0 && <div className="mut">Drag a layer in the preview, or type its position.</div>}
       {moved && <button onClick={onReset} title="Forget the hand moves">Reset moves</button>}

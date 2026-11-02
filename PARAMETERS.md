@@ -11,6 +11,7 @@
 |---|---|---|---|---|
 | `text` | Text | string | `"STENCIL"` | text |
 | `font` | Font | choice | `"sans bold"` | sans bold \| serif bold |
+| `system_font` | System font | text | `""` | text |
 | `size` | Letter height (px) | int | `160.0` | 20.0 to 600.0 |
 | `line_spacing` | Line spacing (x) | float | `1.0` | 0.7 to 2.0 |
 | `padding` | Padding (px) | int | `20.0` | 0.0 to 200.0 |

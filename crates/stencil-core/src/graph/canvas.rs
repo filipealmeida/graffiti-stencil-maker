@@ -66,6 +66,8 @@ struct Placed {
     h: f64,
     sx: f64,
     sy: f64,
+    /// the hand move already included in x and y, reported so the studio can tell what the result was made with
+    moved: [f64; 2],
 }
 
 impl Art {
@@ -90,6 +92,7 @@ impl Placed {
             h: (h * sy).max(1.0),
             sx,
             sy,
+            moved: [0.0, 0.0],
         }
     }
 }
@@ -235,6 +238,7 @@ pub(super) fn run_canvas(_: &Engine, i: &HashMap<String, Value>, p: &P) -> Resul
             if let Some([dx, dy]) = by {
                 l.x += dx;
                 l.y += dy;
+                l.moved = [dx, dy];
             }
         }
     }
@@ -422,7 +426,7 @@ fn compose(
     };
     let list: Vec<Json> = layers
         .iter()
-        .map(|l| json!({"input": l.label, "kind": kind(&l.art), "x": (l.x - ox).round(), "y": (l.y - oy).round(), "w": l.w.round(), "h": l.h.round(), "scale_x": l.sx, "scale_y": l.sy}))
+        .map(|l| json!({"input": l.label, "kind": kind(&l.art), "x": (l.x - ox).round(), "y": (l.y - oy).round(), "w": l.w.round(), "h": l.h.round(), "move_x": l.moved[0], "move_y": l.moved[1], "scale_x": l.sx, "scale_y": l.sy}))
         .collect();
     out.push((
         "layout",

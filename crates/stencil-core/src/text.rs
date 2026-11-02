@@ -7,9 +7,33 @@ const SERIF: &[u8] = include_bytes!("../fonts/DejaVuSerif-Bold.ttf");
 pub const FONTS: [&str; 2] = ["sans bold", "serif bold"];
 const MAX_PIXELS: usize = 25_000_000;
 
+/// Fails when the bytes are not a font this renderer can read.
+pub fn check_font(bytes: &[u8]) -> Result<(), String> {
+    fontdue::Font::from_bytes(bytes, fontdue::FontSettings::default())
+        .map(|_| ())
+        .map_err(|e| format!("cannot read the font: {e}"))
+}
+
 pub fn render(
     text: &str,
     font: &str,
+    size: f32,
+    pad: usize,
+    line_gap: f32,
+) -> Result<Mask, String> {
+    render_with(
+        text,
+        if font == "serif bold" { SERIF } else { SANS },
+        size,
+        pad,
+        line_gap,
+    )
+}
+
+/// Renders with the bytes of any font file.
+pub fn render_with(
+    text: &str,
+    bytes: &[u8],
     size: f32,
     pad: usize,
     line_gap: f32,
@@ -18,7 +42,6 @@ pub fn render(
     if lines.iter().all(|l| l.trim().is_empty()) {
         return Err("the text is empty: type something in the Text parameter".into());
     }
-    let bytes = if font == "serif bold" { SERIF } else { SANS };
     let f = fontdue::Font::from_bytes(bytes, fontdue::FontSettings::default())
         .map_err(|e| format!("cannot load the font: {e}"))?;
     let lm = f

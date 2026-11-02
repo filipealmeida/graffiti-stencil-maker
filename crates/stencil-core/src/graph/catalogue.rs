@@ -68,11 +68,12 @@ pub(super) fn catalogue() -> Vec<NodeDef> {
             params: vec![
                 json!({"name": "text", "label": "Text", "kind": "string", "default": "STENCIL", "group": null}),
                 choice("font", "Font", "sans bold", &crate::text::FONTS, None),
+                json!({"name": "system_font", "label": "System font", "kind": "text", "default": "", "group": null}),
                 num("size", "Letter height (px)", 160.0, 20.0, 600.0, 5.0, None, true),
                 num("line_spacing", "Line spacing (x)", 1.0, 0.7, 2.0, 0.05, None, false),
                 num("padding", "Padding (px)", 20.0, 0.0, 200.0, 1.0, None, true),
             ],
-            doc: "Letters as a mask, ready for a Stencil node (letters become cut-outs, and a Bridges node after the Stencil joins the islands inside letters like O, A and B). Several lines are centred. To put text on a picture, there is no overlay yet: use it as its own stencil or tile it next to the picture's plate.",
+            doc: "Letters as a mask, ready for a Stencil node (letters become cut-outs, and a Bridges node after the Stencil joins the islands inside letters like O, A and B). Several lines are centred. To put text on a picture, there is no overlay yet: use it as its own stencil or tile it next to the picture's plate. In the studio, 'Use system fonts' lists the fonts installed on this computer (needs a Chromium-based browser and its permission); a project that uses one of them needs the same font on the computer that opens it.",
             run: run_text,
         },
         NodeDef {

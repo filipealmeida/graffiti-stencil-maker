@@ -86,6 +86,7 @@ export const PARAM_HELP: Record<string, string> = {
   fit_test: 'Also print a short strip with connector holes of growing clearance. Try your rods in it and pick the clearance that fits.',
   flip_h: 'Mirror the picture left to right.',
   flip_v: 'Mirror the picture top to bottom.',
+  system_font: 'A font installed on this computer, instead of the built-in one. Bold faces make sturdier stencil letters. Anyone opening the project needs the same font installed.',
   font: 'Typeface used for the text. Bold faces make sturdier stencil letters.',
   gap: 'Space left between neighbouring parts so they still fit after printing swells the edges. 0 makes them touch. The holes do not move.',
   hardware: 'Also output a bolt and a nut for the joiner plates, sized to fit the joint.',

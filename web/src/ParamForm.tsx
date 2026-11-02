@@ -1,6 +1,7 @@
-import { useEffect, useId, useState, type ReactNode } from 'react'
+import { Fragment, useEffect, useId, useState, type ReactNode } from 'react'
 import type { NodeType, ParamDef } from './api'
 import { SHARED_FIT, useStudio, type StudioNode } from './store'
+import SystemFont from './SystemFont'
 import { helpFor, plainLabel, unitOf } from './help'
 
 const same = (a: unknown, b: unknown) => a === b || (typeof a === 'number' && typeof b === 'number' && Math.abs(a - b) < 1e-9)
@@ -83,7 +84,10 @@ export default function ParamForm({ node, type, layers, before }: { node: Studio
           {type.params.filter((p) => (p.group ?? '') === g).map((p) => {
             const v = node.data.params[p.name] ?? p.default
             const isLayer = layers && node.data.type === 'remesh' && (p.name === 'layer_from' || p.name === 'layer_to')
-            if (!isLayer) return <Field nodeType={type.id} key={p.name} p={p} value={v} onChange={(x) => setParam(node.id, p.name, x)} />
+            if (!isLayer) {
+              const field = <Field nodeType={type.id} key={p.name} p={p} value={v} onChange={(x) => setParam(node.id, p.name, x)} />
+              return type.id === 'text' && p.name === 'font' ? <Fragment key={p.name}>{field}<SystemFont node={node} /></Fragment> : field
+            }
             // layer_to = 0 means "the top one", shown as the real maximum of the stencil above
             const shown = p.name === 'layer_to' && Number(v) === 0 ? layers : Number(v)
             return (

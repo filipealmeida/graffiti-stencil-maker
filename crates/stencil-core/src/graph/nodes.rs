@@ -51,14 +51,21 @@ pub(super) fn run_morphology(
     Ok(vec![("mask", Value::Mask(Rc::new(Mask { w, h, paint })))])
 }
 
-pub(super) fn run_text(_: &Engine, _: &HashMap<String, Value>, p: &P) -> Result<Outputs, String> {
-    let m = crate::text::render(
-        p.s("text"),
-        p.s("font"),
+pub(super) fn run_text(e: &Engine, _: &HashMap<String, Value>, p: &P) -> Result<Outputs, String> {
+    let (size, pad, gap) = (
         p.f("size") as f32,
         p.f("padding") as usize,
         p.f("line_spacing") as f32,
-    )?;
+    );
+    let m = match p.s("system_font") {
+        "" => crate::text::render(p.s("text"), p.s("font"), size, pad, gap)?,
+        name => {
+            let bytes = e.fonts.get(name).ok_or_else(|| {
+                format!("the font '{name}' is not loaded: in the Text node pick it again under 'System font', or choose a built-in font")
+            })?;
+            crate::text::render_with(p.s("text"), bytes, size, pad, gap)?
+        }
+    };
     Ok(vec![("mask", Value::Mask(Rc::new(m)))])
 }
 

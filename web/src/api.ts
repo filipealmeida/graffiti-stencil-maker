@@ -167,7 +167,32 @@ const b64 = (b: ArrayBuffer) => {
 }
 const unb64 = (s: string) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0)).buffer
 
+/** Fonts installed on this computer, through the browser's Local Font Access API (Chromium; asks permission once). */
+interface LocalFont { postscriptName: string; fullName: string; family: string; style: string; blob: () => Promise<Blob> }
+const fontBytes = new Map<string, ArrayBuffer>()
+let localFonts: LocalFont[] | null = null
+async function listFonts(): Promise<LocalFont[]> {
+  const q = (window as any).queryLocalFonts as (() => Promise<LocalFont[]>) | undefined
+  if (!q) throw new Error('This browser cannot list system fonts. Use a Chromium-based browser (Chrome, Edge, Brave).')
+  if (!localFonts) localFonts = await q.call(window)
+  return localFonts
+}
+async function loadFont(name: string) {
+  if (!fontBytes.has(name)) {
+    const f = (await listFonts()).find((x) => x.postscriptName === name)
+    if (!f) throw new Error(`The font '${name}' is not installed on this computer.`)
+    fontBytes.set(name, await (await f.blob()).arrayBuffer())
+  }
+  await call({ op: 'font', name, bytes: fontBytes.get(name)!.slice(0) }, [])
+}
+
 export const api = {
+  /** The system's fonts, one entry per face. Must be called from a click the first time, to get the browser's permission. */
+  async systemFonts() {
+    return (await listFonts()).map((f) => ({ name: f.postscriptName, label: f.fullName || f.postscriptName, family: f.family })).sort((x, y) => x.label.localeCompare(y.label))
+  },
+  useFont: loadFont,
+  canListFonts: () => typeof (window as any).queryLocalFonts === 'function',
   nodeTypes: () => call<NodeType[]>({ op: 'types' }),
   threads: () => call<{ n: number; why: string; version: string }>({ op: 'threads' }),
   imageInfo: (imageId: string, resolution: number) => call<ImageInfo>({ op: 'imageinfo', imageId, resolution }),
@@ -187,6 +212,7 @@ export const api = {
       const img = (await idb('readonly', (s) => s.get(k))) as StoredImage | undefined
       if (img) await call({ op: 'image', bytes: img.bytes.slice(0) })
     }
+    for (const [name, bytes] of fontBytes) await call({ op: 'font', name, bytes: bytes.slice(0) })
   },
   /**
    * Starts a run in the worker, which evaluates node by node and reports each one through `onStep` as it finishes.
@@ -195,6 +221,11 @@ export const api = {
   async run(graph: GraphJson, targets: string[] | undefined, onStep: (s: NodeStep) => void) {
     stopRun()
     if (warm) await warm
+    // a project that names a system font needs it in the engine; try quietly, a missing font shows up as the node's error
+    for (const n of (graph as any).nodes ?? []) {
+      const name = n.type === 'text' ? String(n.params?.system_font ?? '') : ''
+      if (name && !fontBytes.has(name)) await loadFont(name).catch(() => {})
+    }
     const r = await call<{ status: string; error?: string }>(
       { op: 'run', graph: JSON.stringify(graph), targets: targets ? JSON.stringify(targets) : '', costs }, [],
       (s) => {

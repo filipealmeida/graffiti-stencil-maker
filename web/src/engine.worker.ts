@@ -8,6 +8,8 @@ type Req =
   | { id: number; op: 'run'; graph: string; targets: string; costs?: Record<string, number> }
   | { id: number; op: 'cancel' }
   | { id: number; op: 'threads' }
+  | { id: number; op: 'font'; name: string; bytes: ArrayBuffer }
+  | { id: number; op: 'hasfont'; name: string }
 
 let engine: Engine | null = null
 let threads = 1
@@ -167,6 +169,8 @@ self.onmessage = async (ev: MessageEvent<Req>) => {
     if (m.op === 'has') return self.postMessage({ id: m.id, ok: e.has_image(m.imageId) })
     if (m.op === 'imageinfo') return self.postMessage({ id: m.id, ok: JSON.parse(e.image_info(m.imageId, m.resolution)) })
     if (m.op === 'image') return self.postMessage({ id: m.id, ok: JSON.parse(e.add_image(new Uint8Array(m.bytes))) })
+    if (m.op === 'font') { e.add_font(m.name, new Uint8Array(m.bytes)); return self.postMessage({ id: m.id, ok: true }) }
+    if (m.op === 'hasfont') return self.postMessage({ id: m.id, ok: e.has_font(m.name) })
     if (m.op === 'cancel') { runToken++; return }
     if (m.op === 'threads') return self.postMessage({ id: m.id, ok: { n: threads, why, version: e.version() } })
     self.postMessage({ id: m.id, ...(await runGraph(m)) })

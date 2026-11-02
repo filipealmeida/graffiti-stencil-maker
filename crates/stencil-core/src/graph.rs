@@ -287,9 +287,12 @@ pub fn node_types() -> Json {
     )
 }
 
+const MAX_FONT_BYTES: usize = 50_000_000;
+
 #[derive(Default)]
 pub struct Engine {
     uploads: HashMap<String, Vec<u8>>,
+    fonts: HashMap<String, Rc<Vec<u8>>>,
     cache: HashMap<String, Rc<Outputs>>,
     order: VecDeque<String>,
     fresh: Vec<(String, String)>,
@@ -329,6 +332,20 @@ impl Engine {
         let out = json!({"id": id, "width": width, "height": height});
         self.uploads.insert(id, bytes);
         Ok(out)
+    }
+
+    /// Registers a font file under a name the Text node can ask for (the studio offers the system's fonts this way).
+    pub fn add_font(&mut self, name: &str, bytes: Vec<u8>) -> Result<(), String> {
+        if bytes.len() > MAX_FONT_BYTES {
+            return Err("the font file is larger than 50 MB".into());
+        }
+        crate::text::check_font(&bytes)?;
+        self.fonts.insert(name.to_string(), Rc::new(bytes));
+        Ok(())
+    }
+
+    pub fn has_font(&self, name: &str) -> bool {
+        self.fonts.contains_key(name)
     }
 
     /// Properties of a stored picture, and how it reads at the working resolution.

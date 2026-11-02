@@ -1688,3 +1688,44 @@ fn collage_reports_layers_with_a_mask_first_and_a_picture_second() {
     assert_eq!(info["layers"].as_array().unwrap().len(), 2, "{info}");
     assert_eq!(info["layers"][0]["kind"], "mask");
 }
+
+#[test]
+fn text_uses_a_registered_font_and_says_so_when_it_is_missing() {
+    let g = json!({
+        "nodes": [{"id": "t", "type": "text", "params": {"text": "Hi", "system_font": "My Font"}}],
+        "edges": []
+    });
+    let mut e = Engine::new();
+    let r = e.run(&g, None, &|| 0.0);
+    assert_eq!(r["nodes"]["t"]["state"], "error", "{r}");
+    assert!(
+        r["nodes"]["t"]["error"]
+            .as_str()
+            .unwrap_or("")
+            .contains("My Font"),
+        "{r}"
+    );
+    assert!(e.add_font("My Font", vec![1, 2, 3]).is_err());
+    e.add_font(
+        "My Font",
+        include_bytes!("../../fonts/DejaVuSerif-Bold.ttf").to_vec(),
+    )
+    .unwrap();
+    assert!(e.has_font("My Font"));
+    let r = e.run(&g, None, &|| 0.0);
+    assert_eq!(r["nodes"]["t"]["state"], "done", "{r}");
+}
+
+#[test]
+fn collage_layout_reports_the_hand_move_it_was_made_with() {
+    let g = json!({
+        "nodes": [source("a"), source("b"),
+                  {"id": "c", "type": "canvas", "params": {"layer_moves": "{\"layer_2\":[200,-10]}"}}],
+        "edges": [edge("a", "image", "c", "layer_1"), edge("b", "image", "c", "layer_2")]
+    });
+    let (e, r) = run_collage(&g);
+    let key = r["nodes"]["c"]["key"].as_str().unwrap();
+    let info = e.value(key, "layout").unwrap().info();
+    assert_eq!(info["layers"][1]["move_x"], 200.0, "{info}");
+    assert_eq!(info["layers"][0]["move_x"], 0.0, "{info}");
+}

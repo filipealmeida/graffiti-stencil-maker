@@ -1,6 +1,7 @@
 import { expect, test, type Page } from '@playwright/test'
 import AxeBuilder from '@axe-core/playwright'
 import { deflateSync } from 'node:zlib'
+import { readFileSync } from 'node:fs'
 
 // A 160x120 PNG with a dark disc on white, enough to give the stencil real work.
 function png(): Buffer {
@@ -468,9 +469,27 @@ test('the Collage workbench lists its layers, and Repeat is in the menu', async 
   await page.getByRole('button', { name: 'Snap' }).click()
   await expect(page.getByRole('button', { name: 'Snap' })).toHaveAttribute('aria-pressed', 'false')
   await page.mouse.move(at.x, at.y); await page.mouse.down(); await page.mouse.move(at.x + 40, at.y + 40, { steps: 5 }); await page.mouse.up()
+  // right after the drop the layer stays where it was put, while the engine catches up
+  expect(Number(await x2.inputValue())).toBeGreaterThan(before + 25)
   await expect.poll(async () => Number(await x2.inputValue()), { timeout: 30000 }).toBeGreaterThan(before + 25)
   await page.getByRole('button', { name: 'Edit layers' }).click()
   await expect(page.getByRole('button', { name: 'Edit layers' })).toHaveAttribute('aria-pressed', 'false')
+})
+
+test('the Text node can use a font from the system', async ({ page }) => {
+  const ttf = readFileSync('../crates/stencil-core/fonts/DejaVuSerif-Bold.ttf').toString('base64')
+  await page.addInitScript((b64) => {
+    const bytes = Uint8Array.from(atob(b64), (ch) => ch.charCodeAt(0))
+    ;(window as any).queryLocalFonts = async () => [{ postscriptName: 'Fake-Bold', fullName: 'Fake Bold', family: 'Fake', style: 'Bold', blob: async () => new Blob([bytes]) }]
+  }, ttf)
+  await open(page, null)
+  await page.getByRole('button', { name: '+ prepare' }).click()
+  await page.locator('.menu button').filter({ hasText: /^Text/ }).click()
+  await page.getByRole('button', { name: 'Use system fonts…' }).click()
+  await page.getByLabel('System font').selectOption('Fake-Bold')
+  const node = page.locator('.react-flow__node').filter({ hasText: 'Text' }).first()
+  await expect(node.locator('.dot.done, .node-foot').first()).toBeVisible({ timeout: 30000 })
+  await expect(page.locator('aside .err')).toHaveCount(0)
 })
 
 test('the Multi-colour pack template builds a registered multi-colour graph', async ({ page }) => {
