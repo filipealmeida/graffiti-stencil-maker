@@ -240,17 +240,19 @@ impl Layout {
 
     pub fn tile_rects(&self) -> Vec<TileRect> {
         let (nx, ny) = (self.xs.len() - 1, self.ys.len() - 1);
+        let half = self.spec.seam_gap / 2.0;
         let mut v = Vec::new();
         for j in (0..ny).rev() {
             for i in 0..nx {
+                let side = |inner: bool| if inner { half } else { 0.0 };
                 v.push(TileRect {
                     name: format!("stencil_r{}c{}", ny - j, i + 1),
                     row: ny - j,
                     col: i + 1,
-                    x0: self.xs[i],
-                    y0: self.ys[j],
-                    x1: self.xs[i + 1],
-                    y1: self.ys[j + 1],
+                    x0: self.xs[i] + side(i > 0),
+                    y0: self.ys[j] + side(j > 0),
+                    x1: self.xs[i + 1] - side(i + 1 < nx),
+                    y1: self.ys[j + 1] - side(j + 1 < ny),
                 });
             }
         }
@@ -294,26 +296,27 @@ impl Layout {
                         .collect()
                 };
                 let border = [rect_poly([0.0, 0.0, w, h])];
-                Some(
-                    dxf::write(&[
-                        dxf::Layer {
-                            name: "CUT",
-                            colour: 7,
-                            polys: &shift(&cut),
-                        },
-                        dxf::Layer {
-                            name: "TILE",
-                            colour: 1,
-                            polys: &border,
-                        },
-                        dxf::Layer {
-                            name: "BLOCKS",
-                            colour: 5,
-                            polys: &shift(&blocks),
-                        },
-                    ])
-                    .into_bytes(),
-                )
+                let (cut, blocks) = (shift(&cut), shift(&blocks));
+                let mut layers = vec![
+                    dxf::Layer {
+                        name: "CUT",
+                        colour: 7,
+                        polys: &cut,
+                    },
+                    dxf::Layer {
+                        name: "TILE",
+                        colour: 1,
+                        polys: &border,
+                    },
+                ];
+                if !blocks.is_empty() {
+                    layers.push(dxf::Layer {
+                        name: "BLOCKS",
+                        colour: 5,
+                        polys: &blocks,
+                    });
+                }
+                Some(dxf::write(&layers).into_bytes())
             }
             "svg" => {
                 let flip = |p: Pt| [p[0] - t.x0, t.y1 - p[1]];
@@ -322,10 +325,17 @@ impl Layout {
                         "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 {w:.2} {h:.2}\" width=\"{w:.2}mm\" height=\"{h:.2}mm\">\
                          <rect width=\"{w:.2}\" height=\"{h:.2}\" fill=\"#fff\"/>\
                          <path id=\"CUT\" d=\"{cut}\" fill=\"#000\" fill-rule=\"evenodd\"/>\
-                         <path id=\"BLOCKS\" d=\"{blocks}\" fill=\"none\" stroke=\"#2a6bd6\" stroke-width=\"0.3\"/>\
+                         {blocks}\
                          <rect id=\"TILE\" width=\"{w:.2}\" height=\"{h:.2}\" fill=\"none\" stroke=\"#dc2828\" stroke-width=\"0.3\"/></svg>",
                         cut = svg_path(&cut, flip),
-                        blocks = svg_path(&blocks, flip),
+                        blocks = if blocks.is_empty() {
+                            String::new()
+                        } else {
+                            format!(
+                                "<path id=\"BLOCKS\" d=\"{}\" fill=\"none\" stroke=\"#2a6bd6\" stroke-width=\"0.3\"/>",
+                                svg_path(&blocks, flip)
+                            )
+                        },
                     )
                     .into_bytes(),
                 )

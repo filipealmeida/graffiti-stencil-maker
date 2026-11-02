@@ -30,6 +30,8 @@ pub fn min_tile(depth: f64) -> f64 {
 pub enum Shape {
     Hex,
     Round,
+    /// No connectors: the seams are cut and nothing is drilled.
+    None,
 }
 
 pub struct TileParams {
@@ -800,7 +802,9 @@ pub fn tile(solid: &Mesh, p: &TileParams) -> Result<Tiled, String> {
                 .count()
         })
         .sum::<usize>();
-    check(p, t)?;
+    if p.shape != Shape::None {
+        check(p, t)?;
+    }
     let zs = row_heights(p.shape, p.diameter + p.clearance, t);
     let r_hole = (p.diameter + p.clearance) / 2.0;
     let bevel = Bevel::new(p.seam_angle_deg, t);
@@ -827,6 +831,10 @@ pub fn tile(solid: &Mesh, p: &TileParams) -> Result<Tiled, String> {
         for i in 0..nx {
             seams.push((1, s, xs[i], xs[i + 1]));
         }
+    }
+    let seam_list_all = seams.clone();
+    if p.shape == Shape::None {
+        seams.clear();
     }
 
     let geom = Geometry {
@@ -895,7 +903,7 @@ pub fn tile(solid: &Mesh, p: &TileParams) -> Result<Tiled, String> {
         "loose_pieces": cutter.count.loose.load(std::sync::atomic::Ordering::Relaxed), "loose_tiles": cutter.count.loose_tiles.load(std::sync::atomic::Ordering::Relaxed),
         "reinforced_seams": reinforced, "added_material_mm3": added_volume,
     });
-    let seam_list = seams
+    let seam_list = seam_list_all
         .iter()
         .map(|&(a, s, f, t)| [a as f64, s, f, t])
         .collect();
@@ -905,9 +913,8 @@ pub fn tile(solid: &Mesh, p: &TileParams) -> Result<Tiled, String> {
         .collect();
     Ok(Tiled {
         tiles,
-        rod: Some(connector_rod_with_gap(
-            p.shape, p.diameter, depth, gap_along, p.segments,
-        )),
+        rod: (p.shape != Shape::None)
+            .then(|| connector_rod_with_gap(p.shape, p.diameter, depth, gap_along, p.segments)),
         info,
         seams: seam_list,
         connectors,
@@ -1109,6 +1116,23 @@ mod tests {
             avoid: Vec::new(),
             reinforce,
         }
+    }
+
+    #[test]
+    fn with_no_connectors_the_volume_is_only_split() {
+        let plate = Mesh::cuboid([0.0, 0.0, 0.0], [120.0, 60.0, 6.0]);
+        let mut p = plain(70.0, 0.0, true);
+        p.shape = Shape::None;
+        p.seam_gap = 0.4;
+        let t = tile(&plate, &p).unwrap();
+        assert_eq!(t.tiles.len(), 2);
+        assert!(t.rod.is_none() && t.connectors.is_empty());
+        assert_eq!(t.info["connectors"], 0);
+        assert!(!t.seams.is_empty());
+        assert!(t.tiles.iter().all(|x| x.mesh.is_watertight()));
+        // the size rule still holds
+        p.max_x = 20.0;
+        assert!(tile(&plate, &p).is_err());
     }
 
     #[test]

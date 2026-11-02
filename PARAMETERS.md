@@ -217,7 +217,8 @@
 | `max_x` | Largest tile width (mm) | float | `150.0` | 0.0 to 2000.0 |
 | `max_y` | Largest tile height (mm) | float | `150.0` | 0.0 to 2000.0 |
 | `seam_shift` | Seam may move up to (mm) | float | `8.0` | 0.0 to 50.0 |
-| `connector` | Connector shape | choice | `"hex"` | hex \| round |
+| `seam_gap` | Seam clearance (mm, total) | float | `0.0` | 0.0 to 1.0 |
+| `connector` | Connector shape | choice | `"hex"` | hex \| round \| none |
 | `connector_d` | Connector diameter (mm) | choice | `"3"` | 2.5 \| 3 \| 4 \| 5 \| 6 |
 | `depth` | Connector depth into each tile (mm) | float | `10.0` | 4.0 to 20.0 |
 | `clearance` | Connector hole clearance (mm, diametral) | float | `0.2` | 0.0 to 0.6 |
@@ -245,7 +246,7 @@
 | `max_x` | Largest tile width (mm) | float | `0.0` | 0.0 to 2000.0 |
 | `max_y` | Largest tile height (mm) | float | `0.0` | 0.0 to 2000.0 |
 | `seam_gap` | Seam clearance (mm, total) | float | `0.0` | 0.0 to 1.0 |
-| `connector` | Connector shape | choice | `"hex"` | hex \| round |
+| `connector` | Connector shape | choice | `"hex"` | hex \| round \| none |
 | `connector_d` | Connector diameter (mm) | choice | `"3"` | 2.5 \| 3 \| 4 \| 5 \| 6 |
 | `depth` | Connector depth into each tile (mm) | float | `10.0` | 4.0 to 20.0 |
 | `clearance` | Connector hole clearance (mm, diametral) | float | `0.2` | 0.0 to 0.6 |
@@ -270,7 +271,7 @@
 | `seam_gap` | Seam clearance (mm, total) | float | `0.2` | 0.0 to 1.0 |
 | `seam_angle_deg` | Seam bevel angle (deg from vertical, 0 = straight) | float | `0.0` | 0.0 to 60.0 |
 | `reinforce` | Add material where no connector fits | bool | `true` | true \| false |
-| `connector` | Connector shape | choice | `"hex"` | hex \| round |
+| `connector` | Connector shape | choice | `"hex"` | hex \| round \| none |
 | `connector_d` | Connector diameter (mm) | choice | `"4"` | 2.5 \| 3 \| 4 \| 5 \| 6 |
 | `depth` | Connector depth into each tile (mm) | float | `10.0` | 4.0 to 20.0 |
 | `clearance` | Connector hole clearance (mm, diametral) | float | `0.2` | 0.0 to 0.6 |

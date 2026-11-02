@@ -63,6 +63,9 @@ function Field({ p, value, onChange, nodeType }: { p: ParamDef; value: unknown; 
   )
 }
 
+// settings that mean nothing when the connector is none (the depth stays: it still sets the smallest tile)
+const NO_CONNECTOR = ['connector_d', 'clearance', 'spacing', 'segments', 'reinforce']
+
 export default function ParamForm({ node, type, layers, before }: { node: StudioNode; type: NodeType; layers?: number; before?: ReactNode }) {
   const setParam = useStudio((s) => s.setParam)
   // the picture of an Image node is not a setting
@@ -81,7 +84,7 @@ export default function ParamForm({ node, type, layers, before }: { node: Studio
       {groups.map((g) => (
         <fieldset key={g}>
           {g && <legend>{g}</legend>}
-          {type.params.filter((p) => (p.group ?? '') === g).map((p) => {
+          {type.params.filter((p) => (p.group ?? '') === g && !(node.data.params.connector === 'none' && NO_CONNECTOR.includes(p.name))).map((p) => {
             const v = node.data.params[p.name] ?? p.default
             const isLayer = layers && node.data.type === 'remesh' && (p.name === 'layer_from' || p.name === 'layer_to')
             if (!isLayer) {

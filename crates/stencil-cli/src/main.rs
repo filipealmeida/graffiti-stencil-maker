@@ -98,7 +98,8 @@ struct Args {
     /// Largest tile height in mm (0 = no tiling)
     #[arg(long)]
     tile_height: Option<f64>,
-    #[arg(long, value_parser = ["hex", "round"])]
+    /// Connector shape; none cuts the seams and drills nothing
+    #[arg(long, value_parser = ["hex", "round", "none"])]
     connector: Option<String>,
     /// Connector diameter in mm: 2.5, 3, 4, 5 or 6
     #[arg(long)]
@@ -582,7 +583,7 @@ fn pipeline(a: &Args, image: &str) -> Json {
     edges.push(json!({"from": ["br", "solid"], "to": ["ex", "solid"]}));
     if let Some(screw) = &a.hardware {
         let mut hw = json!({"screw": screw});
-        if let Some(c) = &a.connector {
+        if let Some(c) = a.connector.as_ref().filter(|c| *c != "none") {
             hw["connector"] = json!(c);
         }
         if let Some(d) = &a.connector_d {

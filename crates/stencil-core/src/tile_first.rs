@@ -19,6 +19,8 @@ pub struct Connectors {
     pub segments: usize,
     /// About this far apart along a seam (mm).
     pub spacing: f64,
+    /// Total material removed at each internal seam, half from each tile (mm).
+    pub seam_gap: f64,
 }
 
 impl Connectors {
@@ -540,6 +542,9 @@ fn plan(c: &Connectors, xs: &[f64], ys: &[f64], cover: &Cover) -> Result<Vec<Poc
             ));
         }
     }
+    if c.shape == Shape::None {
+        return Ok(Vec::new());
+    }
     let mut seams: Vec<(usize, usize, usize, f64, f64, f64)> = Vec::new();
     for (si, &s) in xs.iter().enumerate().take(nx).skip(1) {
         for j in 0..ny {
@@ -852,13 +857,38 @@ fn build_tile(
         };
         let lx = if p.flip { tw - (cx - x0) } else { cx - x0 };
         for &z in zs {
-            let mut r = tiles::rod(c.shape, c.hole_radius(), 2.0 * c.depth, c.segments, pk.axis);
+            let mut r = tiles::rod(
+                c.shape,
+                c.hole_radius(),
+                2.0 * c.depth + c.seam_gap,
+                c.segments,
+                pk.axis,
+            );
             r.translate([lx, cy - y0, z]);
             cutters.append(&r);
         }
     }
     if !cutters.t.is_empty() {
         mesh = mesh.subtract(&cutters).map_err(fail)?;
+    }
+    // the clearance is taken off the faces that meet a neighbour, half from each tile
+    let half = c.seam_gap / 2.0;
+    let side = |internal: bool| if internal { half } else { 0.0 };
+    let (left, right) = (side(i > 0), side(i + 1 < nx));
+    let (lo_x, hi_x) = if p.flip { (right, left) } else { (left, right) };
+    let (lo_y, hi_y) = (side(j > 0), side(j + 1 < ny));
+    if half > 0.0 && (lo_x + hi_x + lo_y + hi_y) > 0.0 {
+        let open = |v: f64| if v > 0.0 { 0.0 } else { -1.0 };
+        let clip = Mesh::cuboid(
+            [lo_x + open(lo_x), lo_y + open(lo_y), -1.0],
+            [
+                tw - hi_x - open(hi_x),
+                th - hi_y - open(hi_y),
+                out.stats.thickness_mm + 1.0,
+            ],
+        );
+        mesh = mesh.intersect(&clip).map_err(fail)?;
+        mesh.translate([-lo_x, -lo_y, 0.0]);
     }
     mesh.quantize_f32();
     drop_slivers(&mut mesh);
@@ -893,8 +923,8 @@ fn build_tile(
         tile: tiles::Tile {
             name,
             mesh,
-            origin: [if p.flip { l.width - x1 } else { x0 }, y0],
-            size: [tw, th],
+            origin: [(if p.flip { l.width - x1 } else { x0 }) + lo_x, y0 + lo_y],
+            size: [tw - lo_x - hi_x, th - lo_y - hi_y],
         },
         islands: out.stats.islands_found,
         bridges: out.stats.bridge_pixels,
@@ -1016,7 +1046,7 @@ pub fn build(l: &Layout, m: &Method) -> Result<Built, String> {
     };
     let (nx, ny) = (l.xs.len() - 1, l.ys.len() - 1);
     let c = &l.spec;
-    if nx * ny > 1 {
+    if nx * ny > 1 && c.shape != Shape::None {
         tiles::check_connector(c.shape, c.diameter, p.thickness_mm)?;
     }
     let zs = tiles::row_heights(c.shape, c.diameter + c.clearance, p.thickness_mm);
@@ -1058,7 +1088,8 @@ pub fn build(l: &Layout, m: &Method) -> Result<Built, String> {
         "loose_pieces": outs.iter().map(|o| o.loose).sum::<usize>(),
         "loose_tiles": outs.iter().filter(|o| o.loose > 0).count(),
         "seam_step_mm": (seam_steps(l, &outs, p.flip, p.layer_height_mm) * 10.0).round() / 10.0,
-        "hole_depth_mm": c.depth, "rod_length_mm": tiles::rod_length(c.depth),
+        "hole_depth_mm": c.depth, "seam_gap_mm": c.seam_gap, "seam_angle_deg": 0.0,
+        "rod_length_mm": tiles::rod_length_with_gap(c.depth, c.seam_gap),
         "paint_under_blocks_mm2": (l.paint_under_blocks_mm2() * 10.0).round() / 10.0,
     });
     let top = outs.first().map_or(0.0, |o| o.top);
@@ -1172,6 +1203,7 @@ mod tests {
             depth: 10.0,
             segments: 32,
             spacing: 30.0,
+            seam_gap: 0.0,
         }
     }
 
@@ -1319,6 +1351,58 @@ mod tests {
             let b = build(&l, &Method::Raster(&p)).unwrap();
             check(&b, 4);
             assert_eq!(b.connectors.len(), l.pockets.len());
+        }
+    }
+
+    #[test]
+    fn without_connectors_the_tiles_are_only_cut_and_the_size_rule_still_holds() {
+        let none = LayoutParams {
+            spec: Connectors {
+                shape: Shape::None,
+                ..spec()
+            },
+            ..lp()
+        };
+        let l = from_mask(&art(120), 120, 120, &none).unwrap();
+        assert!(l.pockets.is_empty());
+        for flip in [false, true] {
+            let p = Params { flip, ..params() };
+            let b = build(&l, &Method::Raster(&p)).unwrap();
+            check(&b, 4);
+            assert!(b.connectors.is_empty());
+        }
+        // 25 mm tiles cannot hold 10 mm deep pockets, so they are refused even with none
+        let small = LayoutParams {
+            max_x: 25.0,
+            max_y: 25.0,
+            ..none
+        };
+        assert!(from_mask(&art(120), 120, 120, &small).is_err());
+    }
+
+    #[test]
+    fn the_seam_clearance_trims_the_faces_that_meet() {
+        let gap = LayoutParams {
+            spec: Connectors {
+                seam_gap: 0.4,
+                ..spec()
+            },
+            ..lp()
+        };
+        let l = from_mask(&art(120), 120, 120, &gap).unwrap();
+        for flip in [false, true] {
+            let p = Params { flip, ..params() };
+            let b = build(&l, &Method::Raster(&p)).unwrap();
+            check(&b, 4);
+            let plain = from_mask(&art(120), 120, 120, &lp()).unwrap();
+            let a = build(&plain, &Method::Raster(&p)).unwrap();
+            for (t, u) in b.tiles.iter().zip(&a.tiles) {
+                // one internal side each way: 0.2 mm off each of two faces
+                assert!((u.size[0] - t.size[0] - 0.2).abs() < 1e-6, "{}", t.name);
+                assert!((u.size[1] - t.size[1] - 0.2).abs() < 1e-6, "{}", t.name);
+                let (lo, hi) = t.mesh.bounds();
+                assert!((hi[0] - lo[0] - t.size[0]).abs() < 0.02, "{}", t.name);
+            }
         }
     }
 

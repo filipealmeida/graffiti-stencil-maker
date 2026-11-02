@@ -1290,3 +1290,14 @@ test('the Tile plan lists every tile with SVG and DXF downloads', async ({ page 
   const svg = await panel.locator('a', { hasText: 'SVG' }).first().getAttribute('href')
   expect(await page.evaluate(async (u) => (await (await fetch(u!)).text()), svg)).toContain('<svg')
 })
+
+test('a Tile plan with no connectors hides their settings and plans no blocks', async ({ page }) => {
+  await openLayoutPreview(page)
+  const bench = page.locator('.bench')
+  await expect(bench.getByLabel('Connector diameter', { exact: false }).first()).toBeVisible()
+  await bench.getByLabel('Connector shape').selectOption('none')
+  await expect(bench.getByText('Connector diameter')).toHaveCount(0)
+  await expect(bench.getByLabel('Seam clearance', { exact: false }).first()).toBeVisible()
+  await settled(page)
+  await expect(page.locator('aside.tilepanel')).toBeVisible({ timeout: 80_000 })
+})

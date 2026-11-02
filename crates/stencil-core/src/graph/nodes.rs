@@ -534,11 +534,7 @@ pub(super) fn run_export(_: &Engine, i: &HashMap<String, Value>, p: &P) -> Resul
     let tp = tiles::TileParams {
         max_x: p.f("max_x"),
         max_y: p.f("max_y"),
-        shape: if p.s("connector") == "round" {
-            tiles::Shape::Round
-        } else {
-            tiles::Shape::Hex
-        },
+        shape: connector_shape(p),
         diameter: p.s("connector_d").parse().unwrap_or(3.0),
         depth: p.f("depth"),
         clearance: p.f("clearance"),
@@ -672,11 +668,7 @@ pub(super) fn run_tiles(_: &Engine, i: &HashMap<String, Value>, p: &P) -> Result
     let tp = tiles::TileParams {
         max_x: p.f("max_x"),
         max_y: p.f("max_y"),
-        shape: if p.s("connector") == "round" {
-            tiles::Shape::Round
-        } else {
-            tiles::Shape::Hex
-        },
+        shape: connector_shape(p),
         diameter: p.s("connector_d").parse().unwrap_or(3.0),
         depth: p.f("depth"),
         clearance: p.f("clearance"),
@@ -1340,7 +1332,6 @@ pub(super) fn run_tile_layout(
     p: &P,
 ) -> Result<Outputs, String> {
     use crate::tile_first as tf;
-    use crate::tiles::Shape;
     let diameter: f64 = p.s("connector_d").parse().unwrap_or(3.0);
     let lp = tf::LayoutParams {
         edits: tf::Edits::parse(p.s("edits"))?,
@@ -1350,16 +1341,13 @@ pub(super) fn run_tile_layout(
         max_y: p.f("max_y"),
         seam_shift: p.f("seam_shift"),
         spec: tf::Connectors {
-            shape: if p.s("connector") == "round" {
-                Shape::Round
-            } else {
-                Shape::Hex
-            },
+            shape: connector_shape(p),
             diameter,
             clearance: p.f("clearance"),
             depth: p.f("depth"),
             segments: p.f("segments") as usize,
             spacing: p.f("spacing"),
+            seam_gap: p.f("seam_gap"),
         },
     };
     let layout = match (i.get("mask"), i.get("shapes")) {
@@ -1401,7 +1389,10 @@ fn tiled_parts(
                 },
                 c.diameter
             ),
-            crate::tiles::connector_rod(c.shape, c.diameter, c.depth, c.segments).to_stl(),
+            crate::tiles::connector_rod_with_gap(
+                c.shape, c.diameter, c.depth, c.seam_gap, c.segments,
+            )
+            .to_stl(),
         ));
     }
     let meta = json!({
@@ -1416,4 +1407,13 @@ fn tiled_parts(
         "parts",
         Value::Parts(Rc::new(Parts { files, meta })),
     )])
+}
+
+/// The connector choice of a node: a hex or round rod, or none at all.
+fn connector_shape(p: &P) -> crate::tiles::Shape {
+    match p.s("connector") {
+        "round" => crate::tiles::Shape::Round,
+        "none" => crate::tiles::Shape::None,
+        _ => crate::tiles::Shape::Hex,
+    }
 }
