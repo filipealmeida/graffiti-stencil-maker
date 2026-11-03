@@ -41,6 +41,7 @@ export default function Inspector() {
   const fileInput = t.id === 'source'
   return (
     <aside className="inspector">
+      <div className="panel-scroll">
       <h2>{t.label} <small className={`tag stage-${t.stage}`}>{STAGE_LABEL[t.stage]}</small></h2>
       <p className="mut status-line">{runSummary(run, busy)}</p>
       <Findings id={node.id} />
@@ -72,6 +73,7 @@ export default function Inspector() {
           {info?.coverage !== undefined && <p className="mut">{info.width}×{info.height}px · {(info.coverage * 100).toFixed(1)}% paint</p>}
         </div>
       )}
+      </div>
       <div className="panel-foot"><DeleteNode id={node.id} /></div>
     </aside>
   )

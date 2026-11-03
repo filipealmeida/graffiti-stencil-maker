@@ -6,6 +6,10 @@
   --fg: #e6e9ee;
   --mut: #9aa4b2;
   --acc: #ff8a1f;
+  --warn: #ffb020;
+  --err: #ff8c8c;
+  --warn-bg: #ffb02022;
+  --err-bg: #ff8c8c26;
   --trace: #4aa3ff;
   --stencil: #5fd38d;
   --post: #c28bff;
@@ -154,7 +158,9 @@ main {
 .inspector {
   width: var(--inspector-w, 380px);
   flex: none;
-  overflow: auto;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
   padding: 12px;
   background: var(--panel);
   border-left: 1px solid var(--line);
@@ -171,7 +177,8 @@ main {
 .mut {
   color: var(--mut);
 }
-.inspector fieldset {
+.inspector fieldset,
+.bench-params fieldset {
   border: 1px solid var(--line);
   border-radius: 8px;
   margin: 8px 0;
@@ -199,7 +206,7 @@ legend {
   width: 100%;
 }
 .err {
-  color: #ff6b6b;
+  color: var(--err);
   font-size: 12px;
   margin: 6px 0;
   word-break: break-word;
@@ -243,7 +250,7 @@ td:last-child {
 }
 .danger {
   margin-top: 14px;
-  color: #ff8080;
+  color: var(--err);
 }
 .node {
   min-width: 150px;
@@ -312,7 +319,7 @@ td:last-child {
   background: var(--acc);
 }
 .dot.error {
-  background: #ff5b5b;
+  background: var(--err);
 }
 .dot.pending {
   background: #888;
@@ -503,13 +510,13 @@ td:last-child {
   color: var(--mut);
 }
 .imgbar .layout-note {
-  color: #ff8a80;
+  color: var(--warn);
 }
 .imgbar .layout-note:empty {
   display: none;
 }
 .imgbar .warn {
-  color: #ffb020;
+  color: var(--warn);
 }
 .bench {
   position: fixed;
@@ -548,7 +555,10 @@ td:last-child {
 }
 .bench-params {
   width: 340px;
-  overflow: auto;
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
   padding: 10px;
   background: var(--panel);
   border-right: 1px solid var(--line);
@@ -618,6 +628,7 @@ td:last-child {
 }
 .console {
   display: flex;
+  flex-shrink: 0;
   flex-direction: column;
   background: #101317;
   border-top: 1px solid var(--line);
@@ -644,7 +655,7 @@ td:last-child {
   padding: 4px 10px;
 }
 .console-lines .error {
-  color: #ff7b7b;
+  color: var(--err);
 }
 .console-lines b {
   color: var(--fg);
@@ -675,8 +686,8 @@ td:last-child {
   opacity: 1;
 }
 .node-del:hover {
-  color: #ff6b6b;
-  border-color: #ff6b6b;
+  color: var(--err);
+  border-color: var(--err);
 }
 .pct + .node-del,
 .node-head .pct {
@@ -689,8 +700,8 @@ td:last-child {
   height: 22px;
   padding: 0;
   border-radius: 50%;
-  background: #ff5b5b;
-  color: #fff;
+  background: var(--err);
+  color: var(--bg);
   border: 0;
   font-size: 15px;
   line-height: 20px;
@@ -884,7 +895,7 @@ header > .pal .menu {
   background: #0006;
   padding: 10px;
   border-radius: 6px;
-  color: #ff9b9b;
+  color: var(--err);
 }
 .crash-actions {
   display: flex;
@@ -950,7 +961,7 @@ header > .pal .menu:not(.wide) {
   fill: var(--stencil, #5fd38d);
 }
 .perf .busy {
-  color: #ffa24a;
+  color: var(--acc);
 }
 
 .help {
@@ -1007,12 +1018,12 @@ header > .pal .menu:not(.wide) {
   max-width: 224px;
 }
 .badge.error {
-  color: #ffb3b3;
-  background: #ff5b5b26;
+  color: var(--err);
+  background: var(--err-bg);
 }
 .badge.warn {
-  color: #ffd28a;
-  background: #ffa24a22;
+  color: var(--warn);
+  background: var(--warn-bg);
 }
 .badge.info {
   color: var(--mut);
@@ -1116,10 +1127,10 @@ header > .pal .menu:not(.wide) {
   color: #5fd38d;
 }
 .report .verdict.check {
-  color: #ffa24a;
+  color: var(--warn);
 }
 .report .verdict.blocked {
-  color: #ff6b6b;
+  color: var(--err);
 }
 .report .t {
   display: flex;
@@ -1137,13 +1148,13 @@ header > .pal .menu:not(.wide) {
   min-width: 0;
 }
 .node.stale-node {
-  outline: 1px dashed #ffa24a88;
+  outline: 1px dashed var(--warn);
 }
 .node.problem-error {
-  box-shadow: 0 0 0 2px #ff6b6b;
+  box-shadow: 0 0 0 2px var(--err);
 }
 .node.problem-warn {
-  box-shadow: 0 0 0 2px #ffa24a;
+  box-shadow: 0 0 0 2px var(--warn);
 }
 .hist {
   position: absolute;
@@ -1288,10 +1299,10 @@ header .btn.icon-btn {
   color: #16191e;
 }
 .tb-badge.err {
-  background: #ff6b6b;
+  background: var(--err);
 }
 .tb-badge.warn {
-  background: #f0d24a;
+  background: var(--warn);
 }
 .react-flow__edge.splice path {
   stroke: var(--acc) !important;
@@ -1447,7 +1458,7 @@ header > .pal.project .menu.pmenu {
   font-size: 13px;
 }
 .toast.error {
-  border-left-color: #ff6b6b;
+  border-left-color: var(--err);
 }
 .toast .x {
   border: 0;
@@ -1475,10 +1486,10 @@ header > .pal.project .menu.pmenu {
   font-size: 13px;
 }
 .finding.error {
-  color: #ff8c8c;
+  color: var(--err);
 }
 .finding.warn {
-  color: #ffb020;
+  color: var(--warn);
 }
 .finding.info {
   color: var(--mut);
@@ -1531,11 +1542,17 @@ header > .pal.project .menu.pmenu {
   gap: 4px;
 }
 .panel-foot {
-  margin-top: 16px;
+  flex: none;
+  margin-top: 10px;
   padding-top: 10px;
   border-top: 1px solid var(--line);
   display: flex;
   justify-content: flex-end;
+}
+.panel-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
 }
 .panel-foot .danger {
   margin: 0;
@@ -1569,7 +1586,7 @@ header {
   z-index: 50;
 }
 .layer-row.on {
-  background: rgba(255, 176, 32, 0.12);
+  background: var(--warn-bg);
 }
 .layer-xy {
   display: flex;

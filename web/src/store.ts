@@ -142,8 +142,11 @@ export const useStudio = create<State>((set, get) => ({
   },
   dismissToast: (id) => set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) })),
   setShowHelp: (on) => { localStorage.setItem('studio.showHelp', on ? '1' : '0'); set({ showHelp: on }) }, busy: false, stopped: false, error: null,
-  logs: [], usage: loadUsage(), perfOpen: localStorage.getItem('stencil-perf') === '1', dragFrom: null, consoleOpen: window.innerWidth >= 1000, reportOpen: false, hv: 0, bench: null, progress: { done: 0, total: 0 }, draft: false,
-  addLogs: (l) => set((s) => ({ logs: [...s.logs, ...l.map((x, i) => ({ ...x, id: s.logs.length + i + Math.random() }))].slice(-500) })),
+  logs: [], usage: loadUsage(), perfOpen: localStorage.getItem('stencil-perf') === '1', dragFrom: null, consoleOpen: false, reportOpen: false, hv: 0, bench: null, progress: { done: 0, total: 0 }, draft: false,
+  addLogs: (l) => set((s) => ({
+    logs: [...s.logs, ...l.map((x, i) => ({ ...x, id: s.logs.length + i + Math.random() }))].slice(-500),
+    consoleOpen: s.consoleOpen || l.some((x) => x.level === 'error'),
+  })),
   clearLogs: () => set({ logs: [] }),
   setConsole: (consoleOpen) => set({ consoleOpen }),
   setReport: (reportOpen) => set({ reportOpen }),

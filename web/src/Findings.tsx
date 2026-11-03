@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { api } from './api'
-import { badgesFor, type Badge } from './badges'
+import { badgesForNode, type Badge } from './badges'
 import { useStudio } from './store'
 
 const ICON = { error: '✖', warn: '▲', info: 'ℹ' } as const
@@ -35,12 +35,16 @@ export function useNodeFindings(id: string | null | undefined): Badge[] {
   const node = useStudio((s) => s.nodes.find((n) => n.id === id))
   const run = useStudio((s) => (id ? s.runs[id] : undefined))
   const t = useStudio((s) => (node ? s.types[node.data.type] : undefined))
-  if (!node || !run?.key || run.stale || !t) return []
+  const edges = useStudio((s) => s.edges)
+  const nodes = useStudio((s) => s.nodes)
+  const runs = useStudio((s) => s.runs)
+  const types = useStudio((s) => s.types)
+  if (!node || !run?.key || run.stale || run.state !== 'done' || !t) return []
   const seen = new Set<string>()
   const out: Badge[] = []
   for (const o of t.outputs) {
     if (!run.outputs?.[o.name]?.available) continue
-    for (const b of badgesFor(node.data.type, node.data.params, api.peekInfo(run.key, o.name))) {
+    for (const b of badgesForNode({ nodes, edges, runs, types }, node.id, o.name, api.peekInfo(run.key, o.name))) {
       if (!seen.has(b.text)) { seen.add(b.text); out.push(b) }
     }
   }

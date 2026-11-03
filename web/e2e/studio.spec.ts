@@ -143,6 +143,7 @@ test('the Reshape paint node can be added from the menu and shows its parameters
 
 test('the console lists timed sub-steps of the stencil node', async ({ page }) => {
   await open(page)
+  await page.getByRole('button', { name: 'Show console', exact: true }).click()
   const rows = page.locator('div.info').filter({ hasText: '↳' })
   await expect(rows.filter({ hasText: 'build mesh' }).first()).toContainText(/\d+ ms/)
 })
@@ -239,8 +240,9 @@ test('releasing the preview image right after a move does not crash the app', as
   await expect(stage.locator('canvas')).toBeVisible()
 })
 
-test('after dropping an image the whole starter graph is in view', async ({ page }) => {
+test('Fit view brings the whole starter graph into view', async ({ page }) => {
   await open(page)
+  await page.locator('.react-flow__controls-fitview').click()
   await page.waitForTimeout(800)
   const canvas = (await page.locator('.canvas').boundingBox())!
   for (const n of await page.locator('.react-flow__node').all()) {
@@ -1117,6 +1119,8 @@ test('the status text lives in a footer, so the toolbar buttons never move while
 
 test('the console opens with the version and build of the studio', async ({ page }) => {
   await page.goto('/')
+  await expect(page.getByRole('log', { name: 'Engine log' })).toBeHidden()
+  await page.getByRole('button', { name: 'Show console', exact: true }).click()
   const line = page.locator('.console-lines').getByText(/Graffiti stencil studio v\d+\.\d+\.\d+ · build \d+ \(/)
   await expect(line).toBeVisible({ timeout: 60_000 })
   await expect(line).toContainText('engine ')
@@ -1359,4 +1363,92 @@ test('menus are exclusive and dismissable, minimap hides when empty', async ({ p
   await expect(page.locator('.menu.pmenu')).toHaveCount(0)
   await expect(page.locator('.cmdpal')).toBeVisible()
   await page.keyboard.press('Escape')
+})
+
+test('console starts compact, opens on errors and can be collapsed again', async ({ page }) => {
+  await page.goto('/')
+  const console = page.getByRole('region', { name: 'Console', exact: true })
+  await expect(page.getByRole('button', { name: 'Show console', exact: true })).toBeVisible()
+  expect((await console.boundingBox())!.height).toBeLessThan(45)
+  await page.getByRole('button', { name: '+ finish' }).click()
+  await page.locator('.menu button').filter({ hasText: 'Add pads & mounting holes' }).click()
+  await expect(page.getByRole('log', { name: 'Engine log' })).toBeVisible()
+  await expect(page.locator('.console-lines .error').first()).toBeVisible()
+  await page.getByRole('button', { name: 'Hide console', exact: true }).click()
+  await expect(page.getByRole('log', { name: 'Engine log' })).toBeHidden()
+  await page.getByRole('button', { name: 'Show console', exact: true }).click()
+  await expect(page.locator('.console-lines .error').first()).toBeVisible()
+})
+
+test('resolved downstream islands are notes on the canvas and in the report', async ({ page }) => {
+  await open(page, 'Vector')
+  const stencil = page.locator('.react-flow__node').filter({ hasText: 'Vector stencil' })
+  await expect(stencil.locator('.badge.info')).toContainText('bridged downstream')
+  await expect(stencil).not.toContainClass('problem-error')
+  await stencil.dispatchEvent('click')
+  await page.locator('.inspector').getByRole('button', { name: /Show .*note/ }).click()
+  await expect(page.locator('.inspector .finding.info')).toContainText('bridged downstream')
+  await page.getByRole('button', { name: /^Report/ }).click()
+  await expect(page.locator('.report')).toContainText('bridged downstream')
+  await expect(page.locator('.report .verdict')).toHaveText('ready')
+  await page.getByRole('button', { name: /Project/ }).click()
+  const [download] = await Promise.all([page.waitForEvent('download'), page.getByRole('menuitem', { name: /Export everything/ }).click()])
+  const { unzipSync, strFromU8 } = await import('fflate')
+  const exported = strFromU8(unzipSync(readFileSync((await download.path())!))['findings.txt'])
+  expect(exported).toContain('[info] Vector stencil: 1 island bridged downstream')
+  expect(exported).not.toContain('[error] Vector stencil:')
+  await page.locator('.react-flow__node').filter({ hasText: 'Bridges' }).getByRole('button', { name: 'Delete node' }).dispatchEvent('click')
+  await expect(stencil.locator('.badge.error')).toContainText('island')
+})
+
+test('initial canvas stays readable and parameter edits preserve user zoom', async ({ page }, testInfo) => {
+  await page.setViewportSize({ width: 1600, height: 950 })
+  await open(page, null)
+  const zoom = () => page.locator('.react-flow__viewport').evaluate((e) => Number(/scale\(([\d.]+)\)/.exec((e as HTMLElement).style.transform)![1]))
+  await expect.poll(zoom).toBeGreaterThanOrEqual(0.8)
+  await expect(page.getByRole('button', { name: 'Templates', exact: true })).toHaveText('Templates')
+  await page.screenshot({ path: testInfo.outputPath('canvas.png') })
+  await page.locator('.react-flow__controls-zoomin').click()
+  await page.waitForTimeout(400)
+  const before = await zoom()
+  await page.locator('.react-flow__node').filter({ hasText: 'Threshold' }).dispatchEvent('click')
+  await page.locator('.inspector input[type=number]').first().fill('120')
+  await expect.poll(zoom).toBe(before)
+  await page.locator('.react-flow__controls-fitview').click()
+  await page.waitForTimeout(400)
+  expect(await zoom()).toBeLessThan(before)
+  await page.setViewportSize({ width: 820, height: 900 })
+  await page.locator('.react-flow__pane').click({ position: { x: 30, y: 30 } })
+  await expect(page.getByRole('button', { name: 'Templates', exact: true })).toBeVisible()
+  await page.screenshot({ path: testInfo.outputPath('canvas-narrow.png') })
+})
+
+test('inspector and workbench footers stay visible while long forms scroll', async ({ page }, testInfo) => {
+  await page.setViewportSize({ width: 1600, height: 900 })
+  await open(page, 'Vector')
+  const trace = page.locator('.react-flow__node').filter({ hasText: 'Trace' })
+  await trace.dispatchEvent('click')
+  const atFoot = async (selector: string) => {
+    const panel = page.locator(selector)
+    const foot = panel.locator('.panel-foot')
+    await expect(foot.getByRole('button', { name: 'Delete node' })).toBeVisible()
+    const p = (await panel.boundingBox())!, f = (await foot.boundingBox())!
+    expect(Math.abs(p.y + p.height - (f.y + f.height))).toBeLessThan(15)
+    const scroll = panel.locator('.panel-scroll')
+    await scroll.evaluate((e) => { e.scrollTop = e.scrollHeight })
+    expect((await foot.boundingBox())!.y).toBe(f.y)
+  }
+  await atFoot('.inspector')
+  await trace.dispatchEvent('dblclick')
+  await atFoot('.bench-params')
+  const violations = (await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa']).analyze()).violations
+    .filter((x) => x.impact === 'serious' || x.impact === 'critical')
+  expect(violations.map((x) => x.id)).toEqual([])
+  await page.screenshot({ path: testInfo.outputPath('preview-desktop.png') })
+  await page.getByRole('button', { name: 'Close preview' }).click()
+  await page.locator('.react-flow__node').filter({ hasText: 'Vector stencil' }).dispatchEvent('dblclick')
+  await page.setViewportSize({ width: 820, height: 700 })
+  await atFoot('.bench-params')
+  expect(await page.locator('.bench-params .panel-scroll').evaluate((e) => e.scrollHeight > e.clientHeight)).toBe(true)
+  await page.screenshot({ path: testInfo.outputPath('preview-narrow.png') })
 })

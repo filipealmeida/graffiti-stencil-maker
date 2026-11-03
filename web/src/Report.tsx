@@ -1,6 +1,6 @@
 import { useMemo } from 'react'
 import { api } from './api'
-import { badgesFor, type BadgeLevel } from './badges'
+import { badgesForNode, type BadgeLevel } from './badges'
 import { useStudio } from './store'
 
 interface Finding { id: string; label: string; level: BadgeLevel; text: string }
@@ -12,6 +12,7 @@ export function useReport() {
   const nodes = useStudio((s) => s.nodes)
   const runs = useStudio((s) => s.runs)
   const types = useStudio((s) => s.types)
+  const edges = useStudio((s) => s.edges)
   const { findings, timing } = useMemo(() => {
     const findings: Finding[] = []
     const timing: { id: string; label: string; ms: number; cached: boolean }[] = []
@@ -26,7 +27,7 @@ export function useReport() {
       if (typeof run.ms === 'number') timing.push({ id: n.id, label, ms: run.ms, cached: !!run.cached })
       for (const o of t.outputs) {
         if (!run.outputs?.[o.name]?.available) continue
-        for (const b of badgesFor(n.data.type, n.data.params, api.peekInfo(run.key, o.name))) {
+        for (const b of badgesForNode({ nodes, edges, runs, types }, n.id, o.name, api.peekInfo(run.key, o.name))) {
           // parts carry the tiling description on through Pads and Screws: say it once
           if (seen.has(b.text)) continue
           seen.add(b.text)
@@ -36,7 +37,7 @@ export function useReport() {
     }
     timing.sort((a, b) => b.ms - a.ms)
     return { findings, timing }
-  }, [nodes, runs, types])
+  }, [nodes, edges, runs, types])
   const has = (l: BadgeLevel) => findings.some((f) => f.level === l)
   const verdict = has('error') ? 'blocked' : has('warn') ? 'check' : 'ready'
   const computed = Object.values(runs).some((r) => r.key)

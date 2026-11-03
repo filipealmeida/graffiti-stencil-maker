@@ -1,6 +1,6 @@
 import { zipSync, strToU8 } from 'fflate'
 import { api, artifactUrl, partUrl } from './api'
-import { badgesFor } from './badges'
+import { badgesForNode } from './badges'
 import { useStudio } from './store'
 
 export const safeName = (n: string) => (n.trim().replace(/[\\/:*?"<>|]+/g, '-').replace(/\s+/g, '_') || 'project')
@@ -86,7 +86,7 @@ export async function exportEverything() {
     for (const o of t.outputs) {
       if (!run.outputs?.[o.name]?.available) continue
       const info = api.peekInfo(run.key, o.name)
-      for (const b of badgesFor(n.data.type, n.data.params, info)) lines.push(`[${b.level}] ${label}: ${b.text}`)
+      for (const b of badgesForNode(s, n.id, o.name, info)) lines.push(`[${b.level}] ${label}: ${b.text}`)
       if (!['solid', 'parts', 'shapes'].includes(o.type) || s.edges.some((e) => e.source === n.id && e.sourceHandle === o.name)) continue
       const base = safeName(label)
       if (o.type === 'solid') files[`models/${uniq(base, 'stl')}`] = await fetchBytes(artifactUrl(run.key, o.name))

@@ -1,8 +1,8 @@
 import { Handle, Position, type NodeProps } from '@xyflow/react'
-import { api, artifactUrl, type Kind } from './api'
+import { artifactUrl, type Kind } from './api'
 import { KIND_INFO, canLink, visibleInputs, kindBackground, portText, portTitle } from './ports'
 import { useStudio, type StudioNode } from './store'
-import { badgesFor } from './badges'
+import { useNodeFindings } from './Findings'
 import { runSummary } from './NodeActions'
 import { etaSeconds, formatEta, nodeStarts, useNow } from './eta'
 
@@ -24,6 +24,7 @@ function RunNote({ id, message, progress, ms }: { id: string; message?: string; 
 export default function StudioNodeView({ id, data, selected }: NodeProps<StudioNode>) {
   const t = useStudio((s) => s.types[data.type])
   const run = useStudio((s) => s.runs[id])
+  const badges = useNodeFindings(id)
   const drag = useStudio((s) => s.dragFrom)
   const linked = useStudio((s) => s.edges.filter((e) => e.target === id).map((e) => e.targetHandle).join(','))
   const from = useStudio((s) => (s.dragFrom ? s.types[s.nodes.find((x) => x.id === s.dragFrom!.node)?.data.type ?? ''] : undefined))
@@ -36,8 +37,6 @@ export default function StudioNodeView({ id, data, selected }: NodeProps<StudioN
   }
   if (!t) return <div className="node">unknown node {data.type}</div>
   const done = !!run?.key && run.state !== 'error'
-  const first = t.outputs.find((o) => run?.outputs?.[o.name]?.available)
-  const badges = done && !run.stale && run.key && first ? badgesFor(data.type, data.params, api.peekInfo(run.key, first.name)) : []
   const shown = t.outputs
   const problem = badges.some((b) => b.level === 'error') || run?.state === 'error' ? ' problem-error' : badges.some((b) => b.level === 'warn') ? ' problem-warn' : ''
   const stale = run?.stale && run.state !== 'running' ? ' stale-node' : ''

@@ -178,6 +178,7 @@ export default function Workbench() {
       {run?.state === 'running' && <div className="bar"><i style={{ width: `${(run.progress ?? 0) * 100}%` }} /></div>}
       <div className="bench-body">
         <aside className="bench-params">
+          <div className="panel-scroll">
           <Findings id={node.id} />
           <Presets key={node.id} node={node} />
           {run?.state === 'error' && <div className="err">{run.error}</div>}
@@ -186,6 +187,7 @@ export default function Workbench() {
             {t.id === 'source' && <SourceActions id={node.id} imageId={String(node.data.params.image_id)} title={node.data.title} />}
           </>} />
           {t.id === 'source' && <ImageInfoPanel imageId={String(node.data.params.image_id)} resolution={Number(node.data.params.resolution ?? 1000)} />}
+          </div>
           <div className="panel-foot"><DeleteNode id={node.id} /></div>
         </aside>
         <section className="bench-view">

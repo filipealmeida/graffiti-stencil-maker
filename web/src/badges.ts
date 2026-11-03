@@ -1,9 +1,44 @@
+import { api, type NodeRun, type NodeType } from './api'
+import type { StudioNode } from './store'
+import type { Edge } from '@xyflow/react'
+
 export type BadgeLevel = 'error' | 'warn' | 'info'
 export interface Badge { level: BadgeLevel; text: string }
 
 type Info = Record<string, any>
 
 const n = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : 0)
+
+interface FindingGraph {
+  nodes: StudioNode[]
+  edges: Edge[]
+  runs: Record<string, NodeRun>
+  types: Record<string, NodeType>
+}
+
+/** Only resolved, current results on every outgoing branch can soften an upstream error. */
+export function badgesForNode(graph: FindingGraph, id: string, output: string, info: Info | null | undefined): Badge[] {
+  const node = graph.nodes.find((x) => x.id === id)
+  if (!node) return []
+  const badges = badgesFor(node.data.type, node.data.params, info)
+  if (!badges.some((b) => b.level === 'error' && /islands? remain$/.test(b.text))) return badges
+  const edges = graph.edges.filter((e) => e.source === id && e.sourceHandle === output)
+  const bridged = edges.length > 0 && edges.every((e) => {
+    const next = graph.nodes.find((x) => x.id === e.target)
+    const run = graph.runs[e.target]
+    if (next?.data.type !== 'bridges' || e.targetHandle !== 'body' || run?.state !== 'done' || run.stale || !run.key) return false
+    const key = run.key
+    return graph.types.bridges?.outputs.some((o) => {
+      if (!run.outputs?.[o.name]?.available) return false
+      const stats = api.peekInfo(key, o.name)?.stats
+      return typeof stats?.islands_remaining === 'number' && stats.islands_remaining === 0 && n(stats.islands_found) > 0
+    })
+  })
+  return badges.map((b) =>
+    bridged && b.level === 'error' && /islands? remain$/.test(b.text)
+      ? { level: 'info', text: b.text.replace(/ remain$/, ' bridged downstream') }
+      : b)
+}
 
 /** Short findings about what a node produced, so a problem shows on the node without opening it. */
 export function badgesFor(type: string, params: Record<string, unknown>, info: Info | null | undefined): Badge[] {

@@ -56,10 +56,10 @@ function Canvas() {
   const dirty = s.nodes.length > 0 && s.savedSig !== signature(s);
   const [menu, setMenu] = useState<Stage | "templates" | "all" | null>(null);
   const [cmdOpen, setCmdOpen] = useState(false);
-  // wait for the new nodes to be measured, then bring the whole graph into view
+  // Wait for measurement, then centre the graph without making its labels too small.
   const fit = useCallback(() => {
     setTimeout(
-      () => rf.fitView({ padding: 0.08, maxZoom: 1, duration: 250 }),
+      () => rf.fitView({ padding: 0.08, minZoom: 0.8, maxZoom: 1, duration: 250 }),
       200,
     );
   }, [rf]);
@@ -556,6 +556,7 @@ function Canvas() {
             aria-label="Templates"
           >
             <Icon name="templates" />
+            <span>Templates</span>
           </button>
           {menu === "templates" && (
             <div className="menu wide">
@@ -757,7 +758,7 @@ function Canvas() {
         <PanelResizer />
         <Inspector />
       </main>
-      {s.consoleOpen && <Console height={170} />}
+      <Console height={170} />
       <Toasts />
       <footer className="statusbar">
         <Status
