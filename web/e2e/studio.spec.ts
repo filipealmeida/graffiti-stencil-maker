@@ -1351,7 +1351,7 @@ test('menus are exclusive and dismissable, minimap hides when empty', async ({ p
   // Project menu closes on outside click
   await page.getByRole('button', { name: /Project/ }).click()
   await expect(page.locator('.menu.pmenu')).toBeVisible()
-  await page.locator('.react-flow').click({ position: { x: 200, y: 300 } })
+  await page.getByRole('heading', { name: 'Make a stencil', exact: true }).click()
   await expect(page.locator('.menu.pmenu')).toHaveCount(0)
   // Escape closes the Project menu too
   await page.getByRole('button', { name: /Project/ }).click()
