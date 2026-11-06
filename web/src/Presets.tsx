@@ -19,7 +19,7 @@ export default function Presets({ node }: { node: StudioNode }) {
   const [more, setMore] = useState(false)
   const mine = book[type] ?? {}
   const builtIn = BUILT_IN[type] ?? {}
-  if (type === 'source') return null
+  if (type === 'source' || type === 'mesh_import') return null
   const save = (b: Book) => { localStorage.setItem(KEY, JSON.stringify(b)); setBook(b) }
   const apply = (name: string) => {
     const p = mine[name] ?? builtIn[name]

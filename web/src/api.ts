@@ -126,7 +126,7 @@ async function replay(i: number) {
   const keys = (await idb('readonly', (s) => s.getAllKeys())) as string[]
   for (const k of keys) {
     const img = (await idb('readonly', (s) => s.get(k))) as StoredImage | undefined
-    if (img) await callOn(i, { op: 'image', bytes: img.bytes.slice(0) })
+    if (img) await callOn(i, { op: img.modelFormat ? 'model' : 'image', format: img.modelFormat, bytes: img.bytes.slice(0) })
   }
   for (const [name, bytes] of fontBytes) await callOn(i, { op: 'font', name, bytes: bytes.slice(0) })
 }
@@ -230,7 +230,7 @@ export interface ImageInfo {
   working: [number, number]; scale: number; mean_brightness: number; brightness_range: [number, number]
   otsu_threshold: number; dark_percent: number; colours: number
 }
-export interface StoredImage { name: string; bytes: ArrayBuffer }
+export interface StoredImage { name: string; bytes: ArrayBuffer; modelFormat?: string }
 
 const pad = (n: number, w = 2) => String(n).padStart(w, '0')
 const stamp = (t: number) => {
@@ -298,6 +298,15 @@ export const api = {
     const info = await broadcast<{ id: string; width: number; height: number }>({ op: 'image' }, bytes)
     await idb('readwrite', (s) => s.put({ name: f.name, bytes } satisfies StoredImage, info.id))
     return { ...info, name: f.name }
+  },
+  async uploadModel(f: File) {
+    const format = f.name.split('.').pop()?.toLowerCase()
+    if (format !== 'stl' && format !== 'obj') throw new Error('Unsupported model format: use STL or triangulated OBJ.')
+    if (f.size > 100 * 1024 * 1024) throw new Error('The model file is larger than 100 MB.')
+    const bytes = await f.arrayBuffer()
+    const info = await broadcast<{ id: string }>({ op: 'model', format }, bytes)
+    await idb('readwrite', (s) => s.put({ name: f.name, bytes, modelFormat: format } satisfies StoredImage, info.id))
+    return { ...info, name: f.name, format }
   },
   async storedImage(id: string) {
     return (await idb('readonly', (s) => s.get(id))) as StoredImage | undefined
@@ -376,16 +385,23 @@ export const api = {
   /** The info of a finished output when it is already in memory. */
   peekInfo: (key: string, out: string) => infos.get(`${key}/${out}`),
 
-  /** Projects are files: the graph plus the pictures it uses. */
+  /** Projects are files: the graph plus the pictures and models it uses. */
   async exportProject(graph: unknown) {
     const used = new Set<string>()
-    for (const n of (graph as any).nodes ?? []) if (n.data?.params?.image_id) used.add(String(n.data.params.image_id))
+    const nodes = (graph as { nodes?: { data?: { params?: Record<string, unknown> } }[] }).nodes ?? []
+    for (const n of nodes) for (const param of ['image_id', 'model_id']) {
+      const id = n.data?.params?.[param]
+      if (id) used.add(String(id))
+    }
     const images: Record<string, { name: string; base64: string }> = {}
+    const models: Record<string, { name: string; base64: string; format: string }> = {}
     for (const id of used) {
       const img = (await idb('readonly', (s) => s.get(id))) as StoredImage | undefined
-      if (img) images[id] = { name: img.name, base64: b64(img.bytes) }
+      if (!img) throw new Error('A source file is no longer stored in this browser: open it again before saving.')
+      if (img.modelFormat) models[id] = { name: img.name, base64: b64(img.bytes), format: img.modelFormat }
+      else images[id] = { name: img.name, base64: b64(img.bytes) }
     }
-    return { version: 2, graph, images }
+    return { version: 2, graph, images, models }
   },
   async importProject(p: any) {
     const remap = new Map<string, string>()
@@ -395,11 +411,19 @@ export const api = {
       remap.set(id, got.id)
       await idb('readwrite', (s) => s.put({ name: img.name, bytes } satisfies StoredImage, got.id))
     }
+    for (const [id, model] of Object.entries<{ name: string; base64: string; format: string }>(p.models ?? {})) {
+      const bytes = unb64(model.base64)
+      const got = await broadcast<{ id: string }>({ op: 'model', format: model.format }, bytes)
+      remap.set(id, got.id)
+      await idb('readwrite', (s) => s.put({ name: model.name, bytes, modelFormat: model.format } satisfies StoredImage, got.id))
+    }
     const g = p.graph as { nodes: any[]; edges: any[] }
     // older projects keep the picture ids of the engine that saved them
     for (const n of g.nodes ?? []) {
-      const old = n.data?.params?.image_id
-      if (old && remap.has(String(old))) n.data.params.image_id = remap.get(String(old))
+      for (const param of ['image_id', 'model_id']) {
+        const old = n.data?.params?.[param]
+        if (old && remap.has(String(old))) n.data.params[param] = remap.get(String(old))
+      }
     }
     return g
   },

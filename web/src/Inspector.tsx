@@ -50,6 +50,7 @@ export default function Inspector() {
       <ParamForm node={node} type={t} layers={layers} before={<>
       <NodeActions id={node.id} preview download={downloadFor(cur?.type, key, cur?.name, Object.keys(info?.files ?? {}).length)} />
       {fileInput && <><p className="mut">Image: {String(node.data.title ?? node.data.params.image_id)}</p><SourceActions id={node.id} imageId={String(node.data.params.image_id)} title={node.data.title} /></>}
+      {t.id === 'mesh_import' && <><p className="mut">Model: {node.data.title || 'none loaded'}</p><SourceActions id={node.id} imageId={String(node.data.params.model_id ?? '')} title={node.data.title} model /></>}
       </>} />
       {fileInput && <ImageInfoPanel imageId={String(node.data.params.image_id)} resolution={Number(node.data.params.resolution ?? 1000)} />}
       {key && cur && (

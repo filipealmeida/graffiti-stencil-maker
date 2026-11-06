@@ -50,6 +50,44 @@ fn raster_svg_makes_an_stl() {
 }
 
 #[test]
+fn runs_a_saved_project_with_an_embedded_3d_model() {
+    use base64::Engine as _;
+    let d = scratch("model-project");
+    let mesh = stencil_core::mesh::Mesh::cuboid([-10.0, -5.0, -2.0], [30.0, 15.0, 0.0]);
+    let project = serde_json::json!({
+        "version": 2,
+        "models": {"old-model-id": {
+            "name": "plate.stl", "format": "stl",
+            "base64": base64::engine::general_purpose::STANDARD.encode(mesh.to_stl())
+        }},
+        "graph": {
+            "nodes": [{"id": "m", "data": {"type": "mesh_import", "params": {
+                "model_id": "old-model-id", "format": "stl", "scale": 2
+            }}}],
+            "edges": []
+        }
+    });
+    let path = d.join("model.stencil.json");
+    fs::write(&path, project.to_string()).unwrap();
+    let out = d.join("model.stl");
+    let r = bin()
+        .args([
+            "--project",
+            path.to_str().unwrap(),
+            "-o",
+            out.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    assert!(r.status.success(), "{}", String::from_utf8_lossy(&r.stderr));
+    assert_stl(&out);
+    let m = stencil_core::mesh::Mesh::from_stl(&fs::read(out).unwrap()).unwrap();
+    assert_eq!(m.bounds(), ([0.0; 3], [80.0, 40.0, 4.0]));
+    assert!(m.is_watertight());
+    fs::remove_dir_all(d).unwrap();
+}
+
+#[test]
 fn vector_mode_makes_an_island_free_stl() {
     let d = scratch("vector");
     let input = d.join("ring.svg");

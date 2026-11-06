@@ -111,7 +111,7 @@ function Canvas() {
       const key = e.key.toLowerCase();
       if ((e.ctrlKey || e.metaKey) && (key === "s" || key === "o")) {
         e.preventDefault();
-        if (key === "s") void saveProject();
+        if (key === "s") void saveProject().catch((e) => useStudio.setState({ error: String(e) }));
         else document.getElementById("open-project")?.click();
         return;
       }
@@ -229,6 +229,17 @@ function Canvas() {
   const addFile = useCallback(
     async (f: File, at?: { x: number; y: number }) => {
       try {
+        if (/\.(stl|obj)$/i.test(f.name)) {
+          const model = await api.uploadModel(f);
+          useStudio.getState().addNode(
+            "mesh_import",
+            { model_id: model.id, format: model.format },
+            at,
+            model.name,
+          );
+          if (useStudio.getState().nodes.length === 1) fit();
+          return;
+        }
         const img = await api.upload(f);
         if (!useStudio.getState().nodes.length) {
           useStudio.getState().vectorStarter(img.id, img.name);
@@ -632,9 +643,9 @@ function Canvas() {
                 }}
               ><b>New</b><small>Start empty (undo brings the graph back)</small></button>
               <button role="menuitem" onClick={() => document.getElementById("open-project")?.click()}><b>Open…</b><small>Ctrl+O, or drop a .stencil.json on the canvas</small></button>
-              <button role="menuitem" onClick={() => void saveProject()} title="Save the project file (Ctrl+S)"><b>Save</b><small>Overwrites {safeName(pname)}.stencil.json · Ctrl+S</small></button>
-              <button role="menuitem" onClick={() => void saveProject(true)}><b>Save as…</b><small>Pick a new file name or place</small></button>
-              <button role="menuitem" onClick={() => void exportEverything()}><b>Export everything…</b><small>One zip: project, models, findings</small></button>
+              <button role="menuitem" onClick={() => void saveProject().catch((e) => useStudio.setState({ error: String(e) }))} title="Save the project file (Ctrl+S)"><b>Save</b><small>Overwrites {safeName(pname)}.stencil.json · Ctrl+S</small></button>
+              <button role="menuitem" onClick={() => void saveProject(true).catch((e) => useStudio.setState({ error: String(e) }))}><b>Save as…</b><small>Pick a new file name or place</small></button>
+              <button role="menuitem" onClick={() => void exportEverything().catch((e) => useStudio.setState({ error: String(e) }))}><b>Export everything…</b><small>One zip: project, models, findings</small></button>
               {recentProjects().length > 0 && <small className="menu-note">Recently saved: {recentProjects().join(", ")}</small>}
             </div>
           )}
@@ -743,7 +754,7 @@ function Canvas() {
             <div className="hint">
               <div className="empty-card">
                 <h2>Make a stencil</h2>
-                <p>Drop a picture here (png, jpg, bmp, svg) or choose one.</p>
+                <p>Drop a picture (png, jpg, bmp, svg) or a 3D model (stl, obj) here.</p>
                 <label className="btn primary">
                   Open image…
                   <input type="file" accept=".png,.jpg,.jpeg,.bmp,.svg" hidden aria-label="Choose an image" onChange={(e) => e.target.files?.[0] && addFile(e.target.files[0])} />

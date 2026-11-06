@@ -162,6 +162,28 @@ Use the Vector template for the traced-outline workflow. Use the Colour template
 workflows. Double-click a node to open its workbench. Save and reopen the graph and its embedded images with the
 project controls.
 
+### Import an existing 3D model
+
+Choose **+ build → 3D import**, then **Open…** in its inspector or workbench, or drop an `.stl` or `.obj`
+on the canvas. Binary and ASCII STL are supported; OBJ must be triangulated (positive or negative face
+indices, with optional texture/normal indices). Only geometry is imported, not materials.
+
+The node outputs a regular **solid**, ready for **Split volume**, **Bridges**, **Simplify mesh** and STL
+download. Coordinates are interpreted as millimetres; **Scale** converts other units (for example 25.4
+for inches). Orientation is preserved, and the minimum X, Y and Z are moved to zero so the model sits
+on the build plate. **Layer height** supplies the downstream printing metadata without reslicing the model.
+If the model already has a solid border, set **Existing border width** in scaled millimetres to place
+mounting pads or registration holes there. This describes existing material; it does not add a frame.
+Files must be closed, consistently wound meshes with nonzero volume; repair open or degenerate meshes
+before importing. The maximum source file size is 100 MB.
+
+Existing tools retain their geometry requirements: Bridges needs coplanar horizontal faces at the
+model's top, and Simplify mesh's outline simplification needs vertical walls (otherwise it may leave
+the mesh unchanged). Split volume can cut general closed meshes, but connector holes still need enough
+solid material. Imported source models are embedded in saved projects, restored after reload or worker
+restart, and can be reopened by the CLI with `--project`. **Open…** replaces the source in one undoable
+edit; **Download** saves the original source file.
+
 The **+ trace / + stencil / + post** menus add nodes by stage; long menus flow into several columns and scroll
 inside themselves when they reach the bottom of the page. **+ All** lists every node, most used first; the badge
 (and the tooltip) shows how many times you added that node in this browser. Select an Image node and its side panel has **Open…** (replaces the loaded picture) and **Download** (saves the original picture). The **Perf** button toggles an

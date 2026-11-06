@@ -999,6 +999,17 @@ fn load_project(engine: &mut Engine, path: &Path) -> (Json, String, PathBuf) {
             remap.insert(id.clone(), new.to_string());
         }
     }
+    for (id, model) in p["models"].as_object().into_iter().flatten() {
+        let bytes = base64::engine::general_purpose::STANDARD
+            .decode(model["base64"].as_str().unwrap_or(""))
+            .unwrap_or_else(|_| fail(&format!("model {id} is damaged")));
+        let got = engine
+            .add_model(bytes, model["format"].as_str().unwrap_or(""))
+            .unwrap_or_else(|e| fail(&e));
+        if let Some(new) = got["id"].as_str() {
+            remap.insert(id.clone(), new.to_string());
+        }
+    }
     let g = &p["graph"];
     let nodes: Vec<Json> = g["nodes"]
         .as_array()
@@ -1009,6 +1020,9 @@ fn load_project(engine: &mut Engine, path: &Path) -> (Json, String, PathBuf) {
             let mut params = d["params"].clone();
             if let Some(new) = params["image_id"].as_str().and_then(|i| remap.get(i)) {
                 params["image_id"] = json!(new);
+            }
+            if let Some(new) = params["model_id"].as_str().and_then(|i| remap.get(i)) {
+                params["model_id"] = json!(new);
             }
             json!({"id": n["id"], "type": d["type"], "params": params})
         })

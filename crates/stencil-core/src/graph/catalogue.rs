@@ -47,6 +47,22 @@ pub(super) const THREAD_NAMES: [&str; 6] = ["M3", "M4", "M5", "M6", "M8", "M10"]
 pub(super) fn catalogue() -> Vec<NodeDef> {
     vec![
         NodeDef {
+            id: "mesh_import",
+            label: "3D import",
+            stage: "stencil",
+            inputs: vec![],
+            outputs: vec![("solid", "solid")],
+            params: vec![
+                json!({"name": "model_id", "label": "Model", "kind": "text", "default": "", "group": null}),
+                json!({"name": "format", "label": "Format", "kind": "text", "default": "stl", "group": null}),
+                num("scale", "Scale (x)", 1.0, 0.001, 1000.0, 0.001, None, false),
+                num("layer_height_mm", "Layer height (mm)", 0.2, 0.05, 0.6, 0.05, None, false),
+                num("margin_mm", "Existing border width (mm)", 0.0, 0.0, 500.0, 0.5, None, false),
+            ],
+            doc: "Loads a closed 3D mesh as a solid for Split volume, Bridges, Simplify mesh and the other solid tools. Accepts binary or ASCII STL and triangulated OBJ (geometry only, no materials). Coordinates are millimetres; use Scale to convert other units (25.4 for inches). Preserves orientation and moves the minimum X, Y and Z to zero. Open, degenerate or inconsistently wound meshes must be repaired before importing. Layer height describes the model for downstream tools; it does not reslice it. Bridges still needs coplanar horizontal faces at the model's top; arbitrary curved or uneven islands may not be bridgeable.",
+            run: mesh_import::run,
+        },
+        NodeDef {
             id: "source",
             label: "Image",
             stage: "trace",

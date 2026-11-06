@@ -154,6 +154,9 @@ export const PARAM_HELP: Record<string, string> = {
 
 /** Where one node means something different by the same parameter name. */
 export const NODE_HELP: Record<string, string> = {
+  'mesh_import.scale': 'Uniform size multiplier. Source coordinates are millimetres: use 25.4 for an inch-based model, or 1000 for metres. Orientation is kept and the minimum X, Y and Z are moved to zero.',
+  'mesh_import.layer_height_mm': 'Printing layer height supplied to Bridges and the other solid tools. It does not change or reslice the imported geometry.',
+  'mesh_import.margin_mm': 'Width of an existing solid border, in scaled millimetres, for mounting pads and registration holes. This only describes material already in the model; it does not add a frame. Leave at 0 if there is no border.',
   'pads.hole_spacing': 'Along a long edge of the margin, put a mounting hole every this many millimetres. 0 means corner holes only.',
   'ring.hole_spacing': 'Along the outer edge of the border, put a wall hole every this many millimetres.',
 }

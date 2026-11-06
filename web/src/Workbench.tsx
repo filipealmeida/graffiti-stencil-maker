@@ -185,6 +185,7 @@ export default function Workbench() {
           <ParamForm node={node} type={t} before={<>
             <NodeActions id={node.id} download={downloadFor(cur?.kind as Kind, cur?.key, cur?.out, Object.keys(info?.files ?? {}).length)} />
             {t.id === 'source' && <SourceActions id={node.id} imageId={String(node.data.params.image_id)} title={node.data.title} />}
+            {t.id === 'mesh_import' && <SourceActions id={node.id} imageId={String(node.data.params.model_id ?? '')} title={node.data.title} model />}
           </>} />
           {t.id === 'source' && <ImageInfoPanel imageId={String(node.data.params.image_id)} resolution={Number(node.data.params.resolution ?? 1000)} />}
           </div>

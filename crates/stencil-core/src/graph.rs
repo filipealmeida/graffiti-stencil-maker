@@ -18,6 +18,7 @@ pub fn migrate_graph(graph: &Json) -> Json {
 mod catalogue;
 mod colour_set;
 mod fragments;
+mod mesh_import;
 mod nodes;
 use catalogue::{catalogue, split_outputs, NodeDef, Outputs};
 use nodes::*;
@@ -359,6 +360,18 @@ impl Engine {
         }
         let id = hash_hex(&[&bytes]);
         let out = json!({"id": id, "width": width, "height": height});
+        self.uploads.insert(id, bytes);
+        Ok(out)
+    }
+
+    /// Registers a closed STL or triangulated OBJ for a 3D import node.
+    pub fn add_model(&mut self, bytes: Vec<u8>, format: &str) -> Result<Json, String> {
+        if bytes.len() > MAX_IMAGE_BYTES {
+            return Err("the model file is larger than 100 MB".into());
+        }
+        mesh_import::read(&bytes, format)?;
+        let id = hash_hex(&[&bytes, format.as_bytes()]);
+        let out = json!({"id": id});
         self.uploads.insert(id, bytes);
         Ok(out)
     }

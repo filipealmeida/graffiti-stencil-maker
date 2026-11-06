@@ -233,6 +233,13 @@ impl Engine {
             .map_err(|e| JsError::new(&e))
     }
 
+    pub fn add_model(&mut self, bytes: Vec<u8>, format: &str) -> Result<String, JsError> {
+        self.inner
+            .add_model(bytes, format)
+            .map(|j| j.to_string())
+            .map_err(|e| JsError::new(&e))
+    }
+
     pub fn has_font(&self, name: &str) -> bool {
         self.inner.has_font(name)
     }
