@@ -111,7 +111,22 @@ impl StencilResult {
     }
 }
 
+/// Creates a stencil from a JSON object using `stencil_core::Params` field names.
+/// Omitted fields use the core parameter defaults.
 #[wasm_bindgen]
+pub fn make_with_options(bytes: &[u8], options_json: &str) -> Result<StencilResult, JsError> {
+    let options: serde_json::Value =
+        serde_json::from_str(options_json).map_err(|e| JsError::new(&e.to_string()))?;
+    let params = params_from_options(&options)?;
+    make_with_params(bytes, &params)
+}
+
+/// Compatibility wrapper for callers of the original positional API.
+#[allow(deprecated)]
+#[wasm_bindgen]
+#[deprecated(
+    note = "use make_with_options with a JSON options object, or Engine::run with a graph"
+)]
 #[allow(clippy::too_many_arguments)]
 pub fn make(
     bytes: &[u8],
@@ -163,11 +178,127 @@ pub fn make(
         frame_largest: false,
         bridging: true,
     };
-    let out = make_stencil(bytes, &p).map_err(|e| JsError::new(&e))?;
+    let options = serde_json::json!({
+        "width_mm": p.width_mm,
+        "thickness_mm": p.thickness_mm,
+        "margin_mm": p.margin_mm,
+        "bridge_mm": p.bridge_mm,
+        "bridges_per_island": p.bridges_per_island,
+        "bridge_min_angle_deg": p.bridge_min_angle_deg,
+        "bridge_max_length": p.bridge_max_length,
+        "bridge_passes": p.bridge_passes,
+        "resolution": p.resolution,
+        "threshold": p.threshold,
+        "invert": p.invert,
+        "layer_height_mm": p.layer_height_mm,
+        "raised_bridges": p.raised_bridges,
+        "z_bridging": match p.z_bridging {
+            ZBridging::Easy => "easy",
+            ZBridging::Steps => "steps",
+        },
+        "extra_top_layers": p.extra_top_layers,
+        "flip": p.flip,
+        "min_island_mm2": p.min_island_mm2,
+        "min_contact_mm": p.min_contact_mm,
+        "min_first_layer_width_mm": p.min_first_layer_width_mm,
+        "first_layer_taper_mm": p.first_layer_taper_mm,
+        "max_overhang_deg": p.max_overhang_deg,
+        "frame_largest": p.frame_largest,
+        "bridging": p.bridging,
+    });
+    make_with_options(bytes, &options.to_string())
+}
+
+fn make_with_params(bytes: &[u8], params: &Params) -> Result<StencilResult, JsError> {
+    let out = make_stencil(bytes, params).map_err(|e| JsError::new(&e))?;
     Ok(StencilResult {
         stl: out.stl,
         stats: out.stats.to_json(),
     })
+}
+
+fn params_from_options(options: &serde_json::Value) -> Result<Params, JsError> {
+    if !options.is_object() {
+        return Err(JsError::new("options must be a JSON object"));
+    }
+
+    let mut params = Params::default();
+    macro_rules! number {
+        ($field:ident) => {
+            if let Some(value) = options.get(stringify!($field)) {
+                params.$field = value.as_f64().ok_or_else(|| {
+                    JsError::new(concat!(stringify!($field), " must be a number"))
+                })?;
+            }
+        };
+    }
+    macro_rules! boolean {
+        ($field:ident) => {
+            if let Some(value) = options.get(stringify!($field)) {
+                params.$field = value.as_bool().ok_or_else(|| {
+                    JsError::new(concat!(stringify!($field), " must be a boolean"))
+                })?;
+            }
+        };
+    }
+    macro_rules! integer {
+        ($field:ident) => {
+            if let Some(value) = options.get(stringify!($field)) {
+                params.$field =
+                    value
+                        .as_u64()
+                        .and_then(|n| n.try_into().ok())
+                        .ok_or_else(|| {
+                            JsError::new(concat!(stringify!($field), " must be an integer"))
+                        })?;
+            }
+        };
+    }
+
+    number!(width_mm);
+    number!(thickness_mm);
+    number!(margin_mm);
+    number!(bridge_mm);
+    integer!(bridges_per_island);
+    number!(bridge_min_angle_deg);
+    number!(bridge_max_length);
+    integer!(bridge_passes);
+    integer!(resolution);
+    if let Some(value) = options.get("threshold") {
+        params.threshold = if value.is_null() {
+            None
+        } else {
+            Some(
+                value
+                    .as_u64()
+                    .and_then(|n| n.try_into().ok())
+                    .ok_or_else(|| {
+                        JsError::new("threshold must be an integer from 0 to 255 or null")
+                    })?,
+            )
+        };
+    }
+    boolean!(invert);
+    number!(layer_height_mm);
+    boolean!(raised_bridges);
+    if let Some(value) = options.get("z_bridging") {
+        params.z_bridging = match value.as_str() {
+            Some("easy") => ZBridging::Easy,
+            Some("steps") => ZBridging::Steps,
+            _ => return Err(JsError::new("z_bridging must be 'easy' or 'steps'")),
+        };
+    }
+    integer!(extra_top_layers);
+    boolean!(flip);
+    number!(min_island_mm2);
+    number!(min_contact_mm);
+    number!(min_first_layer_width_mm);
+    number!(first_layer_taper_mm);
+    number!(max_overhang_deg);
+    boolean!(frame_largest);
+    boolean!(bridging);
+
+    Ok(params)
 }
 
 thread_local! {

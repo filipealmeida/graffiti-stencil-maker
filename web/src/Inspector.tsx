@@ -1,6 +1,6 @@
 import { STAGE_LABEL } from './ports'
 import ImageInfoPanel from './ImageInfo'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { api, artifactUrl } from './api'
 import { useStudio } from './store'
 import ParamForm from './ParamForm'
@@ -9,9 +9,19 @@ import Presets from './Presets'
 import { NodeActions, DeleteNode, downloadFor, runSummary } from './NodeActions'
 import Findings from './Findings'
 import MeshTools, { MeshProperties, useModelInspection } from './MeshTools'
+import useDialogFocus from './useDialogFocus'
 
 export default function Inspector() {
   const id = useStudio((s) => s.selected)
+  const panel = useRef<HTMLElement>(null)
+  const [mobile, setMobile] = useState(() => window.matchMedia('(max-width: 1000px)').matches)
+  useEffect(() => {
+    const query = window.matchMedia('(max-width: 1000px)')
+    const update = () => setMobile(query.matches)
+    query.addEventListener('change', update)
+    return () => query.removeEventListener('change', update)
+  }, [])
+  useDialogFocus(panel, mobile && !!id)
   const node = useStudio((s) => s.nodes.find((n) => n.id === s.selected))
   const t = useStudio((s) => (node ? s.types[node.data.type] : undefined))
   const run = useStudio((s) => (id ? s.runs[id] : undefined))
@@ -48,7 +58,7 @@ export default function Inspector() {
     {isModel && <><p className="mut">Model: {node.data.title || 'none loaded'}</p><SourceActions id={node.id} imageId={String(node.data.params.model_id ?? '')} title={node.data.title} model /></>}
   </>
   return (
-    <aside className="inspector">
+    <aside ref={panel} className="inspector" role={mobile ? 'dialog' : undefined} aria-modal={mobile ? true : undefined} aria-label={mobile ? 'Node inspector' : undefined} tabIndex={mobile ? -1 : undefined}>
       <div className="panel-scroll">
       <h2>{t.label} <small className={`tag stage-${t.stage}`}>{STAGE_LABEL[t.stage]}</small></h2>
       <p className="mut status-line">{runSummary(run, busy)}</p>

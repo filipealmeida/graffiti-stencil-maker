@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import Icon from './Icon'
 import { historyItems, jumpTo, useStudio } from './store'
+import Tooltip from './Tooltip'
+import messages from './messages'
 
 /** The undo history as a list: pick any earlier (or later) state to go straight to it. */
 export default function History() {
@@ -16,9 +18,9 @@ export default function History() {
   const items = open ? historyItems() : []
   return (
     <span ref={box} style={{ position: 'relative' }}>
-      <button className={open ? 'on' : ''} onClick={() => setOpen(!open)} title="History: list of edits, pick one to go back (or forward) to it" aria-expanded={open} aria-label="History">
+      <Tooltip content={messages.toolbar.history}><button className={open ? 'on' : ''} onClick={() => setOpen(!open)} aria-expanded={open} aria-label="History">
         <Icon name="history" />
-      </button>
+      </button></Tooltip>
       {open && (
         <div className="hist" role="listbox" aria-label="Edit history">
           {[...items].map((it, i) => ({ it, i })).reverse().map(({ it, i }) => (

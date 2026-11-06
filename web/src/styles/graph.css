@@ -1,0 +1,167 @@
+.node {
+  min-width: 150px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  font-size: 12px;
+}
+.node.sel {
+  border-color: var(--acc);
+}
+.node-head {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  padding: 5px 8px;
+  border-radius: 7px 7px 0 0;
+  background: #262b33;
+  border-bottom: 1px solid var(--line);
+}
+.stage-trace .node-head {
+  border-top: 3px solid var(--trace);
+}
+.stage-stencil .node-head {
+  border-top: 3px solid var(--stencil);
+}
+.stage-post .node-head {
+  border-top: 3px solid var(--post);
+}
+.node.stage-trace {
+  border-top-color: var(--trace);
+}
+.node-body {
+  padding: 4px 0;
+}
+.port {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 22px;
+  padding: 0 10px;
+  color: var(--mut);
+}
+.port.out {
+  justify-content: flex-end;
+}
+.thumb {
+  height: 32px;
+  max-width: 64px;
+  object-fit: contain;
+  border: 1px solid var(--line);
+  background: #fff;
+  image-rendering: pixelated;
+}
+.dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #555;
+}
+.dot.done {
+  background: var(--stencil);
+}
+.dot.running {
+  background: var(--acc);
+}
+.dot.error {
+  background: var(--err);
+}
+.dot.pending {
+  background: #888;
+}
+.pct {
+  margin-left: auto;
+  color: var(--acc);
+}
+.node .err {
+  padding: 0 8px;
+  max-width: 220px;
+}
+.react-flow__handle {
+  width: 12px;
+  height: 12px;
+  border: 0;
+}
+/* shape tells the kind apart when colours are close: round raster, square vector, diamond plan, polygons for 3D */
+.react-flow__handle.k-image,
+.react-flow__handle.k-mask,
+.react-flow__handle.k-any {
+  border-radius: 50%;
+}
+.react-flow__handle.k-shapes {
+  border-radius: 2px;
+}
+.react-flow__handle.k-tiles {
+  clip-path: polygon(50% 0, 100% 50%, 50% 100%, 0 50%);
+  width: 15px;
+  height: 15px;
+}
+.react-flow__handle.k-solid,
+.react-flow__handle.k-body {
+  clip-path: polygon(25% 5%, 75% 5%, 100% 50%, 75% 95%, 25% 95%, 0 50%);
+  width: 15px;
+  height: 15px;
+}
+.react-flow__handle.k-item {
+  border-radius: 50%;
+}
+.react-flow__handle.k-layer {
+  clip-path: polygon(0 5%, 100% 50%, 0 95%);
+  width: 15px;
+  height: 15px;
+}
+.react-flow__handle.k-parts {
+  clip-path: polygon(30% 0, 70% 0, 100% 30%, 100% 70%, 70% 100%, 30% 100%, 0 70%, 0 30%);
+  width: 15px;
+  height: 15px;
+}
+.port.dim {
+  opacity: 0.3;
+}
+.port.fits {
+  color: var(--fg);
+}
+.port.fits .react-flow__handle {
+  animation: fit-pulse 0.9s ease-in-out infinite alternate;
+}
+@keyframes fit-pulse {
+  to {
+    scale: 1.5;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .port.fits .react-flow__handle {
+    animation: none;
+    scale: 1.4;
+  }
+}
+.react-flow__minimap {
+  background: var(--panel) !important;
+}
+
+.on {
+  border-color: var(--acc) !important;
+  color: var(--acc);
+}
+.bar {
+  height: 3px;
+  background: #0003;
+}
+.bar i,
+.gbar i {
+  display: block;
+  height: 100%;
+  background: var(--acc);
+  transition: width 0.1s;
+}
+.gbar {
+  width: 90px;
+  height: 6px;
+  border-radius: 3px;
+  background: #2b3139;
+  overflow: hidden;
+}
+.thumb.stale {
+  opacity: 0.45;
+}

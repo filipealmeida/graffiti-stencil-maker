@@ -43,6 +43,12 @@ npm run dev
 Drop an image onto the canvas, connect trace and stencil nodes, and export an STL or tiled ZIP. See [USAGE.md](USAGE.md)
 for the CLI flags and studio workflow.
 
+Project imports accept version 2 files and migrate historical version 1 or versionless files.
+Graphs and embedded source metadata/base64 are checked before importing any sources; malformed
+files and unsupported versions show an error. Browser recovery drafts use the same graph checks.
+The page and engine worker share their request, result, progress, and error types in
+`web/src/workerProtocol.ts`.
+
 ## Features
 
 - Raster and direct polygon-vector stencil generation, with automatic island bridges and watertightness checks.

@@ -1,4 +1,6 @@
 import { partUrl } from './api'
+import Tooltip from './Tooltip'
+import messages from './messages'
 
 interface Tile { name: string; row: number; col: number; w: number; h: number }
 
@@ -12,8 +14,8 @@ export default function TilesPanel({ info, keyOf, out }: { info: Record<string, 
       {tiles.map((t) => (
         <div key={t.name} className="v3part">
           <label title={t.name}>{t.name}</label>
-          <a className="btn" href={partUrl(keyOf, out, `${t.name}.svg`)} download={`${t.name}.svg`} title="Download this tile as SVG">SVG</a>
-          <a className="btn" href={partUrl(keyOf, out, `${t.name}.dxf`)} download={`${t.name}.dxf`} title="Download this tile as DXF">DXF</a>
+          <Tooltip content={messages.actions.downloadSvgTile}><a className="btn" href={partUrl(keyOf, out, `${t.name}.svg`)} download={`${t.name}.svg`}>SVG</a></Tooltip>
+          <Tooltip content={messages.actions.downloadDxfTile}><a className="btn" href={partUrl(keyOf, out, `${t.name}.dxf`)} download={`${t.name}.dxf`}>DXF</a></Tooltip>
           <span className="v3size">{t.w} × {t.h} mm</span>
         </div>
       ))}

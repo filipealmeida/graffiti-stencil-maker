@@ -514,12 +514,16 @@ impl Cuts {
     pub fn preview(&self, shown: &[&str]) -> String {
         const PX: f64 = 3.0;
         let total_h = self.sheets.iter().map(|s| s.h).fold(0.0, f64::max);
-        let total_w: f64 = self.sheets.iter().map(|s| s.w).sum::<f64>() + 10.0 * (self.sheets.len().max(1) - 1) as f64;
+        let total_w: f64 = self.sheets.iter().map(|s| s.w).sum::<f64>()
+            + 10.0 * (self.sheets.len().max(1) - 1) as f64;
         let (mut d, mut frames, mut x0) = (String::new(), String::new(), 0.0);
         for s in &self.sheets {
             frames += &format!(
                 "<rect x=\"{:.1}\" y=\"{:.1}\" width=\"{:.1}\" height=\"{:.1}\"/>",
-                x0 * PX, (total_h - s.h) * PX, s.w * PX, s.h * PX
+                x0 * PX,
+                (total_h - s.h) * PX,
+                s.w * PX,
+                s.h * PX
             );
             for (p, x, y) in self.placed(s) {
                 if !shown.contains(&p.name.as_str()) {

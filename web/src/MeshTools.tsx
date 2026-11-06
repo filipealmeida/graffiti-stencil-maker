@@ -60,6 +60,7 @@ export default function MeshTools({ node, info, error }: { node: StudioNode; inf
       useStudio.setState((s) => ({ nodes: s.nodes.map((n) => n.id === node.id ? {
         ...n, data: { ...n.data, params: { ...n.data.params, model_id: result.id, format: result.format } },
       } : n) }))
+      checkpoint()
       const summary = `${label}: ${info?.triangles ?? '?'} → ${after.triangles} triangles; ${info?.vertices ?? '?'} → ${after.vertices} vertices; ${after.valid ? 'solid checks passed' : 'defects remain; solid output blocked'}`
       setMessage({ nodeId: node.id, modelId: result.id, text: summary })
       logAction(summary, node.id)

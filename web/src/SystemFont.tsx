@@ -2,6 +2,8 @@ import { useState } from 'react'
 import { helpFor } from './help'
 import { api } from './api'
 import { logAction, useStudio, type StudioNode } from './store'
+import Tooltip from './Tooltip'
+import messages from './messages'
 
 /** Picks one of the computer's own fonts for a Text node. The built-in fonts stay available through the Font choice. */
 export default function SystemFont({ node }: { node: StudioNode }) {
@@ -30,14 +32,14 @@ export default function SystemFont({ node }: { node: StudioNode }) {
   const list = fonts ?? (current ? [{ name: current, label: current }] : [])
   return (
     <div className="row">
-      <span>System font{current && <button className="linkish" onClick={() => void pick('')} title="Go back to the built-in font">use built-in</button>}</span>
+      <span>System font{current && <Tooltip content={messages.actions.backToBuiltInFont}><button className="linkish" onClick={() => void pick('')}>use built-in</button></Tooltip>}</span>
       {list.length > 0 && (
         <select aria-label="System font" value={current} disabled={busy} onChange={(e) => void pick(e.target.value)}>
           <option value="">built-in (see Font)</option>
           {list.map((f) => <option key={f.name} value={f.name}>{f.label}</option>)}
         </select>
       )}
-      {!fonts && <button onClick={() => void load()} disabled={busy} title="Lists the fonts installed on this computer. The browser asks for permission the first time.">Use system fonts…</button>}
+      {!fonts && <Tooltip content={messages.actions.listSystemFonts}><button onClick={() => void load()} disabled={busy}>Use system fonts…</button></Tooltip>}
       <small className="help">{helpFor('text', 'system_font')}</small>
     </div>
   )

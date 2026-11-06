@@ -1,6 +1,6 @@
 //! The Place and Collage nodes: layers of pictures, paint masks and outlines positioned on one canvas.
 
-use super::catalogue::Outputs;
+use super::types::Outputs;
 use super::*;
 use crate::trace::{Cubic, Loop, Shapes};
 

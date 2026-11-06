@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useShallow } from 'zustand/react/shallow'
 import {
   Background,
   Controls,
@@ -6,7 +7,6 @@ import {
   ReactFlow,
   ReactFlowProvider,
   useReactFlow,
-  type Edge,
 } from "@xyflow/react";
 import { api, type Kind, type NodeType, type Stage } from "./api";
 import Icon from "./Icon";
@@ -41,18 +41,62 @@ import {
   useStudio,
   logAction,
   reportError,
-  type StudioNode,
 } from "./store";
+import useStudioKeyboard from './useStudioKeyboard'
+import useGraphLifecycle from './useGraphLifecycle'
+import useProjectAutosave, { readAutosave } from './useProjectAutosave'
+import Tooltip from './Tooltip'
+import messages from './messages'
+import useProjectIO from './useProjectIO'
 
 const nodeTypes = { studio: StudioNodeView };
 const edgeTypes = { default: StudioEdge };
-const DRAFT_DELAY = 150;
-
 function Canvas() {
-  const s = useStudio();
+  const s = useStudio(useShallow((state) => ({
+    nodes: state.nodes,
+    edges: state.edges,
+    types: state.types,
+    pname: state.pname,
+    setPname: state.setPname,
+    savedSig: state.savedSig,
+    savedAt: state.savedAt,
+    addLogs: state.addLogs,
+    setTypes: state.setTypes,
+    load: state.load,
+    markSaved: state.markSaved,
+    toast: state.toast,
+    usage: state.usage,
+    starter: state.starter,
+    colourStarter: state.colourStarter,
+    vectorStarter: state.vectorStarter,
+    collageStarter: state.collageStarter,
+    colourSetStarter: state.colourSetStarter,
+    tiledStarter: state.tiledStarter,
+    tilesFirstStarter: state.tilesFirstStarter,
+    cutSheetStarter: state.cutSheetStarter,
+    addNode: state.addNode,
+    canUndo: state.canUndo,
+    canRedo: state.canRedo,
+    busy: state.busy,
+    reportOpen: state.reportOpen,
+    setReport: state.setReport,
+    perfOpen: state.perfOpen,
+    setPerf: state.setPerf,
+    consoleOpen: state.consoleOpen,
+    setConsole: state.setConsole,
+    hasLogError: state.logs.some((line) => line.level === "error"),
+    onNodesChange: state.onNodesChange,
+    onEdgesChange: state.onEdgesChange,
+    connect: state.connect,
+    select: state.select,
+    openBench: state.openBench,
+    progress: state.progress,
+  })));
   const rep = useReport();
   const rf = useReactFlow();
   const [drag, setDrag] = useState(false);
+  const [draftReady, setDraftReady] = useState(false)
+  const [draftProblem, setDraftProblem] = useState<string | null>(null)
   const pname = s.pname;
   const setPname = s.setPname;
   const [pmenu, setPmenu] = useState(false);
@@ -66,6 +110,7 @@ function Canvas() {
       200,
     );
   }, [rf]);
+  const { openProject: open, addFile } = useProjectIO(fit)
   // The pan limit follows the graph. A fixed box smaller than the fitted view made React Flow snap the view
   // (nodes slid out of sight) on the first pan after "fit view".
   const extent = useMemo<[[number, number], [number, number]]>(() => {
@@ -84,6 +129,17 @@ function Canvas() {
   const pm = useRef<HTMLDivElement>(null);
   const sliding = useRef(false);
   const hasSource = s.nodes.some((n) => n.data.type === "source");
+  const closeMenus = useCallback(() => {
+    setMenu(null)
+    setPmenu(false)
+    setCmdOpen(false)
+  }, [])
+  const toggleCommandPalette = useCallback(() => {
+    setMenu(null)
+    setPmenu(false)
+    setCmdOpen((open) => !open)
+  }, [])
+  useStudioKeyboard(closeMenus, toggleCommandPalette)
   useEffect(() => {
     const away = (e: MouseEvent) => {
       if (
@@ -92,63 +148,6 @@ function Canvas() {
       )
         setMenu(null);
       if (!pm.current?.contains(e.target as Node)) setPmenu(false);
-    };
-    const esc = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        // one step back each press: menus, then the preview, then the selection
-        const menuOpen = !!document.querySelector(".menu, .cmdpal");
-        setMenu(null);
-        setPmenu(false);
-        setCmdOpen(false);
-        if (menuOpen) return;
-        const st = useStudio.getState();
-        if (st.bench) st.openBench(null);
-        else if (
-          st.selected &&
-          !(e.target as HTMLElement).closest?.("input, textarea, select")
-        )
-          st.select(null);
-        return;
-      }
-      const t = e.target as HTMLElement;
-      const key = e.key.toLowerCase();
-      if ((e.ctrlKey || e.metaKey) && (key === "s" || key === "o")) {
-        e.preventDefault();
-        if (key === "s") void saveProject().catch((e) => reportError(e));
-        else document.getElementById("open-project")?.click();
-        return;
-      }
-      if (
-        t.closest?.("input, textarea, select, [contenteditable]") ||
-        !(e.ctrlKey || e.metaKey)
-      )
-        return;
-      const k = e.key.toLowerCase();
-      if (k === "z" && !e.shiftKey) {
-        e.preventDefault();
-        undo();
-      } else if ((k === "z" && e.shiftKey) || k === "y") {
-        e.preventDefault();
-        redo();
-      } else if (k === "c") useStudio.getState().copy();
-      else if (k === "v") {
-        e.preventDefault();
-        useStudio.getState().paste();
-      } else if (k === "d") {
-        e.preventDefault();
-        useStudio.getState().duplicate();
-      } else if (k === ".") {
-        e.preventDefault();
-        stopRunning();
-      } else if (k === "enter") {
-        e.preventDefault();
-        rerun();
-      } else if (k === "k") {
-        e.preventDefault();
-        setMenu(null);
-        setPmenu(false);
-        setCmdOpen((o) => !o);
-      }
     };
     const down = (e: PointerEvent) => {
       sliding.current =
@@ -162,13 +161,11 @@ function Canvas() {
       }
     };
     window.addEventListener("mousedown", away, true);
-    window.addEventListener("keydown", esc);
     window.addEventListener("pointerdown", down);
     window.addEventListener("pointerup", up);
     window.addEventListener("pointercancel", up);
     return () => {
       window.removeEventListener("mousedown", away, true);
-      window.removeEventListener("keydown", esc);
       window.removeEventListener("pointerdown", down);
       window.removeEventListener("pointerup", up);
       window.removeEventListener("pointercancel", up);
@@ -193,95 +190,28 @@ function Canvas() {
     Promise.all([api.nodeTypes(), api.restoreImages()]).then(([t]) => {
       s.setTypes(t);
       try {
-        const saved = JSON.parse(localStorage.getItem(STORE_KEY) ?? "null");
+        const saved = readAutosave()
         if (saved) {
           s.load(saved.nodes, saved.edges);
           if (saved.nodes?.length) fit();
         }
         resetHistory();
-      } catch {
-        /* ignore a corrupt autosave */
+      } catch (e) {
+        const message = `Could not restore the browser draft: ${e instanceof Error ? e.message : String(e)}`
+        setDraftProblem(message)
+        reportError(message)
+      } finally {
+        setDraftReady(true)
       }
-    });
+    }).catch((e) => {
+      reportError(e)
+      setDraftReady(true)
+    })
   }, []);
 
-  // autosave and re-run only when something that affects the result changed
   const sig = signature(s);
-  const first = useRef(true);
-  useEffect(() => {
-    if (!Object.keys(s.types).length) return;
-    try {
-      localStorage.setItem(
-        STORE_KEY,
-        JSON.stringify({ nodes: s.nodes, edges: s.edges }),
-      );
-    } catch {
-      useStudio.setState({
-        error:
-          "autosave failed (browser storage is full or blocked): use Save project to keep your work",
-      });
-    }
-    // one run per settled edit; it evaluates node by node, so the trace stage shows up first.
-    // While a slider is held down a coarse draft runs instead, and the full run follows on release.
-    const wait = first.current ? 0 : sliding.current ? DRAFT_DELAY : 350;
-    const full = setTimeout(() => runGraph(sliding.current), wait);
-    first.current = false;
-    return () => clearTimeout(full);
-  }, [sig, Object.keys(s.types).length]);
-
-  const addFile = useCallback(
-    async (f: File, at?: { x: number; y: number }) => {
-      logAction(`Opening file: ${f.name}`);
-      try {
-        if (/\.(stl|obj)$/i.test(f.name)) {
-          const model = await api.uploadModel(f);
-          const id = useStudio.getState().addNode(
-            "mesh_import",
-            { model_id: model.id, format: model.format },
-            at,
-            model.name,
-          );
-          const info = await api.modelInfo(model.id, model.format);
-          logAction(`Opened ${model.name}: ${info.triangles} triangles; ${info.valid ? 'solid checks passed' : 'defects found; solid output blocked'}`, id);
-          if (useStudio.getState().nodes.length === 1) fit();
-          return;
-        }
-        const img = await api.upload(f);
-        if (!useStudio.getState().nodes.length) {
-          useStudio.getState().vectorStarter(img.id, img.name);
-          fit();
-        } else {
-          // one image in the graph: the drop swaps it, so the whole pipeline re-runs on the new picture
-          const sources = useStudio
-            .getState()
-            .nodes.filter((n) => n.data.type === "source");
-          if (sources.length === 1)
-            useStudio.setState((st) => ({
-              nodes: st.nodes.map((n) =>
-                n.id === sources[0].id
-                  ? {
-                      ...n,
-                      data: {
-                        ...n.data,
-                        title: img.name,
-                        params: { ...n.data.params, image_id: img.id },
-                      },
-                    }
-                  : n,
-              ),
-            }));
-          else
-            useStudio
-              .getState()
-              .addNode("source", { image_id: img.id }, at, img.name);
-        }
-        logAction(`Opened picture: ${img.name}`);
-      } catch (e) {
-        reportError(e);
-      }
-    },
-    [fit],
-  );
+  const autosave = useProjectAutosave(draftReady && !draftProblem)
+  useGraphLifecycle(sig, draftReady, sliding)
 
   const onDrop = (e: React.DragEvent) => {
     e.preventDefault();
@@ -352,21 +282,6 @@ function Canvas() {
       (x) => x.name === c.targetHandle,
     );
     return !!o && !!i && canLink(o.type, i.type);
-  };
-
-  const open = async (f: File) => {
-    logAction(`Opening project: ${f.name}`);
-    try {
-      const g = await api.importProject(JSON.parse(await f.text()));
-      forgetFile();
-      setPname(f.name.replace(/\.stencil\.json$|\.json$/, ""));
-      s.load(g.nodes as StudioNode[], g.edges as Edge[]);
-      s.markSaved();
-      fit();
-      s.toast(`Opened ${f.name}`);
-    } catch (e) {
-      reportError(`cannot open project: ${e instanceof Error ? e.message : e}`);
-    }
   };
 
   const addFromMenu = (t: NodeType) => {
@@ -443,7 +358,10 @@ function Canvas() {
   const runTemplate = (make: (imageId: string, title: string) => void) => {
     const src = s.nodes.find((n) => n.data.type === "source");
     if (src) {
+      checkpoint()
       make(String(src.data.params.image_id), String(src.data.title ?? "image"));
+      checkpoint()
+      s.toast(messages.actions.appliedTemplate, { undo })
       fit();
       setMenu(null);
       setCmdOpen(false);
@@ -563,17 +481,16 @@ function Canvas() {
           />
         </label>
         <div className="pal" ref={tpl}>
-          <button
-            className={menu === "templates" ? "on" : ""}
-            aria-haspopup="true"
-            aria-expanded={menu === "templates"}
-            onClick={() => { setPmenu(false); setMenu(menu === "templates" ? null : "templates") }}
-            title="Templates: rebuild the graph around the current picture"
-            aria-label="Templates"
-          >
-            <Icon name="templates" />
-            <span>Templates</span>
-          </button>
+        <Tooltip content="Templates: rebuild the graph around the current picture"><button
+          className={menu === "templates" ? "on" : ""}
+          aria-haspopup="true"
+          aria-expanded={menu === "templates"}
+          onClick={() => { setPmenu(false); setMenu(menu === "templates" ? null : "templates") }}
+          aria-label="Templates"
+        >
+          <Icon name="templates" />
+          <span>Templates</span>
+        </button></Tooltip>
           {menu === "templates" && (
             <div className="menu wide">
               {templates.map(([name, doc, make]) => (
@@ -594,26 +511,24 @@ function Canvas() {
             </div>
           )}
         </div>
-        <button
+        <Tooltip content={messages.toolbar.commandPalette}><button
           onClick={() => { setMenu(null); setPmenu(false); setCmdOpen(true) }}
-          title="Command palette (Ctrl+K)"
           aria-label="Command palette"
         >
           <Icon name="command" />
-        </button>
+        </button></Tooltip>
         <span className="sep" />
         <History />
-        <button title="Undo (Ctrl+Z)" aria-label="Undo" disabled={!s.canUndo} onClick={undo}>
+        <Tooltip content={messages.toolbar.undo}><button aria-label="Undo" disabled={!s.canUndo} onClick={undo}>
           <Icon name="undo" />
-        </button>
-        <button
-          title="Redo (Ctrl+Shift+Z)"
+        </button></Tooltip>
+        <Tooltip content={messages.toolbar.redo}><button
           aria-label="Redo"
           disabled={!s.canRedo}
           onClick={redo}
         >
           <Icon name="redo" />
-        </button>
+        </button></Tooltip>
         <span className="spacer" />
         <div className="pal project" ref={pm}>
           <input
@@ -622,17 +537,16 @@ function Canvas() {
             onChange={(e) => setPname(e.target.value)}
             aria-label="Project name"
           />
-          {dirty && <span className="dirty" title="Changes since the last save" role="img" aria-label="Unsaved changes">●</span>}
+          {dirty && <span className="dirty" title={messages.project.unsaved} role="img" aria-label="Unsaved changes">●</span>}
           {!dirty && s.savedAt && <span className="mut saved">Saved {s.savedAt}</span>}
-          <button
+          <Tooltip content={messages.toolbar.project}><button
             className={pmenu ? "on" : ""}
             aria-haspopup="true"
             aria-expanded={pmenu}
             onClick={() => { setMenu(null); setPmenu(!pmenu) }}
-            title="Project: save, open, export"
           >
             <Icon name="folder" /> Project ▾
-          </button>
+          </button></Tooltip>
           {pmenu && (
             <div className="menu pmenu" role="menu" onClick={() => setPmenu(false)}>
               <button
@@ -641,10 +555,12 @@ function Canvas() {
                   const old = pname;
                   checkpoint();
                   s.load([], []);
+                  checkpoint();
                   forgetFile();
                   setPname(randomName());
                   localStorage.removeItem(STORE_KEY);
-                  s.toast("Started a new project", { undo: () => { undo(); setPname(old); } });
+                  setDraftProblem(null);
+                  s.toast(messages.project.started, { undo: () => { undo(); setPname(old); } });
                 }}
               ><b>New</b><small>Start empty (undo brings the graph back)</small></button>
               <button role="menuitem" onClick={() => document.getElementById("open-project")?.click()}><b>Open…</b><small>Ctrl+O, or drop a .stencil.json on the canvas</small></button>
@@ -669,49 +585,44 @@ function Canvas() {
         </div>
         <span className="sep" />
         {s.busy ? (
-          <button
+          <Tooltip content="Stop all processing now (Ctrl+.). Finished nodes keep their results; Rerun picks up again."><button
             onClick={stopRunning}
-            title="Stop all processing now (Ctrl+.). Finished nodes keep their results; Rerun picks up again."
             aria-label="Stop processing"
           >
             <Icon name="stop" />
-          </button>
+          </button></Tooltip>
         ) : (
-          <button
+          <Tooltip content="Rerun the whole graph (Ctrl+Enter). Unchanged nodes come from the cache."><button
             onClick={rerun}
-            title="Rerun the whole graph (Ctrl+Enter). Unchanged nodes come from the cache."
             aria-label="Rerun"
           >
             <Icon name="rerun" />
-          </button>
+          </button></Tooltip>
         )}
-        <button
+        <Tooltip content={messages.toolbar.report}><button
           className={s.reportOpen ? "on" : ""}
           onClick={() => s.setReport(!s.reportOpen)}
-          title="Report: print readiness and per-node timing"
           aria-label={`Report${rep.errors > 0 ? ` ✖${rep.errors}` : ""}${rep.warnings > 0 ? ` ▲${rep.warnings}` : ""}`}
         >
           <Icon name="report" />
           {rep.errors > 0 && <span className="tb-badge err" aria-hidden="true">{rep.errors}</span>}
           {rep.warnings > 0 && <span className="tb-badge warn" aria-hidden="true">{rep.warnings}</span>}
-        </button>
-        <button
+        </button></Tooltip>
+        <Tooltip content={messages.toolbar.performance}><button
           className={s.perfOpen ? "on" : ""}
           onClick={() => s.setPerf(!s.perfOpen)}
-          title="Perf: show engine workers and load"
           aria-label="Perf"
         >
           <Icon name="perf" />
-        </button>
-        <button
+        </button></Tooltip>
+        <Tooltip content={messages.toolbar.console}><button
           className={s.consoleOpen ? "on" : ""}
           onClick={() => s.setConsole(!s.consoleOpen)}
-          title="Console: the engine log"
-          aria-label={`Console${s.logs.some((l) => l.level === "error") ? " ⚠" : ""}`}
+          aria-label={`Console${s.hasLogError ? " ⚠" : ""}`}
         >
           <Icon name="console" />
-          {s.logs.some((l) => l.level === "error") && <span className="tb-badge err" aria-hidden="true">!</span>}
-        </button>
+          {s.hasLogError && <span className="tb-badge err" aria-hidden="true">!</span>}
+        </button></Tooltip>
       </header>
       {cmdOpen && (
         <CommandPalette actions={cmdActions} onClose={() => setCmdOpen(false)} />
@@ -788,6 +699,21 @@ function Canvas() {
             if (n) rf.setCenter(n.position.x + (n.measured?.width ?? 200) / 2, n.position.y + (n.measured?.height ?? 100) / 2, { zoom: Math.max(rf.getZoom(), 0.8), duration: 250 });
           }}
         />
+        {autosave.state === 'saving' && <span className="draft-status mut" role="status">{messages.project.savingDraft}</span>}
+        {autosave.state === 'saved' && autosave.time && <span className="draft-status mut" role="status" title={messages.project.draftDescription}>{messages.project.draftSaved} {autosave.time}</span>}
+        {draftProblem && <span className="draft-status draft-problem" role="status" title={draftProblem}>
+          <span>{draftProblem}</span>
+          <button className="text-button" onClick={() => {
+            if (!window.confirm(messages.project.discardDraftConfirm)) return
+            try {
+              localStorage.removeItem(STORE_KEY)
+              setDraftProblem(null)
+            } catch (error) {
+              reportError(error)
+            }
+          }}>{messages.project.discardDraft}</button>
+        </span>}
+        {autosave.state === 'error' && <span className="draft-status err" role="status" title={autosave.error}>{messages.project.autosaveFailed}</span>}
         {s.busy && s.progress.total > 0 && (
           <span
             className="gbar"

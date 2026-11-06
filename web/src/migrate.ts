@@ -1,5 +1,6 @@
 import type { Edge } from '@xyflow/react'
 import type { StudioNode } from './store'
+import { validateGraphSnapshot } from './projectSchema'
 
 /** Bridge settings the stencil and Split volume nodes used to have. */
 const LEGACY = ['bridge_mm', 'bridges_per_island', 'bridge_spacing', 'bridge_min_angle_deg', 'bridge_max_length', 'bridge_passes', 'raised_bridges', 'z_bridging', 'bridge_islands']
@@ -11,6 +12,7 @@ const edgeId = (e: { source: string; sourceHandle?: string | null; target: strin
 
 /** Brings a project saved by an older version up to the current nodes (the engine does the same, see graph/migrate.rs). */
 export function migrateProject(nodes: StudioNode[], edges: Edge[]): { nodes: StudioNode[]; edges: Edge[] } {
+  validateGraphSnapshot({ nodes, edges })
   const renamed = new Set(nodes.filter((n) => n.data.type === 'bridge_fragments').map((n) => n.id))
   let ns = nodes.map((n) => {
     const t = n.data.type === 'complexity' ? 'remesh' : n.data.type === 'bridge_fragments' ? 'bridges' : n.data.type

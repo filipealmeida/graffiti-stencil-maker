@@ -3,6 +3,8 @@ import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import { applyDrag, checkPocket, checkSeam, hitTest, isEmpty, type Drag, type LayoutEdits, type LayoutInfo } from './layoutEdit'
 import { logAction, useStudio } from './store'
+import Tooltip from './Tooltip'
+import messages from './messages'
 
 /** Overlay preferences outlive the component: it remounts whenever a run replaces the result. */
 const usePrefs = create<{ overlay: boolean; opacity: number; snap: boolean; set: (p: Partial<{ overlay: boolean; opacity: number; snap: boolean }>) => void }>()(
@@ -246,17 +248,15 @@ export default function ImageView({ src, under, kind, layout, layers }: Props) {
         <span>{Math.round(view.k * 100)}% · wheel zoom, drag pan, double-click reset{layout && ' · drag a seam or block to edit the layout'}{layers && (layers.editing ? ' · editing: drag a layer, arrow keys nudge (Shift ×10), hold Alt to skip snapping' : '')}</span>
         {layers && (
           <>
-            <button className={`iconbtn${layers.editing ? ' on' : ''}`} aria-pressed={layers.editing} aria-label="Edit layers" onClick={() => layers.onEditing(!layers.editing)}
-              title={layers.editing ? 'Stop editing layers' : 'Edit layers: drag them in the preview. Panning is off while editing; the wheel still zooms.'}>
+            <Tooltip content={layers.editing ? 'Stop editing layers' : messages.actions.editLayers}><button className={`iconbtn${layers.editing ? ' on' : ''}`} aria-pressed={layers.editing} aria-label="Edit layers" onClick={() => layers.onEditing(!layers.editing)}>
               <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 3v18M3 12h18M12 3l-3 3M12 3l3 3M12 21l-3-3M12 21l3-3M3 12l3-3M3 12l3 3M21 12l-3-3M21 12l-3 3" /></svg>
-            </button>
-            <button className={`iconbtn${snap ? ' on' : ''}`} aria-pressed={snap} aria-label="Snap" onClick={() => setPrefs({ snap: !snap })}
-              title="Snap to the edges and centres of the other layers and the canvas (hold Alt to skip it while dragging)">
+            </button></Tooltip>
+            <Tooltip content={messages.actions.snapLayers}><button className={`iconbtn${snap ? ' on' : ''}`} aria-pressed={snap} aria-label="Snap" onClick={() => setPrefs({ snap: !snap })}>
               <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M6 3v9a6 6 0 0 0 12 0V3M6 8h4M14 8h4" /></svg>
-            </button>
+            </button></Tooltip>
           </>
         )}
-        {layout && !isEmpty(layout.edits) && <button onClick={layout.onReset} title="Go back to the automatic layout">Reset layout</button>}
+        {layout && !isEmpty(layout.edits) && <Tooltip content={messages.actions.resetLayout}><button onClick={layout.onReset}>Reset layout</button></Tooltip>}
         {layout && layout.info.edits_ignored > 0 && <span className="warn">{layout.info.edits_ignored} edit(s) no longer fit and were ignored</span>}
         <span role="status" aria-live="polite" className="layout-note">{live?.why ? `Can't drop here: ${live.why}.` : note}</span>
         {under && kind === 'mask' && (

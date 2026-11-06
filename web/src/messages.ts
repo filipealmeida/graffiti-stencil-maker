@@ -1,0 +1,46 @@
+/** User-facing studio copy, centralized as a foundation for consistent wording and localization. */
+const messages = {
+  toolbar: {
+    commandPalette: 'Command palette (Ctrl+K)',
+    history: 'History: list of edits, pick one to go back (or forward) to it',
+    undo: 'Undo (Ctrl+Z)',
+    redo: 'Redo (Ctrl+Shift+Z)',
+    project: 'Project: save, open, export',
+    report: 'Report: print readiness and per-node timing',
+    performance: 'Perf: show engine workers and load',
+    console: 'Console: the engine log',
+  },
+  project: {
+    unsaved: 'Changes since the last save',
+    started: 'Started a new project',
+    savingDraft: 'Saving draft…',
+    draftSaved: 'Draft saved',
+    draftDescription: 'Recoverable browser draft',
+    autosaveFailed: 'Draft save failed. Use Save project to keep your work.',
+    discardDraft: 'Discard saved draft',
+    discardDraftConfirm: 'Delete the saved browser draft? This cannot be undone.',
+  },
+  actions: {
+    deleteNode: 'Delete node',
+    closePreview: 'Close preview',
+    replacePicture: 'Replace the picture loaded in this node',
+    replaceModel: 'Replace the model loaded in this node',
+    appliedTemplate: 'Applied template',
+    selectNode: 'Select this node',
+    backToBuiltInFont: 'Go back to the built-in font',
+    listSystemFonts: 'Lists the fonts installed on this computer. The browser asks for permission the first time.',
+    savePreset: "Save this node's parameters under a name",
+    morePresets: 'More preset actions',
+    deletePreset: 'Delete the selected preset',
+    exportPresets: 'Save all your presets to a file to share or back up',
+    importPresets: 'Add the presets from a file; a name that already exists is kept',
+    downloadSvgTile: 'Download this tile as SVG',
+    downloadDxfTile: 'Download this tile as DXF',
+    editLayers: 'Edit layers: drag them in the preview. Panning is off while editing; the wheel still zooms.',
+    snapLayers: 'Snap to the edges and centres of the other layers and the canvas (hold Alt to skip it while dragging)',
+    resetLayout: 'Go back to the automatic layout',
+    duplicateNode: 'Duplicate node (Ctrl+D)',
+  },
+} as const
+
+export default messages

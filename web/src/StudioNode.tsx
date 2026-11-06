@@ -2,6 +2,9 @@ import { Handle, Position, type NodeProps } from '@xyflow/react'
 import { artifactUrl, type Kind } from './api'
 import { KIND_INFO, canLink, visibleInputs, kindBackground, portText, portTitle } from './ports'
 import { useStudio, type StudioNode } from './store'
+import { deleteNodeWithUndo } from './NodeActions'
+import Tooltip from './Tooltip'
+import messages from './messages'
 import { useNodeFindings } from './Findings'
 import { runSummary } from './NodeActions'
 import { etaSeconds, formatEta, nodeStarts, useNow } from './eta'
@@ -45,8 +48,8 @@ export default function StudioNodeView({ id, data, selected }: NodeProps<StudioN
       <div className="node-head">
         <span className={`dot ${run?.state ?? 'idle'}`} role="img" aria-label={run?.error ?? run?.state ?? 'not run'} title={run?.error ?? run?.state ?? 'not run'} />
         <b>{data.title || t.label}</b>
-        <button className="node-del nodrag" title="Duplicate node (Ctrl+D)" aria-label="Duplicate node" onClick={(e) => { e.stopPropagation(); useStudio.getState().duplicate(id) }}>⧉</button>
-        <button className="node-del nodrag" title="Delete node" aria-label="Delete node" onClick={(e) => { e.stopPropagation(); useStudio.getState().removeNode(id) }}>×</button>
+        <Tooltip content={messages.actions.duplicateNode}><button className="node-del nodrag" aria-label="Duplicate node" onClick={(e) => { e.stopPropagation(); useStudio.getState().duplicate(id) }}>⧉</button></Tooltip>
+        <Tooltip content={messages.actions.deleteNode}><button className="node-del nodrag" aria-label={messages.actions.deleteNode} onClick={(e) => { e.stopPropagation(); deleteNodeWithUndo(id) }}>×</button></Tooltip>
         {run?.state === 'running' && <span className="pct">{Math.round((run.progress ?? 0) * 100)}%</span>}
       </div>
       {run?.state === 'running' && <div className="bar" role="progressbar" aria-label={`${data.title || t.label} progress`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round((run.progress ?? 0) * 100)}><i style={{ width: `${(run.progress ?? 0) * 100}%` }} /></div>}

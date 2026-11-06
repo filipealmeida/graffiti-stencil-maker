@@ -2,6 +2,8 @@ export type Kind = 'image' | 'mask' | 'shapes' | 'tiles' | 'solid' | 'parts' | '
 export type Stage = 'trace' | 'stencil' | 'post'
 
 import { plan, splitPlan } from './plan'
+import { parseProject } from './projectSchema'
+import type { WorkerCommand, WorkerRequests, WorkerResults, WorkerResponse, WorkerStep, WorkerLog } from './workerProtocol'
 
 export interface ParamDef {
   name: string
@@ -66,7 +68,7 @@ interface Eng {
 }
 const engines: (Eng | null)[] = [null, null]
 let seq = 0
-const pending = new Map<number, { ok: (v: any) => void; err: (e: Error) => void; step?: (s: any) => void; eng: number }>()
+const pending = new Map<number, { ok: (v: unknown) => void; err: (e: Error) => void; step?: (s: WorkerStep) => void; eng: number; op: WorkerCommand['op'] }>()
 
 /** A node that has been computing this long (ms) is worth a worker restart; shorter ones finish on their own and keep the cache. */
 export const HARD_CANCEL_MS = 300
@@ -76,18 +78,20 @@ function engine(i: number): Eng {
   const w = new Worker(new URL('./engine.worker.ts', import.meta.url), { type: 'module' })
   const e: Eng = { w, active: null, warm: null }
   engines[i] = e
-  w.onmessage = (ev) => {
-    const p = pending.get(ev.data.id)
-    if (!p) return
-    if (ev.data.step) {
-      if (e.active && e.active.id === ev.data.id) e.active.since = ev.data.step.state?.state === 'running' ? Date.now() : null
-      return p.step?.(ev.data.step)
+  w.onmessage = (ev: MessageEvent<WorkerResponse>) => {
+    const m = ev.data
+    const p = pending.get(m.id)
+    if (!p || p.eng !== i) return
+    if (m.kind === 'progress') {
+      if (e.active && e.active.id === m.id) e.active.since = m.step.state.state === 'running' ? Date.now() : null
+      return p.step?.(m.step)
     }
-    if (e.active?.id === ev.data.id) e.active = null
-    pending.delete(ev.data.id)
-    if (ev.data.error !== undefined) p.err(new Error(ev.data.error))
-    else p.ok(ev.data.ok)
-    if (ev.data.fatal) {
+    if (e.active?.id === m.id) e.active = null
+    pending.delete(m.id)
+    if (m.kind === 'error') p.err(new Error(m.error))
+    else if (m.op !== p.op) p.err(new Error('Unexpected engine response'))
+    else p.ok(m.ok)
+    if (m.kind === 'error' && m.fatal) {
       // the crashed module cannot be reused: replace the worker and hand it the pictures again
       dropEngine(i, new Error('The engine crashed and was restarted; run again.'))
       const n = engine(i)
@@ -115,22 +119,24 @@ function dropEngine(i: number, why: Error) {
   }
 }
 
-function callOn<T>(i: number, msg: Record<string, unknown>, transfer: Transferable[] = [], step?: (s: any) => void): Promise<T> {
+function callOn<M extends WorkerCommand>(i: number, msg: M, transfer: Transferable[] = [], step?: (s: WorkerStep) => void): Promise<WorkerResults[M['op']]> {
   const e = engine(i)
   const id = ++seq
   if (msg.op === 'run') e.active = { id, since: null }
-  return new Promise<T>((ok, err) => {
-    pending.set(id, { ok, err, step, eng: i })
+  return new Promise((ok, err) => {
+    // The operation is checked on receipt; this map erases the per-request result type.
+    pending.set(id, { ok: (v) => ok(v as WorkerResults[M['op']]), err, step, eng: i, op: msg.op })
     e.w.postMessage({ id, ...msg }, transfer)
   })
 }
 
-const call = <T,>(msg: Record<string, unknown>, transfer: Transferable[] = [], step?: (s: any) => void) => callOn<T>(0, msg, transfer, step)
+const call = <M extends WorkerCommand>(msg: M, transfer: Transferable[] = [], step?: (s: WorkerStep) => void) => callOn(0, msg, transfer, step)
 
 /** Sends the message to every live engine (pictures and fonts must exist everywhere). */
-async function broadcast<T>(msg: Record<string, unknown>, bytes?: ArrayBuffer): Promise<T> {
-  const first = await callOn<T>(0, bytes ? { ...msg, bytes: bytes.slice(0) } : msg)
-  for (let i = 1; i < engines.length; i++) if (engines[i]) await callOn(i, bytes ? { ...msg, bytes: bytes.slice(0) } : msg)
+async function broadcast<M extends Omit<WorkerRequests['image'], 'bytes'> | Omit<WorkerRequests['model'], 'bytes'> | Omit<WorkerRequests['font'], 'bytes'>>(msg: M, bytes: ArrayBuffer): Promise<WorkerResults[M['op']]> {
+  const command = (): WorkerRequests[M['op']] => ({ ...msg, bytes: bytes.slice(0) }) as unknown as WorkerRequests[M['op']]
+  const first = await callOn(0, command())
+  for (let i = 1; i < engines.length; i++) if (engines[i]) await callOn(i, command())
   return first
 }
 
@@ -139,7 +145,7 @@ async function replay(i: number) {
   const keys = (await idb('readonly', (s) => s.getAllKeys())) as string[]
   for (const k of keys) {
     const img = (await idb('readonly', (s) => s.get(k))) as StoredImage | undefined
-    if (img) await callOn(i, { op: img.modelFormat ? 'model' : 'image', format: img.modelFormat, bytes: img.bytes.slice(0) })
+    if (img) await callOn(i, img.modelFormat ? { op: 'model', format: img.modelFormat, bytes: img.bytes.slice(0) } : { op: 'image', bytes: img.bytes.slice(0) })
   }
   for (const [name, bytes] of fontBytes) await callOn(i, { op: 'font', name, bytes: bytes.slice(0) })
 }
@@ -195,7 +201,7 @@ function stopRun(force = false) {
         const n = engine(0)
         n.warm = replay(0).finally(() => { n.warm = null })
       }
-    } else e.w.postMessage({ id: ++seq, op: 'cancel' })
+    } else e.w.postMessage({ id: ++seq, op: 'cancel' } satisfies import('./workerProtocol').WorkerRequest)
   }
 }
 
@@ -278,12 +284,10 @@ async function loadFont(name: string) {
   await broadcast({ op: 'font', name }, fontBytes.get(name)!)
 }
 
-interface RunResult { status: string; error?: string }
-
 /** Registers a step's artifacts: blob URLs, infos, costs, and which engine holds the result. */
-function absorb(eng: number, s: any) {
-  if (s.state?.state === 'done' && !s.state.cached && s.state.ms > 0) costs[s.node] = s.state.ms
-  for (const a of s.artifacts as any[]) {
+function absorb(eng: number, s: WorkerStep) {
+  if (s.state.state === 'done' && !s.state.cached && s.state.ms !== undefined && s.state.ms > 0) costs[s.node] = s.state.ms
+  for (const a of s.artifacts) {
     retain(a.key)
     const prev = blobs.get(`${a.key}/${a.out}`)
     if (prev) URL.revokeObjectURL(prev)
@@ -294,7 +298,7 @@ function absorb(eng: number, s: any) {
   }
 }
 
-const logLine = (l: any) => ({ ts: stamp(l.at), ms: l.ms ?? null, t: l.t, level: l.level, node: l.node, type: l.type, msg: l.msg })
+const logLine = (l: WorkerLog): LogLine => ({ ts: stamp(l.at), ms: l.ms ?? null, t: l.t, level: l.level, node: l.node, type: l.type, msg: l.msg })
 
 export const api = {
   /** The system's fonts, one entry per face. Must be called from a click the first time, to get the browser's permission. */
@@ -303,12 +307,12 @@ export const api = {
   },
   useFont: loadFont,
   canListFonts: () => typeof (window as any).queryLocalFonts === 'function',
-  nodeTypes: () => call<NodeType[]>({ op: 'types' }),
-  threads: () => call<{ n: number; why: string; version: string }>({ op: 'threads' }),
-  imageInfo: (imageId: string, resolution: number) => call<ImageInfo>({ op: 'imageinfo', imageId, resolution }),
+  nodeTypes: () => call({ op: 'types' }),
+  threads: () => call({ op: 'threads' }),
+  imageInfo: (imageId: string, resolution: number) => call({ op: 'imageinfo', imageId, resolution }),
   async upload(f: File) {
     const bytes = await f.arrayBuffer()
-    const info = await broadcast<{ id: string; width: number; height: number }>({ op: 'image' }, bytes)
+    const info = await broadcast({ op: 'image' }, bytes)
     await idb('readwrite', (s) => s.put({ name: f.name, bytes } satisfies StoredImage, info.id))
     return { ...info, name: f.name }
   },
@@ -317,14 +321,14 @@ export const api = {
     if (format !== 'stl' && format !== 'obj') throw new Error('Unsupported model format: use STL or triangulated OBJ.')
     if (f.size > 100 * 1024 * 1024) throw new Error('The model file is larger than 100 MB.')
     const bytes = await f.arrayBuffer()
-    const info = await broadcast<{ id: string }>({ op: 'model', format }, bytes)
+    const info = await broadcast({ op: 'model', format }, bytes)
     await idb('readwrite', (s) => s.put({ name: f.name, bytes, modelFormat: format } satisfies StoredImage, info.id))
     return { ...info, name: f.name, format }
   },
-  modelInfo: (modelId: string, format: string) => call<ModelInfo>({ op: 'modelinfo', modelId, format }),
-  modelPreview: (modelId: string, format: string) => call<Uint8Array<ArrayBuffer>>({ op: 'modelpreview', modelId, format }),
+  modelInfo: (modelId: string, format: string) => call({ op: 'modelinfo', modelId, format }),
+  modelPreview: (modelId: string, format: string) => call({ op: 'modelpreview', modelId, format }),
   async repairModel(modelId: string, format: string, action: string, tolerance: number) {
-    const bytes = await call<Uint8Array<ArrayBuffer>>({ op: 'modelrepair', modelId, format, action, tolerance })
+    const bytes = await call({ op: 'modelrepair', modelId, format, action, tolerance })
     const source = await api.storedImage(modelId)
     if (!source) throw new Error('The original model is no longer stored: open it again before repairing.')
     return api.uploadModel(new File([bytes], source.name.replace(/\.[^.]+$/, '') + '-repaired.stl', { type: 'model/stl' }))
@@ -346,7 +350,7 @@ export const api = {
     const e0 = engine(0)
     if (e0.warm) await e0.warm
     // a project that names a system font needs it in the engine; try quietly, a missing font shows up as the node's error
-    for (const n of (graph as any).nodes ?? []) {
+    for (const n of graph.nodes ?? []) {
       const name = n.type === 'text' ? String(n.params?.system_font ?? '') : ''
       if (name && !fontBytes.has(name)) await loadFont(name).catch(() => {})
     }
@@ -358,7 +362,7 @@ export const api = {
     for (const e of graph.edges ?? []) parents.set(e.to[0], [...(parents.get(e.to[0]) ?? []), e.from[0]])
     const memo = new Map<string, boolean>()
     const extra = (id: string) => (heldBy(1, id, sigs, parents, memo) ? 0 : costs[id] ?? 0)
-    const record = (i: number, s: any) => {
+    const record = (i: number, s: WorkerStep) => {
       if (s.state?.state !== 'done') return
       const set = seenSigs[i].get(s.node) ?? new Set<string>()
       set.add(sigs.get(s.node) ?? '')
@@ -368,10 +372,10 @@ export const api = {
     }
     const split = order && (window as any).__noSplit !== true ? splitPlan(graph.edges ?? [], order, costs, extra) : null
     if (!split) {
-      return await callOn<RunResult>(0, { op: 'run', graph: graphText, targets: targets ? JSON.stringify(targets) : '', costs }, [], (s) => {
+      return await callOn(0, { op: 'run', graph: graphText, targets: targets ? JSON.stringify(targets) : '', costs }, [], (s) => {
         absorb(0, s)
         record(0, s)
-        onStep({ node: s.node, state: s.state, n: s.n, total: s.total, log: (s.log as any[]).map(logLine) })
+        onStep({ node: s.node, state: s.state, n: s.n, total: s.total, log: s.log.map(logLine) })
       })
     }
     const e1 = engine(1)
@@ -379,16 +383,16 @@ export const api = {
     // each engine computes what its targets need in its own cache; a node shared by both is reported by its owner only
     const done = new Set<string>()
     const total = order!.length
-    const stepOf = (i: number) => (s: any) => {
+    const stepOf = (i: number) => (s: WorkerStep) => {
       absorb(i, s)
       record(i, s)
       if (split.owner.get(s.node) !== i) return
       if (s.state?.state === 'done' || s.state?.state === 'error') done.add(s.node)
-      onStep({ node: s.node, state: s.state, n: done.size, total, log: (s.log as any[]).map(logLine) })
+      onStep({ node: s.node, state: s.state, n: done.size, total, log: s.log.map(logLine) })
     }
     try {
       const [r0, r1] = await Promise.all([0, 1].map((i) =>
-        callOn<RunResult>(i, { op: 'run', graph: graphText, targets: JSON.stringify(split.targets[i]), costs }, [], stepOf(i))))
+        callOn(i, { op: 'run', graph: graphText, targets: JSON.stringify(split.targets[i]), costs }, [], stepOf(i))))
       return r0.status === 'error' ? r0 : r1
     } catch (err) {
       stopRun()
@@ -400,9 +404,9 @@ export const api = {
   stop: () => stopRun(true),
   info: async (key: string, out: string) => infos.get(`${key}/${out}`) ?? {},
   /** One file of a finished output, made by the engine that holds it, on demand (e.g. the cut sheet preview). */
-  part: (key: string, out: string, name: string) => callOn<Uint8Array>(ownerOf(key), { op: 'part', key, out, name }),
+  part: (key: string, out: string, name: string) => callOn(ownerOf(key), { op: 'part', key, out, name }),
   /** The DXF of an outlines output, drawn by the engine on demand. */
-  dxf: (key: string, out: string) => callOn<Uint8Array>(ownerOf(key), { op: 'dxf', key, out }),
+  dxf: (key: string, out: string) => callOn(ownerOf(key), { op: 'dxf', key, out }),
   /** The info of a finished output when it is already in memory. */
   peekInfo: (key: string, out: string) => infos.get(`${key}/${out}`),
 
@@ -424,21 +428,22 @@ export const api = {
     }
     return { version: 2, graph, images, models }
   },
-  async importProject(p: any) {
+  async importProject(value: unknown) {
+    const p = parseProject(value)
     const remap = new Map<string, string>()
     for (const [id, img] of Object.entries<{ name: string; base64: string }>(p.images ?? {})) {
       const bytes = unb64(img.base64)
-      const got = await broadcast<{ id: string }>({ op: 'image' }, bytes)
+      const got = await broadcast({ op: 'image' }, bytes)
       remap.set(id, got.id)
       await idb('readwrite', (s) => s.put({ name: img.name, bytes } satisfies StoredImage, got.id))
     }
     for (const [id, model] of Object.entries<{ name: string; base64: string; format: string }>(p.models ?? {})) {
       const bytes = unb64(model.base64)
-      const got = await broadcast<{ id: string }>({ op: 'model', format: model.format }, bytes)
+      const got = await broadcast({ op: 'model', format: model.format }, bytes)
       remap.set(id, got.id)
       await idb('readwrite', (s) => s.put({ name: model.name, bytes, modelFormat: model.format } satisfies StoredImage, got.id))
     }
-    const g = p.graph as { nodes: any[]; edges: any[] }
+    const g = p.graph
     // older projects keep the picture ids of the engine that saved them
     for (const n of g.nodes ?? []) {
       for (const param of ['image_id', 'model_id']) {

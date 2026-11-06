@@ -125,7 +125,7 @@ test('undo returns to the previous value', async ({ page }) => {
   await setSlider(page, 700)
   await expect(page.locator('aside')).toContainText('700')
   await page.waitForTimeout(600)
-  await page.getByRole('button', { name: /Undo/ }).click()
+  await page.locator('header button[aria-label="Undo"]').click()
   await page.locator('.react-flow__node').first().dispatchEvent('click')
   await expect(page.locator('aside input[type=range]').first()).not.toHaveValue('700')
   await settled(page)
@@ -281,7 +281,7 @@ test('copy, paste and duplicate create independent nodes', async ({ page }) => {
   await page.keyboard.press('Control+c')
   await page.keyboard.press('Control+v')
   await expect(nodes).toHaveCount(6)
-  await th.first().locator('button[title^="Duplicate"]').click()
+  await th.first().getByRole('button', { name: 'Duplicate node', exact: true }).click()
   await expect(nodes).toHaveCount(7)
   const boxes = await nodes.evaluateAll((l) => l.map((e) => { const r = e.getBoundingClientRect(); return [r.x, r.y, r.width, r.height] }))
   for (let i = 0; i < boxes.length; i++) for (let j = i + 1; j < boxes.length; j++) {
@@ -625,7 +625,7 @@ test('undo and redo restore a deleted node', async ({ page }) => {
   await page.locator('.menu button').filter({ hasText: 'Reshape paint' }).click()
   await expect(page.locator('.react-flow__node')).toHaveCount(n + 1)
   await page.waitForTimeout(600)
-  await page.getByRole('button', { name: /Undo/ }).click()
+  await page.locator('header button[aria-label="Undo"]').click()
   await expect(page.locator('.react-flow__node')).toHaveCount(n)
   await page.getByRole('button', { name: /Redo/ }).click()
   await expect(page.locator('.react-flow__node')).toHaveCount(n + 1)
@@ -641,7 +641,7 @@ test('swapping the Image node picture can be undone and redone', async ({ page }
   await page.locator('aside input[type=file]').setInputFiles({ name: 'dot.png', mimeType: 'image/png', buffer: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64') })
   await expect(node).toContainText('dot.png')
   await page.waitForTimeout(600)
-  await page.getByRole('button', { name: /Undo/ }).click()
+  await page.locator('header button[aria-label="Undo"]').click()
   await expect(node).not.toContainText('dot.png')
   await page.getByRole('button', { name: /Redo/ }).click()
   await expect(node).toContainText('dot.png')
@@ -742,7 +742,7 @@ test('the engine thread budget leaves at least one core free when threads are av
 
 test('command palette adds a node', async ({ page }) => {
   await open(page)
-  await page.getByTitle('Command palette (Ctrl+K)').click()
+  await page.getByRole('button', { name: 'Command palette', exact: true }).click()
   await page.getByRole('textbox', { name: 'Command palette' }).fill('remesh')
   await page.locator('.cmdpal-list button').first().click()
   await expect(page.locator('.react-flow__node').filter({ hasText: 'Simplify mesh' })).toBeVisible()
@@ -1046,7 +1046,7 @@ test('the toolbar buttons are icons that each carry a tooltip and a name', async
     const b = page.locator('header').getByRole('button', { name: new RegExp(`^${name}`) })
     await expect(b, name).toBeVisible()
     await expect(b.locator('svg.icon'), name).toHaveCount(1)
-    expect((await b.getAttribute('title')) ?? '', name).not.toBe('')
+    expect((await b.getAttribute('aria-description')) ?? '', name).not.toBe('')
   }
   await expect(page.locator('header label[title="Open image…"] svg.icon')).toHaveCount(1)
   await expect(page.locator('header').getByRole('button', { name: /Project/ })).toBeVisible()
@@ -1106,7 +1106,7 @@ test('a node that does not fit the edge leaves it alone', async ({ page }) => {
 test('the status text lives in a footer, so the toolbar buttons never move while it changes', async ({ page }) => {
   await open(page)
   await expect(page.locator('header [role=status]')).toHaveCount(0)
-  await expect(page.locator('footer.statusbar [role=status]')).toBeVisible()
+  await expect(page.locator('footer.statusbar > .status')).toBeVisible()
   const rerun = page.locator('header').getByRole('button', { name: 'Rerun' })
   const before = (await rerun.boundingBox())!
   await page.getByRole('button', { name: '+ finish' }).click()
@@ -1140,7 +1140,7 @@ test('the fragment nodes and the seam bevel angle show their parameters and help
     ['remove fragments', 'Remove fragments', 'Fragments to keep'],
     ['bridges', 'Bridges', 'Bridges per island'],
   ]) {
-    await page.getByTitle('Command palette (Ctrl+K)').click()
+    await page.getByRole('button', { name: 'Command palette', exact: true }).click()
     await page.getByRole('textbox', { name: 'Command palette' }).fill(query)
     await page.locator('.cmdpal-list button').first().click()
     await expect(node(title)).toBeVisible()
@@ -1198,7 +1198,7 @@ test('deleting a node can be taken back from the toast', async ({ page }) => {
   await page.locator('.react-flow__node').filter({ hasText: 'Threshold' }).first().click()
   await page.getByRole('button', { name: 'Delete node' }).last().click()
   await expect(page.locator('.react-flow__node')).toHaveCount(before - 1)
-  await page.locator('.toast').getByRole('button', { name: 'Undo' }).click()
+  await page.locator('.toast').last().getByRole('button', { name: 'Undo' }).click()
   await expect(page.locator('.react-flow__node')).toHaveCount(before)
 })
 
@@ -1237,7 +1237,7 @@ test('projects get a random docker-style name, New picks another, and New comes 
   await page.getByRole('menuitem', { name: /^New/ }).click()
   await expect(box).toHaveValue(/^[a-z]+_[a-z]+$/)
   await expect(page.locator('.react-flow__node')).toHaveCount(0)
-  await page.locator('.toast').getByRole('button', { name: 'Undo' }).click()
+  await page.locator('.toast').last().getByRole('button', { name: 'Undo' }).click()
   await expect(box).toHaveValue(first)
 })
 

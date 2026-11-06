@@ -14,6 +14,7 @@ import ImageInfoPanel from './ImageInfo'
 import MeshTools, { MeshProperties, useModelInspection } from './MeshTools'
 import { useStudio, type StudioNode } from './store'
 import { parseEdits, stringify, type LayoutInfo } from './layoutEdit'
+import useDialogFocus from './useDialogFocus'
 const Viewer3D = lazy(() => import('./Viewer3D'))
 
 const STATS = ['islands_found', 'bridges_added', 'islands_remaining', 'watertight', 'triangles', 'overhang_area_mm2', 'layers', 'size_mm']
@@ -46,6 +47,8 @@ export default function Workbench() {
   const [editing, setEditing] = useState(false)
   // hand moves wait here until the user stops interacting, so the engine is not asked again for every step
   const [draft, setDraft] = useState<Record<string, [number, number]> | null>(null)
+  const dialog = useRef<HTMLDivElement>(null)
+  useDialogFocus(dialog, !!id)
   const draftRef = useRef<Record<string, [number, number]> | null>(null)
   const timer = useRef<number>()
   const commitRef = useRef<() => void>(() => {})
@@ -171,7 +174,7 @@ export default function Workbench() {
   </>
 
   return (
-    <div className={`bench${isModel ? ' bench-mesh' : ''}`} data-mesh-panel={meshPanel} data-mesh-info={showMeshInfo}>
+    <div ref={dialog} className={`bench${isModel ? ' bench-mesh' : ''}`} data-mesh-panel={meshPanel} data-mesh-info={showMeshInfo} role="dialog" aria-modal="true" aria-label={`${node.data.title || t.label} preview`} tabIndex={-1}>
       <div className="bench-head">
         <button className="close" onClick={() => open(null)} aria-label="Close preview" title="Close (Esc)">✕</button>
         <h2>{node.data.title || t.label} <small className={`tag stage-${t.stage}`}>{STAGE_LABEL[t.stage]}</small>{problems > 0 && <span className="tb-badge warn" title="Findings on this node">{problems}</span>}</h2>

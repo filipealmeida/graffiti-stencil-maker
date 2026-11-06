@@ -1,6 +1,6 @@
 //! The Remove fragments node: keeps only the biggest separate solids of each tile.
 
-use super::catalogue::Outputs;
+use super::types::Outputs;
 use super::*;
 use crate::mesh::Mesh;
 

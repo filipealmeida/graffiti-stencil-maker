@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import useDialogFocus from './useDialogFocus'
 
 export interface PaletteAction {
   id: string;
@@ -11,6 +12,8 @@ export interface PaletteAction {
 export default function CommandPalette({ actions, onClose }: { actions: PaletteAction[]; onClose: () => void }) {
   const [q, setQ] = useState("");
   const input = useRef<HTMLInputElement>(null);
+  const dialog = useRef<HTMLDivElement>(null)
+  useDialogFocus(dialog)
   useEffect(() => {
     input.current?.focus();
   }, []);
@@ -23,7 +26,7 @@ export default function CommandPalette({ actions, onClose }: { actions: PaletteA
         if (e.target === e.currentTarget) onClose();
       }}
     >
-      <div className="cmdpal" role="dialog" aria-label="Command palette">
+      <div className="cmdpal" ref={dialog} role="dialog" aria-modal="true" aria-label="Command palette" tabIndex={-1}>
         <input
           ref={input}
           value={q}

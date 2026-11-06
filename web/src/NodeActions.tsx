@@ -2,6 +2,8 @@ import { api, artifactUrl, saveFile, type Kind, type NodeRun } from './api'
 import { portText } from './ports'
 import { checkpoint, undo, useStudio } from './store'
 import { safeName } from './project'
+import Tooltip from './Tooltip'
+import messages from './messages'
 
 /** What a finished output can be downloaded as: one wording and one file name for the side panel and the preview. */
 export function downloadFor(kind: Kind | undefined, key: string | undefined, out: string | undefined, files = 0) {
@@ -30,8 +32,8 @@ export function NodeActions({ id, preview, download }: { id: string; preview?: b
     <>
       <div className="actions">
         {download && <a className="btn primary" href={download.href} download={download.file}>{download.label}</a>}
-        {dxf && <button className="btn primary" onClick={() => saveDxf(dxf.key, dxf.out, dxf.file)} title="Closed polylines on the layer OUTLINE, in picture pixels, for CAD and cutters">{dxf.label}</button>}
-        {preview && <button className="btn" onClick={() => openBench(id)} title="Double-click a node to open it">⤢ Open preview</button>}
+        {dxf && <Tooltip content="Closed polylines on the layer OUTLINE, in picture pixels, for CAD and cutters"><button className="btn primary" onClick={() => saveDxf(dxf.key, dxf.out, dxf.file)}>{dxf.label}</button></Tooltip>}
+        {preview && <Tooltip content="Double-click a node to open it"><button className="btn" onClick={() => openBench(id)}>⤢ Open preview</button></Tooltip>}
       </div>
       <OutlineDownloads id={id} shown={download?.href} />
     </>
@@ -78,14 +80,27 @@ function OutlineDownloads({ id, shown }: { id: string; shown?: string }) {
 /** Delete sits apart from the download, and an undo toast replaces a confirmation. */
 export function DeleteNode({ id }: { id: string }) {
   return (
-    <button className="danger" onClick={() => {
-      const s = useStudio.getState()
-      const label = s.nodes.find((n) => n.id === id)?.data.title || 'node'
-      checkpoint()
-      s.removeNode(id)
-      s.toast(`Deleted ${label}`, { undo })
-    }}>Delete node</button>
+    <button className="danger" onClick={() => deleteNodeWithUndo(id)}>{messages.actions.deleteNode}</button>
   )
+}
+
+export function deleteNodeWithUndo(id: string) {
+  const state = useStudio.getState()
+  const label = state.nodes.find((n) => n.id === id)?.data.title || 'node'
+  checkpoint()
+  state.removeNode(id)
+  checkpoint()
+  state.toast(`Deleted ${label}`, { undo })
+}
+
+export function deleteEdgeWithUndo(id: string) {
+  const state = useStudio.getState()
+  const edge = state.edges.find((item) => item.id === id)
+  if (!edge) return
+  checkpoint()
+  state.removeEdge(id)
+  checkpoint()
+  state.toast('Disconnected nodes', { undo })
 }
 
 /** One line for the state of a node, the same in the card, the side panel and the preview. */

@@ -1,20 +1,8 @@
-//! The node catalogue: ids, ports, parameter definitions and docs. Execution lives in the parent module.
+//! Node registrations, port descriptions and parameter schemas; implementations live in adapters.
 
-use super::*;
-
-pub(super) type Outputs = Vec<(&'static str, Value)>;
-pub(super) type RunFn = fn(&Engine, &HashMap<String, Value>, &P) -> Result<Outputs, String>;
-
-pub(super) struct NodeDef {
-    pub(super) id: &'static str,
-    pub(super) label: &'static str,
-    pub(super) stage: &'static str,
-    pub(super) inputs: Vec<(&'static str, &'static str, bool)>,
-    pub(super) outputs: Vec<(&'static str, &'static str)>,
-    pub(super) params: Vec<Json>,
-    pub(super) doc: &'static str,
-    pub(super) run: RunFn,
-}
+use super::{bridges, canvas, colour_set, fragments, mesh_import, nodes::*, types::NodeDef};
+use crate::colour;
+use serde_json::{json, Value as Json};
 
 #[allow(clippy::too_many_arguments)]
 pub(super) fn num(
@@ -793,4 +781,20 @@ pub(super) fn tone_params() -> Vec<Json> {
         ));
     }
     v
+}
+
+pub fn node_types() -> Json {
+    Json::Array(
+        catalogue()
+            .iter()
+            .map(|d| {
+                json!({
+                    "id": d.id, "label": d.label, "stage": d.stage,
+                    "inputs": d.inputs.iter().map(|(n, t, r)| json!({"name": n, "type": t, "required": r})).collect::<Vec<_>>(),
+                    "outputs": d.outputs.iter().map(|(n, t)| json!({"name": n, "type": t})).collect::<Vec<_>>(),
+                    "params": d.params, "doc": d.doc, "legacy": d.id == "export",
+                })
+            })
+            .collect(),
+    )
 }

@@ -1,12 +1,13 @@
 {
   "name": "stencil-studio",
   "private": true,
-  "version": "3.3.0",
+  "version": "3.4.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
+    "test:unit": "playwright test e2e/unit.spec.ts",
     "e2e": "playwright test"
   },
   "dependencies": {

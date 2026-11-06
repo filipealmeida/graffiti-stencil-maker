@@ -2,6 +2,8 @@ import { useMemo } from 'react'
 import { api } from './api'
 import { badgesForNode, type BadgeLevel } from './badges'
 import { useStudio } from './store'
+import Tooltip from './Tooltip'
+import messages from './messages'
 
 interface Finding { id: string; label: string; level: BadgeLevel; text: string }
 
@@ -56,9 +58,9 @@ export default function Report() {
         <ul aria-label="Findings">
           {findings.map((f, i) => (
             <li key={i}>
-              <button className={`badge ${f.level}`} onClick={() => select(f.id)} title="Select this node">
+              <Tooltip content={messages.actions.selectNode}><button className={`badge ${f.level}`} onClick={() => select(f.id)}>
                 <span aria-hidden="true">{ICON[f.level]}</span> <b>{f.label}</b>: {f.text}
-              </button>
+              </button></Tooltip>
             </li>
           ))}
         </ul>

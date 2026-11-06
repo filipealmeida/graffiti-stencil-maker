@@ -1,6 +1,8 @@
 import { useRef, useState } from 'react'
 import { useStudio, type StudioNode } from './store'
 import { BUILT_IN, mergeBook, parseBook, type Book } from './presetBook'
+import Tooltip from './Tooltip'
+import messages from './messages'
 
 const KEY = 'stencil-presets'
 
@@ -76,14 +78,14 @@ export default function Presets({ node }: { node: StudioNode }) {
             {Object.keys(builtIn).map((n) => <option key={`b${n}`} value={n}>{n}</option>)}
             {Object.keys(mine).map((n) => <option key={n} value={n}>{n}</option>)}
           </select>
-          <button onClick={() => setDraft('')} title="Save this node's parameters under a name">Save as…</button>
+          <Tooltip content={messages.actions.savePreset}><button onClick={() => setDraft('')}>Save as…</button></Tooltip>
           <span className="menu-wrap">
-            <button aria-label="More preset actions" aria-expanded={more} title="More preset actions" onClick={() => setMore(!more)}>⋯</button>
+            <Tooltip content={messages.actions.morePresets}><button aria-label="More preset actions" aria-expanded={more} onClick={() => setMore(!more)}>⋯</button></Tooltip>
             {more && (
               <div className="menu" role="menu">
-                <button role="menuitem" onClick={remove} disabled={!mine[pick]} title="Delete the selected preset">Delete preset</button>
-                <button role="menuitem" onClick={() => { setMore(false); exportAll() }} disabled={!Object.keys(book).length} title="Save all your presets to a file to share or back up">Export presets…</button>
-                <button role="menuitem" onClick={() => { setMore(false); file.current?.click() }} title="Add the presets from a file; a name that already exists is kept">Import presets…</button>
+                <Tooltip content={messages.actions.deletePreset}><button role="menuitem" onClick={remove} disabled={!mine[pick]}>Delete preset</button></Tooltip>
+                <Tooltip content={messages.actions.exportPresets}><button role="menuitem" onClick={() => { setMore(false); exportAll() }} disabled={!Object.keys(book).length}>Export presets…</button></Tooltip>
+                <Tooltip content={messages.actions.importPresets}><button role="menuitem" onClick={() => { setMore(false); file.current?.click() }}>Import presets…</button></Tooltip>
               </div>
             )}
           </span>

@@ -1,6 +1,6 @@
 //! The Bridges node: joins the separate solids of a stencil, or of each tile of some parts, to the biggest piece.
 
-use super::catalogue::Outputs;
+use super::types::Outputs;
 use super::*;
 use crate::mesh::Mesh;
 use crate::tile_bridge::{bridge_mesh, components, BridgeParams};

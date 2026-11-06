@@ -91,7 +91,7 @@ test('tolerance welding fixes a crack and unsafe hole filling logs a visible fai
 test('malformed uploads, repeated failures, edits, undo and downloads log results', async ({ page }) => {
   await open(page, stl())
   await done(page)
-  await expect(page.locator('.console')).toContainText('Added defective.stl')
+  await expect(page.locator('.console')).toContainText('Opened defective.stl')
   for (let i = 0; i < 2; i++) {
     await page.locator('.inspector .node-actions input[type=file]').setInputFiles({ name: 'broken.stl', mimeType: 'model/stl', buffer: Buffer.from('not a mesh') })
     await expect(page.locator('.console .error').filter({ hasText: 'not a valid STL' })).toHaveCount(i + 1)
@@ -99,7 +99,7 @@ test('malformed uploads, repeated failures, edits, undo and downloads log result
   await page.locator('.inspector').getByRole('spinbutton', { name: 'Scale (x)', exact: true }).fill('2')
   await page.locator('.inspector').getByRole('spinbutton', { name: 'Scale (x)', exact: true }).blur()
   await done(page)
-  await expect(page.locator('.console')).toContainText('Edit applied: scale=2')
+  await expect(page.locator('.console')).toContainText('scale=2')
   await page.locator('.inspector h2').click()
   await page.keyboard.press('Control+z')
   await expect(page.locator('.console')).toContainText('Undo: restored previous graph')

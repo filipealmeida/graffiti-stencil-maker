@@ -31,7 +31,7 @@ test('3D import is in Build, previews a solid, and replaces and undoes the sourc
   await done(page)
   await page.waitForTimeout(600)
   await page.keyboard.press('Escape')
-  await page.getByRole('button', { name: /Undo/ }).click()
+  await page.locator('header button[aria-label="Undo"]').click()
   await expect(page.locator('.react-flow__node')).toContainText('plate.stl')
   await done(page)
 })

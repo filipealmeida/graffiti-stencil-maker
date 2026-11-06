@@ -3,7 +3,7 @@
 | Parameter | Label | Type | Default | Range or choices |
 |---|---|---|---|---|
 | `model_id` | Model | text | `""` | text |
-| `format` | Format | text | `"stl"` | stl \| obj |
+| `format` | Format | text | `"stl"` | text |
 | `scale` | Scale (x) | float | `1.0` | 0.001 to 1000.0 |
 | `layer_height_mm` | Layer height (mm) | float | `0.2` | 0.05 to 0.6 |
 | `margin_mm` | Existing border width (mm) | float | `0.0` | 0.0 to 500.0 |
