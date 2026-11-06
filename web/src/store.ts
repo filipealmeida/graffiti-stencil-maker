@@ -130,7 +130,7 @@ export const useStudio = create<State>((set, get) => ({
   types: {}, nodes: [], edges: [], runs: {}, selected: null,
   showHelp: localStorage.getItem('studio.showHelp') === '1',
   pname: localStorage.getItem('studio.pname') || randomName(),
-  setPname: (n) => { try { localStorage.setItem('studio.pname', n) } catch { /* a convenience only */ } set({ pname: n }) },
+  setPname: (n) => { try { localStorage.setItem('studio.pname', n) } catch { /* a convenience only */ } set({ pname: n }); logAction(`Project name: ${n}`) },
   savedSig: null,
   savedAt: null,
   markSaved: () => set({ savedSig: signature(get()), savedAt: new Date().toTimeString().slice(0, 5) }),
@@ -139,6 +139,7 @@ export const useStudio = create<State>((set, get) => ({
     const id = toastId++
     set((s) => ({ toasts: [...s.toasts.slice(-3), { id, text, level: opts.level ?? 'info', undo: opts.undo }] }))
     setTimeout(() => get().dismissToast(id), opts.undo ? 8000 : 4000)
+    logAction(text, '', opts.level ?? 'info')
   },
   dismissToast: (id) => set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) })),
   setShowHelp: (on) => { localStorage.setItem('studio.showHelp', on ? '1' : '0'); set({ showHelp: on }) }, busy: false, stopped: false, error: null,
@@ -205,17 +206,18 @@ export const useStudio = create<State>((set, get) => ({
     const { nodes, edges, selected } = get()
     let picked = nodes.filter((n) => n.selected)
     if (!picked.length && selected) picked = nodes.filter((n) => n.id === selected)
-    if (!picked.length) return false
+    if (!picked.length) { logAction('Copy: nothing selected'); return false }
     const ids = new Set(picked.map((n) => n.id))
     clip = {
       nodes: picked.map((n) => ({ ...n, data: { ...n.data, params: structuredClone(n.data.params) } })),
       edges: edges.filter((e) => ids.has(e.source) && ids.has(e.target)),
     }
     pasteCount = 0
+    logAction(`Copied ${picked.length} node(s) and ${clip.edges.length} connection(s)`)
     return true
   },
   paste: () => {
-    if (!clip) return
+    if (!clip) { logAction('Paste: clipboard is empty'); return }
     const { types, nodes } = get()
     pasteCount++
     const map = new Map<string, string>()
@@ -229,7 +231,7 @@ export const useStudio = create<State>((set, get) => ({
       const position = clip.nodes.length === 1 ? freeSpot(nodes, stageColumn(t.stage), want) : want
       fresh.push({ ...n, id: map.get(n.id)!, position, selected: true, measured: undefined, data: { ...n.data, params: structuredClone(n.data.params) } })
     }
-    if (!fresh.length) return
+    if (!fresh.length) { logAction('Paste failed: none of the copied node types are available', '', 'error'); return }
     const kept = new Set(fresh.map((n) => n.id))
     const edges = clip.edges
       .filter((e) => kept.has(map.get(e.source)!) && kept.has(map.get(e.target)!))
@@ -242,6 +244,7 @@ export const useStudio = create<State>((set, get) => ({
       edges: [...s.edges, ...edges],
       selected: fresh[fresh.length - 1].id,
     }))
+    logAction(`Pasted ${fresh.length} node(s) and ${edges.length} connection(s)`)
   },
   duplicate: (id) => {
     const { nodes, selected } = get()
@@ -267,6 +270,7 @@ export const useStudio = create<State>((set, get) => ({
       return { ...n, data: { ...n.data, params: { ...defaults, ...n.data.params } } }
     })
     set({ nodes: filled, edges: m.edges, runs: {}, selected: null })
+    logAction(`Loaded graph: ${filled.length} node(s), ${m.edges.length} connection(s)`)
   },
   starter: (imageId, title) => {
     const { addNode, connect } = get()
@@ -408,6 +412,28 @@ export const useStudio = create<State>((set, get) => ({
   setRuns: (runs, busy, error = null) => set({ runs, busy, error }),
 }))
 
+export function logAction(msg: string, node = '', level: LogLine['level'] = 'info') {
+  useStudio.getState().addLogs([{
+    ts: new Date().toLocaleTimeString(), ms: null, t: 0, level, node,
+    type: node ? useStudio.getState().nodes.find((n) => n.id === node)?.data.type ?? 'Action' : 'Action',
+    msg,
+  }])
+}
+
+let reportingError = false
+export function reportError(error: unknown, node = '') {
+  const message = String(error instanceof Error ? error.message : error)
+  logAction(message, node, 'error')
+  reportingError = true
+  try { useStudio.setState({ error: message }) } finally { reportingError = false }
+}
+
+useStudio.subscribe((state, previous) => {
+  if (!reportingError && state.error && state.error !== previous.error) logAction(state.error, state.bench ?? state.selected ?? '', 'error')
+  if (state.bench !== previous.bench) logAction(state.bench ? 'Opened preview' : 'Closed preview', state.bench ?? previous.bench ?? '')
+  if (state.selected !== previous.selected && state.selected) logAction('Selected node', state.selected)
+})
+
 interface Snap { nodes: StudioNode[]; edges: Edge[]; key: string }
 const snapKey = (nodes: StudioNode[], edges: Edge[]) =>
   JSON.stringify([nodes.map((n) => [n.id, n.data.type, n.data.params, n.data.title, Math.round(n.position.x), Math.round(n.position.y)]),
@@ -431,6 +457,7 @@ function commit() {
     history.base = cur
     flags()
   } else if (cur.key !== history.base.key) {
+    logGraphChanges(history.base, cur)
     history.past.push(history.base)
     if (history.past.length > HISTORY_LIMIT) history.past.shift()
     history.base = cur
@@ -454,16 +481,18 @@ function restore(to: Snap) {
 export function undo() {
   commit()
   const prev = history.past.pop()
-  if (!prev || !history.base) return flags()
+  if (!prev || !history.base) { logAction('Undo: nothing to restore'); return flags() }
   history.future.push(history.base)
   restore(prev)
+  logAction('Undo: restored previous graph')
 }
 export function redo() {
   commit()
   const next = history.future.pop()
-  if (!next || !history.base) return flags()
+  if (!next || !history.base) { logAction('Redo: nothing to restore'); return flags() }
   history.past.push(history.base)
   restore(next)
+  logAction('Redo: restored next graph')
 }
 const nameOf = (n: StudioNode) => n.data.title || n.data.type.replace(/_/g, ' ')
 /** A short description of what changed between two states. */
@@ -484,6 +513,25 @@ function describe(a: Snap, b: Snap): string {
   if (a.edges.length !== b.edges.length) return b.edges.length > a.edges.length ? 'Connect nodes' : 'Disconnect nodes'
   const ek = (x: Snap) => x.edges.map((e) => `${e.source}.${e.sourceHandle}>${e.target}.${e.targetHandle}`).sort().join()
   return ek(a) !== ek(b) ? 'Rewire a connection' : 'Move nodes'
+}
+
+function logGraphChanges(a: Snap, b: Snap) {
+  const before = new Map(a.nodes.map((n) => [n.id, n]))
+  const after = new Set(b.nodes.map((n) => n.id))
+  for (const n of a.nodes) if (!after.has(n.id)) logAction(`Deleted ${nameOf(n)}`)
+  for (const n of b.nodes) {
+    const old = before.get(n.id)
+    if (!old) { logAction(`Added ${nameOf(n)}`, n.id); continue }
+    const keys = Object.keys({ ...old.data.params, ...n.data.params }).filter((k) => JSON.stringify(old.data.params[k]) !== JSON.stringify(n.data.params[k]))
+    if (keys.length) logAction(`Edit applied: ${keys.map((k) => `${k}=${JSON.stringify(n.data.params[k])}`).join(', ')}`, n.id)
+    if (old.data.title !== n.data.title) logAction(`Renamed ${nameOf(old)} to ${nameOf(n)}`, n.id)
+    if (Math.round(old.position.x) !== Math.round(n.position.x) || Math.round(old.position.y) !== Math.round(n.position.y))
+      logAction(`Moved to ${Math.round(n.position.x)}, ${Math.round(n.position.y)}`, n.id)
+  }
+  const key = (e: Edge) => `${e.source}.${e.sourceHandle} → ${e.target}.${e.targetHandle}`
+  const old = new Set(a.edges.map(key)), next = new Set(b.edges.map(key))
+  for (const e of old) if (!next.has(e)) logAction(`Disconnected ${e}`)
+  for (const e of next) if (!old.has(e)) logAction(`Connected ${e}`)
 }
 /** Every state in order, oldest first, with what led to it and which one is on screen. */
 export function historyItems(): { label: string; current: boolean }[] {
@@ -553,6 +601,7 @@ export function stopRunning() {
  */
 /** Runs the graph again even if nothing changed; nodes whose inputs are the same still come from the cache. */
 export function rerun() {
+  logAction('Rerun requested')
   doneSig = null
   return runGraph()
 }

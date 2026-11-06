@@ -244,6 +244,31 @@ impl Engine {
         self.inner.has_font(name)
     }
 
+    pub fn model_info(&self, id: &str, format: &str) -> Result<String, JsError> {
+        self.inner
+            .model_info(id, format)
+            .map(|j| j.to_string())
+            .map_err(|e| JsError::new(&e))
+    }
+
+    pub fn model_preview(&self, id: &str, format: &str) -> Result<Vec<u8>, JsError> {
+        self.inner
+            .model_preview(id, format)
+            .map_err(|e| JsError::new(&e))
+    }
+
+    pub fn repair_model(
+        &self,
+        id: &str,
+        format: &str,
+        action: &str,
+        tolerance: f64,
+    ) -> Result<Vec<u8>, JsError> {
+        self.inner
+            .repair_model(id, format, action, tolerance)
+            .map_err(|e| JsError::new(&e))
+    }
+
     pub fn image_info(&self, id: &str, resolution: u32) -> Result<String, JsError> {
         self.inner
             .image_info(id, resolution)

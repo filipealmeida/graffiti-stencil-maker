@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import { applyDrag, checkPocket, checkSeam, hitTest, isEmpty, type Drag, type LayoutEdits, type LayoutInfo } from './layoutEdit'
+import { logAction, useStudio } from './store'
 
 /** Overlay preferences outlive the component: it remounts whenever a run replaces the result. */
 const usePrefs = create<{ overlay: boolean; opacity: number; snap: boolean; set: (p: Partial<{ overlay: boolean; opacity: number; snap: boolean }>) => void }>()(
@@ -18,6 +19,15 @@ interface Props { src: string; under?: string; kind: 'image' | 'mask'; layout?: 
 /** Zoomable, pannable raster view. A mask can be laid over the image it was derived from. */
 export default function ImageView({ src, under, kind, layout, layers }: Props) {
   const [view, setView] = useState({ k: 1, x: 0, y: 0 })
+  const loggedView = useRef(view)
+  useEffect(() => {
+    if (loggedView.current === view) return
+    const timer = setTimeout(() => {
+      loggedView.current = view
+      logAction(`2D view: zoom ${view.k.toFixed(2)}, position ${view.x.toFixed(0)}, ${view.y.toFixed(0)}`, useStudio.getState().bench ?? '')
+    }, 250)
+    return () => clearTimeout(timer)
+  }, [view])
   const { overlay, opacity, snap, set: setPrefs } = usePrefs()
   const drag = useRef<{ x: number; y: number } | null>(null)
   const host = useRef<HTMLDivElement>(null)
@@ -52,7 +62,10 @@ export default function ImageView({ src, under, kind, layout, layers }: Props) {
       if (!u) return res(undefined)
       const i = new Image()
       i.onload = () => res(i)
-      i.onerror = () => res(undefined)
+      i.onerror = () => {
+        if (alive) logAction('2D preview could not load its image', useStudio.getState().bench ?? '', 'error')
+        res(undefined)
+      }
       i.src = u
     })
     Promise.all([load(src), showUnder ? load(under) : Promise.resolve(undefined)]).then(([top, u]) => alive && setImgs({ top, under: u }))
@@ -138,6 +151,7 @@ export default function ImageView({ src, under, kind, layout, layers }: Props) {
   }
   const say = (t: string) => {
     setNote(t)
+    logAction(t, useStudio.getState().bench ?? '', 'error')
     window.clearTimeout(noteTimer.current)
     noteTimer.current = window.setTimeout(() => setNote(''), 7000)
   }

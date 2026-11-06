@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { helpFor } from './help'
 import { api } from './api'
-import { useStudio, type StudioNode } from './store'
+import { logAction, useStudio, type StudioNode } from './store'
 
 /** Picks one of the computer's own fonts for a Text node. The built-in fonts stay available through the Font choice. */
 export default function SystemFont({ node }: { node: StudioNode }) {
@@ -14,7 +14,7 @@ export default function SystemFont({ node }: { node: StudioNode }) {
 
   const load = async () => {
     setBusy(true)
-    try { setFonts(await api.systemFonts()) } catch (e) { toast(String((e as Error).message ?? e), { level: 'error' }) }
+    try { const list = await api.systemFonts(); setFonts(list); logAction(`Listed ${list.length} system fonts`, node.id) } catch (e) { toast(String((e as Error).message ?? e), { level: 'error' }) }
     setBusy(false)
   }
   const pick = async (name: string) => {
@@ -23,6 +23,7 @@ export default function SystemFont({ node }: { node: StudioNode }) {
     try {
       await api.useFont(name)
       setParam(node.id, 'system_font', name)
+      logAction(`Loaded system font: ${name}`, node.id)
     } catch (e) { toast(String((e as Error).message ?? e), { level: 'error' }) }
     setBusy(false)
   }

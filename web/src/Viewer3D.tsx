@@ -3,6 +3,8 @@ import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import { STLLoader } from 'three/examples/jsm/loaders/STLLoader.js'
 import { toCreasedNormals } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
+import type { MeshMarkers } from './api'
+import { logAction, useStudio } from './store'
 
 export interface Part { name: string; url: string }
 /** The plate description a Tiles node (and Pads node) attaches to its parts. */
@@ -120,10 +122,11 @@ function coarse(src: THREE.BufferGeometry): THREE.BufferGeometry {
 // the camera survives regenerations so a finished run doesn't reset the user's view
 let savedCam: { pos: THREE.Vector3; target: THREE.Vector3 } | null = null
 
-export default function Viewer3D({ parts, plate }: { parts: Part[]; plate?: PlateMeta | null }) {
+export default function Viewer3D({ parts, plate, defects }: { parts: Part[]; plate?: PlateMeta | null; defects?: MeshMarkers }) {
   const host = useRef<HTMLDivElement>(null)
   const sc = useRef<Scene3D | null>(null)
   const [wire, setWire] = useState(false)
+  const [showDefects, setShowDefects] = useState(true)
   const [shading, setShading] = useState<'smooth' | 'flat'>('smooth')
   const [frags, setFrags] = useState(false)
   const [detail, setDetail] = useState<'auto' | 'high' | 'low'>('auto')
@@ -156,8 +159,10 @@ export default function Viewer3D({ parts, plate }: { parts: Part[]; plate?: Plat
     let renderer: THREE.WebGLRenderer
     try {
       renderer = new THREE.WebGLRenderer({ antialias: true })
-    } catch {
-      setStatus('WebGL is unavailable in this browser: use the download buttons')
+    } catch (e) {
+      const message = `WebGL is unavailable in this browser: ${e instanceof Error ? e.message : String(e)}`
+      setStatus(message)
+      logAction(message, useStudio.getState().bench ?? '', 'error')
       return
     }
     renderer.localClippingEnabled = true
@@ -174,6 +179,7 @@ export default function Viewer3D({ parts, plate }: { parts: Part[]; plate?: Plat
     let idle: number | null = null
     controls.addEventListener('start', () => setInteracting(true))
     controls.addEventListener('end', () => {
+      logAction(`3D camera: ${camera.position.toArray().map((x) => x.toFixed(2)).join(', ')}; target ${controls.target.toArray().map((x) => x.toFixed(2)).join(', ')}`, useStudio.getState().bench ?? '')
       if (idle) window.clearTimeout(idle)
       idle = window.setTimeout(() => setInteracting(false), 80)
     })
@@ -224,7 +230,13 @@ export default function Viewer3D({ parts, plate }: { parts: Part[]; plate?: Plat
       sc.current = { meshes, geos: geoms, centers, boxes, center, box, camera, controls, r }
       setStatus('')
       setReady((n) => n + 1)
-    }).catch((e) => alive && setStatus(`could not load the mesh: ${e?.message ?? e}`))
+      logAction(`3D preview loaded: ${parts.length} part(s), ${tris} triangles`, useStudio.getState().bench ?? '')
+    }).catch((e) => {
+      if (!alive) return
+      const message = `could not load the mesh: ${e instanceof Error ? e.message : String(e)}`
+      setStatus(message)
+      logAction(message, useStudio.getState().bench ?? '', 'error')
+    })
     let raf = 0
     const tick = () => { raf = requestAnimationFrame(tick); controls.update(); renderer.render(scene, camera) }
     tick()
@@ -289,7 +301,7 @@ export default function Viewer3D({ parts, plate }: { parts: Part[]; plate?: Plat
       mat.wireframe = wire
       mat.flatShading = shading === 'flat'
       mat.clippingPlanes = planes
-      mat.side = clip < 1 ? THREE.DoubleSide : THREE.FrontSide
+      mat.side = clip < 1 || defects ? THREE.DoubleSide : THREE.FrontSide
       mat.needsUpdate = true
       m.visible = !hidden.has(parts[i].name)
       const t = info[i]
@@ -345,7 +357,27 @@ export default function Viewer3D({ parts, plate }: { parts: Part[]; plate?: Plat
       s.meshes[i].position.set(ax + sz.x / 2 - s.centers[i].x, ay - sz.y / 2 - s.centers[i].y, -s.boxes[i].min.z)
       ax += sz.x + 8
     })
-  }, [wire, frags, shading, detail, interacting, explode, clip, ready, hidden, plate])
+  }, [wire, frags, shading, detail, interacting, explode, clip, ready, hidden, plate, defects])
+
+  useEffect(() => {
+    const mesh = sc.current?.meshes[0]
+    if (!mesh || !defects || !showDefects) return
+    const lines = new THREE.LineSegments(
+      new THREE.BufferGeometry().setFromPoints(defects.segments.flatMap((s) => s.map((p) => new THREE.Vector3(...p)))),
+      new THREE.LineBasicMaterial({ color: 0xff4040, depthTest: false }),
+    )
+    const points = new THREE.Points(
+      new THREE.BufferGeometry().setFromPoints(defects.points.map((p) => new THREE.Vector3(...p))),
+      new THREE.PointsMaterial({ color: 0xffbb33, size: 6, sizeAttenuation: false, depthTest: false }),
+    )
+    lines.renderOrder = points.renderOrder = 10
+    mesh.add(lines, points)
+    return () => {
+      mesh.remove(lines, points)
+      lines.geometry.dispose(); lines.material.dispose()
+      points.geometry.dispose(); points.material.dispose()
+    }
+  }, [ready, defects, showDefects])
 
   // seams, connectors, pads, holes and joiner lines drawn on each tile, so they follow it as the spacing changes
   useEffect(() => {
@@ -442,6 +474,7 @@ export default function Viewer3D({ parts, plate }: { parts: Part[]; plate?: Plat
         <button onClick={() => view('left')}>Left</button>
         <button onClick={() => view('right')}>Right</button>
         <label><input type="checkbox" checked={wire} onChange={(e) => setWire(e.target.checked)} /> wireframe</label>
+        {defects && <label><input type="checkbox" checked={showDefects} onChange={(e) => setShowDefects(e.target.checked)} /> show defects ({defects.total}{defects.truncated ? ', markers limited' : ''})</label>}
         <label title="Colour every loose piece of each part apart from its largest one"><input type="checkbox" checked={frags} onChange={(e) => setFrags(e.target.checked)} /> colour fragments</label>
         <label>shading <select value={shading} onChange={(e) => setShading(e.target.value as 'smooth' | 'flat')}><option value="smooth">smooth</option><option value="flat">flat</option></select></label>
         <label>detail <select value={detail} onChange={(e) => setDetail(e.target.value as 'auto' | 'high' | 'low')}><option value="auto">auto</option><option value="high">high</option><option value="low">low</option></select></label>
@@ -450,6 +483,7 @@ export default function Viewer3D({ parts, plate }: { parts: Part[]; plate?: Plat
         {parts.length > 1 && <label>{tiled ? 'spacing (mm)' : 'explode'} <input type="range" min={0} max={tiled ? 150 : 12} step={tiled ? 1 : 0.25} value={explode} onChange={(e) => setExplode(+e.target.value)} /></label>}
         <span className="mut">{parts.length > 1 ? `${parts.length} parts` : ''}</span>
       </div>
+      {defects && <p className="mut" role="note">Source coordinates (before scaling). Red: boundary, non-manifold or winding-conflict edges. Amber: degenerate or duplicate faces. Markers remain visible through the surface.{defects.truncated ? ' Showing at most 2,000 face markers and 2,000 edge markers.' : ''}</p>}
       <div className="v3main">
         <div className="v3host">
           <div className="viewer" ref={host} />

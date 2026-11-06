@@ -20,6 +20,7 @@ import Toasts from "./Toasts";
 import { randomName } from "./names";
 import { forgetFile, saveProject, exportEverything, recentProjects, safeName } from "./project";
 import Workbench from "./Workbench";
+import ActionLog from './ActionLog'
 import StudioEdge from "./StudioEdge";
 import StudioNodeView, { KIND_COLOR } from "./StudioNode";
 import { STAGE_LABEL, canLink } from "./ports";
@@ -38,6 +39,8 @@ import {
   STORE_KEY,
   undo,
   useStudio,
+  logAction,
+  reportError,
   type StudioNode,
 } from "./store";
 
@@ -111,7 +114,7 @@ function Canvas() {
       const key = e.key.toLowerCase();
       if ((e.ctrlKey || e.metaKey) && (key === "s" || key === "o")) {
         e.preventDefault();
-        if (key === "s") void saveProject().catch((e) => useStudio.setState({ error: String(e) }));
+        if (key === "s") void saveProject().catch((e) => reportError(e));
         else document.getElementById("open-project")?.click();
         return;
       }
@@ -228,15 +231,18 @@ function Canvas() {
 
   const addFile = useCallback(
     async (f: File, at?: { x: number; y: number }) => {
+      logAction(`Opening file: ${f.name}`);
       try {
         if (/\.(stl|obj)$/i.test(f.name)) {
           const model = await api.uploadModel(f);
-          useStudio.getState().addNode(
+          const id = useStudio.getState().addNode(
             "mesh_import",
             { model_id: model.id, format: model.format },
             at,
             model.name,
           );
+          const info = await api.modelInfo(model.id, model.format);
+          logAction(`Opened ${model.name}: ${info.triangles} triangles; ${info.valid ? 'solid checks passed' : 'defects found; solid output blocked'}`, id);
           if (useStudio.getState().nodes.length === 1) fit();
           return;
         }
@@ -269,10 +275,9 @@ function Canvas() {
               .getState()
               .addNode("source", { image_id: img.id }, at, img.name);
         }
+        logAction(`Opened picture: ${img.name}`);
       } catch (e) {
-        useStudio.setState({
-          error: String(e instanceof Error ? e.message : e),
-        });
+        reportError(e);
       }
     },
     [fit],
@@ -350,6 +355,7 @@ function Canvas() {
   };
 
   const open = async (f: File) => {
+    logAction(`Opening project: ${f.name}`);
     try {
       const g = await api.importProject(JSON.parse(await f.text()));
       forgetFile();
@@ -359,9 +365,7 @@ function Canvas() {
       fit();
       s.toast(`Opened ${f.name}`);
     } catch (e) {
-      useStudio.setState({
-        error: `cannot open project: ${e instanceof Error ? e.message : e}`,
-      });
+      reportError(`cannot open project: ${e instanceof Error ? e.message : e}`);
     }
   };
 
@@ -482,6 +486,7 @@ function Canvas() {
       onDragLeave={() => setDrag(false)}
       onDrop={onDrop}
     >
+      <ActionLog />
       <header>
         <h1>Stencil studio</h1>
         <div className="palette" ref={bar}>
@@ -643,9 +648,9 @@ function Canvas() {
                 }}
               ><b>New</b><small>Start empty (undo brings the graph back)</small></button>
               <button role="menuitem" onClick={() => document.getElementById("open-project")?.click()}><b>Open…</b><small>Ctrl+O, or drop a .stencil.json on the canvas</small></button>
-              <button role="menuitem" onClick={() => void saveProject().catch((e) => useStudio.setState({ error: String(e) }))} title="Save the project file (Ctrl+S)"><b>Save</b><small>Overwrites {safeName(pname)}.stencil.json · Ctrl+S</small></button>
-              <button role="menuitem" onClick={() => void saveProject(true).catch((e) => useStudio.setState({ error: String(e) }))}><b>Save as…</b><small>Pick a new file name or place</small></button>
-              <button role="menuitem" onClick={() => void exportEverything().catch((e) => useStudio.setState({ error: String(e) }))}><b>Export everything…</b><small>One zip: project, models, findings</small></button>
+              <button role="menuitem" onClick={() => void saveProject().catch((e) => reportError(e))} title="Save the project file (Ctrl+S)"><b>Save</b><small>Overwrites {safeName(pname)}.stencil.json · Ctrl+S</small></button>
+              <button role="menuitem" onClick={() => void saveProject(true).catch((e) => reportError(e))}><b>Save as…</b><small>Pick a new file name or place</small></button>
+              <button role="menuitem" onClick={() => void exportEverything().catch((e) => reportError(e))}><b>Export everything…</b><small>One zip: project, models, findings</small></button>
               {recentProjects().length > 0 && <small className="menu-note">Recently saved: {recentProjects().join(", ")}</small>}
             </div>
           )}
@@ -724,7 +729,11 @@ function Canvas() {
             onEdgesChange={s.onEdgesChange}
             onConnect={s.connect}
             onConnectStart={(_, p) => p.nodeId && p.handleId && useStudio.setState({ dragFrom: { node: p.nodeId, port: p.handleId, dir: p.handleType === 'source' ? 'out' : 'in' } })}
-            onConnectEnd={() => useStudio.setState({ dragFrom: null })}
+            onConnectEnd={(_, state) => {
+              if (!state.isValid) logAction('Connection not applied: no compatible input selected', state.fromNode?.id ?? '');
+              useStudio.setState({ dragFrom: null });
+            }}
+            onMoveEnd={(_, viewport) => logAction(`Canvas view: zoom ${viewport.zoom.toFixed(2)}, position ${viewport.x.toFixed(0)}, ${viewport.y.toFixed(0)}`)}
             isValidConnection={isValid}
             onNodeClick={(_, n) => s.select(n.id)}
             onPaneClick={() => s.select(null)}

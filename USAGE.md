@@ -174,15 +174,47 @@ for inches). Orientation is preserved, and the minimum X, Y and Z are moved to z
 on the build plate. **Layer height** supplies the downstream printing metadata without reslicing the model.
 If the model already has a solid border, set **Existing border width** in scaled millimetres to place
 mounting pads or registration holes there. This describes existing material; it does not add a frame.
-Files must be closed, consistently wound meshes with nonzero volume; repair open or degenerate meshes
-before importing. The maximum source file size is 100 MB.
+The maximum source file size is 100 MB. Parseable meshes with defects can be loaded for inspection,
+but their **solid output is blocked** until the topology and volume checks pass. Malformed files or
+non-finite coordinates are still rejected, with the reason logged in the console.
+
+**Mesh properties and repairs**, in both the inspector and workbench, shows the current vertex/triangle
+counts, dimensions, signed volume, components, degenerate/duplicate faces, open/non-manifold edges and
+winding conflicts. The source preview highlights bad edges in red and bad faces with amber points
+(up to 2,000 markers of each kind; statistics always cover the entire mesh). The preview uses source
+coordinates before Scale and zero-origin placement. These checks do not detect self-intersections.
+
+Repairs are separate, explicit buttons:
+
+- **Remove degenerate and duplicate faces:** removes zero-area faces, redundant duplicates and opposing
+  coincident pairs without moving vertices. Identical vertex coordinates are already indexed together.
+- **Fix winding:** orients neighboring faces consistently and reverses the whole mesh if its signed volume
+  is negative. Non-manifold or non-orientable surfaces require other repairs first.
+- **Weld nearby vertices:** merges vertices within the chosen tolerance; this can change dimensions and
+  create degenerate faces, so inspect and clean afterwards.
+- **Fill planar holes:** triangulates simple, unbranched boundary loops of up to 2,048 vertices. It refuses
+  non-planar loops outside the tolerance and may close intentional openings. Fix winding first.
+
+The last two tools change geometry; tolerances are in **source millimetres**, before Scale. Each repair
+recalculates the statistics, logs its outcome and creates an undoable working copy. Original disk files
+are never modified. Save projects to preserve the current working mesh, including unfinished repairs.
 
 Existing tools retain their geometry requirements: Bridges needs coplanar horizontal faces at the
 model's top, and Simplify mesh's outline simplification needs vertical walls (otherwise it may leave
 the mesh unchanged). Split volume can cut general closed meshes, but connector holes still need enough
 solid material. Imported source models are embedded in saved projects, restored after reload or worker
 restart, and can be reopened by the CLI with `--project`. **Open…** replaces the source in one undoable
-edit; **Download** saves the original source file.
+edit; the source **Download** saves the current working source (the original until a repair is applied).
+
+### Action console
+
+The console records action requests and their outcomes, not just engine runs: file/project operations,
+repairs, graph edits and connections, undo/redo, controls and downloads. Failures open the console
+automatically and remain in its log even when a later run clears the toolbar status. Repeated edits
+are summarized when they settle. Workbench consoles show the current node's engine messages and global
+action results (such as saving and undo). Download messages mean the file was handed to the browser, which
+does not report whether it was ultimately saved. Export the log to retain it beyond the session;
+the most recent 500 lines are kept.
 
 The **+ trace / + stencil / + post** menus add nodes by stage; long menus flow into several columns and scroll
 inside themselves when they reach the bottom of the page. **+ All** lists every node, most used first; the badge

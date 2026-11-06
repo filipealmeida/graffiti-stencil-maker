@@ -2,7 +2,13 @@ use super::*;
 use crate::mesh::Mesh;
 
 pub(super) fn read(bytes: &[u8], format: &str) -> Result<Mesh, String> {
-    let mut m = match format {
+    let m = parse(bytes, format)?;
+    super::mesh_repair::validate(&m)?;
+    Ok(m)
+}
+
+pub(super) fn parse(bytes: &[u8], format: &str) -> Result<Mesh, String> {
+    let m = match format {
         "stl"
             if bytes.len() >= 84
                 && (bytes.len() - 84) / 50
@@ -15,58 +21,7 @@ pub(super) fn read(bytes: &[u8], format: &str) -> Result<Mesh, String> {
         "obj" => obj(bytes)?,
         _ => return Err("unsupported model format: use STL or triangulated OBJ".into()),
     };
-    if m.t.is_empty() {
-        return Err("the model contains no triangles".into());
-    }
-    if m.v
-        .iter()
-        .flatten()
-        .any(|v| !v.is_finite() || !(*v as f32).is_finite())
-    {
-        return Err("the model has non-finite or out-of-range coordinates".into());
-    }
-    // Weld the coordinates the downstream binary STL will actually store, including signed zero.
-    for v in m.v.iter_mut().flatten() {
-        if *v == 0.0 {
-            *v = 0.0;
-        }
-    }
-    let triangles = m.t.len();
-    m.quantize_f32();
-    if m.t.len() != triangles
-        || m.t.iter().any(|t| {
-            let [a, b, c] = t.map(|i| m.v[i]);
-            let u = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
-            let v = [c[0] - a[0], c[1] - a[1], c[2] - a[2]];
-            [
-                u[1] * v[2] - u[2] * v[1],
-                u[2] * v[0] - u[0] * v[2],
-                u[0] * v[1] - u[1] * v[0],
-            ]
-            .iter()
-            .all(|&x| x == 0.0)
-        })
-    {
-        return Err(
-            "the model has degenerate or duplicate opposing triangles: repair it before importing"
-                .into(),
-        );
-    }
-    if !m.is_watertight() {
-        return Err(
-            "the model is not watertight or consistently wound: repair the mesh before importing"
-                .into(),
-        );
-    }
-    if m.volume() == 0.0 {
-        return Err("the model encloses no volume".into());
-    }
-    if m.volume() < 0.0 {
-        for t in &mut m.t {
-            t.swap(1, 2);
-        }
-    }
-    Ok(m)
+    super::mesh_repair::prepare(m)
 }
 
 fn text(bytes: &[u8]) -> Result<&str, String> {
@@ -323,12 +278,13 @@ mod tests {
     }
 
     #[test]
-    fn corrects_globally_inverted_winding() {
+    fn inverted_winding_requires_explicit_repair() {
         let mut m = cube();
         for t in &mut m.t {
             t.swap(1, 2);
         }
-        let r = read(&m.to_stl(), "stl").unwrap();
+        assert!(read(&m.to_stl(), "stl").is_err());
+        let r = super::super::mesh_repair::repair(m, "orient", 0.01).unwrap();
         assert!(r.is_watertight());
         assert!((r.volume() - 1600.0).abs() < 1e-6);
     }

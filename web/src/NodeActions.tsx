@@ -18,7 +18,7 @@ export function downloadFor(kind: Kind | undefined, key: string | undefined, out
 function saveDxf(key: string, out: string, file: string) {
   api.dxf(key, out).then(
     (b) => saveFile(file, b, 'image/vnd.dxf'),
-    () => useStudio.getState().toast(`Could not make ${file}: run the node again`, { level: 'error' }),
+    (e: unknown) => useStudio.getState().toast(`Could not make ${file}: ${e instanceof Error ? e.message : String(e)}. Run the node again`, { level: 'error' }),
   )
 }
 

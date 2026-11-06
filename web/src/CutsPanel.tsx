@@ -9,8 +9,8 @@ function Files({ keyOf, name, what }: { keyOf: string; name: string; what: strin
   const get = (ext: string, mime: string) => async () => {
     try {
       saveFile(`${name}.${ext}`, await api.part(keyOf, 'cuts', `${name}.${ext}`), mime)
-    } catch {
-      useStudio.getState().toast(`Could not make ${name}.${ext}: run the node again`, { level: 'error' })
+    } catch (e) {
+      useStudio.getState().toast(`Could not make ${name}.${ext}: ${e instanceof Error ? e.message : String(e)}. Run the node again`, { level: 'error' })
     }
   }
   return (

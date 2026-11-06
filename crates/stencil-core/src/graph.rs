@@ -19,6 +19,7 @@ mod catalogue;
 mod colour_set;
 mod fragments;
 mod mesh_import;
+mod mesh_repair;
 mod nodes;
 use catalogue::{catalogue, split_outputs, NodeDef, Outputs};
 use nodes::*;
@@ -364,16 +365,49 @@ impl Engine {
         Ok(out)
     }
 
-    /// Registers a closed STL or triangulated OBJ for a 3D import node.
+    /// Registers a parseable STL or triangulated OBJ, including meshes awaiting repair.
     pub fn add_model(&mut self, bytes: Vec<u8>, format: &str) -> Result<Json, String> {
         if bytes.len() > MAX_IMAGE_BYTES {
             return Err("the model file is larger than 100 MB".into());
         }
-        mesh_import::read(&bytes, format)?;
+        mesh_import::parse(&bytes, format)?;
         let id = hash_hex(&[&bytes, format.as_bytes()]);
         let out = json!({"id": id});
         self.uploads.insert(id, bytes);
         Ok(out)
+    }
+
+    pub fn model_info(&self, id: &str, format: &str) -> Result<Json, String> {
+        let bytes = self
+            .uploads
+            .get(id)
+            .ok_or("the model is no longer loaded: open it again")?;
+        let mut info = mesh_repair::inspect(&mesh_import::parse(bytes, format)?);
+        info["bytes"] = json!(bytes.len());
+        info["format"] = json!(format);
+        Ok(info)
+    }
+
+    pub fn model_preview(&self, id: &str, format: &str) -> Result<Vec<u8>, String> {
+        let bytes = self
+            .uploads
+            .get(id)
+            .ok_or("the model is no longer loaded: open it again")?;
+        Ok(mesh_import::parse(bytes, format)?.to_stl())
+    }
+
+    pub fn repair_model(
+        &self,
+        id: &str,
+        format: &str,
+        action: &str,
+        tolerance: f64,
+    ) -> Result<Vec<u8>, String> {
+        let bytes = self
+            .uploads
+            .get(id)
+            .ok_or("the model is no longer loaded: open it again")?;
+        Ok(mesh_repair::repair(mesh_import::parse(bytes, format)?, action, tolerance)?.to_stl())
     }
 
     /// Registers a font file under a name the Text node can ask for (the studio offers the system's fonts this way).

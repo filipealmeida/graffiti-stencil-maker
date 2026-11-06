@@ -8,6 +8,7 @@ import SourceActions from './SourceActions'
 import Presets from './Presets'
 import { NodeActions, DeleteNode, downloadFor, runSummary } from './NodeActions'
 import Findings from './Findings'
+import MeshTools, { useModelInspection } from './MeshTools'
 
 export default function Inspector() {
   const id = useStudio((s) => s.selected)
@@ -15,6 +16,7 @@ export default function Inspector() {
   const t = useStudio((s) => (node ? s.types[node.data.type] : undefined))
   const run = useStudio((s) => (id ? s.runs[id] : undefined))
   const busy = useStudio((s) => s.busy)
+  const model = useModelInspection(node)
   const [info, setInfo] = useState<Record<string, any> | null>(null)
   const [out, setOut] = useState<string>('')
   const key = run?.key
@@ -48,11 +50,12 @@ export default function Inspector() {
       <Presets key={node.id} node={node} />
       {run?.state === 'error' && <div className="err">{run.error}</div>}
       <ParamForm node={node} type={t} layers={layers} before={<>
-      <NodeActions id={node.id} preview download={downloadFor(cur?.type, key, cur?.name, Object.keys(info?.files ?? {}).length)} />
+      <NodeActions id={node.id} preview download={t.id === 'mesh_import' && model.snapshot?.info.valid !== true ? null : downloadFor(cur?.type, key, cur?.name, Object.keys(info?.files ?? {}).length)} />
       {fileInput && <><p className="mut">Image: {String(node.data.title ?? node.data.params.image_id)}</p><SourceActions id={node.id} imageId={String(node.data.params.image_id)} title={node.data.title} /></>}
       {t.id === 'mesh_import' && <><p className="mut">Model: {node.data.title || 'none loaded'}</p><SourceActions id={node.id} imageId={String(node.data.params.model_id ?? '')} title={node.data.title} model /></>}
       </>} />
       {fileInput && <ImageInfoPanel imageId={String(node.data.params.image_id)} resolution={Number(node.data.params.resolution ?? 1000)} />}
+      {t.id === 'mesh_import' && <MeshTools node={node} info={model.snapshot?.info} error={model.error} />}
       {key && cur && (
         <div className="result">
           {avail.length > 1 && (

@@ -59,7 +59,7 @@ pub(super) fn catalogue() -> Vec<NodeDef> {
                 num("layer_height_mm", "Layer height (mm)", 0.2, 0.05, 0.6, 0.05, None, false),
                 num("margin_mm", "Existing border width (mm)", 0.0, 0.0, 500.0, 0.5, None, false),
             ],
-            doc: "Loads a closed 3D mesh as a solid for Split volume, Bridges, Simplify mesh and the other solid tools. Accepts binary or ASCII STL and triangulated OBJ (geometry only, no materials). Coordinates are millimetres; use Scale to convert other units (25.4 for inches). Preserves orientation and moves the minimum X, Y and Z to zero. Open, degenerate or inconsistently wound meshes must be repaired before importing. Layer height describes the model for downstream tools; it does not reslice it. Bridges still needs coplanar horizontal faces at the model's top; arbitrary curved or uneven islands may not be bridgeable.",
+            doc: "Loads STL or triangulated OBJ geometry for inspection and repair. Mesh properties lists defects; Open preview highlights them. Solid output stays blocked until topology and volume checks pass (self-intersections are not checked). Separate repair buttons clean faces, fix winding, weld nearby vertices or fill planar holes. Repairs update statistics and can be undone; welding and hole filling change geometry. Source coordinates are millimetres; Scale converts other units (25.4 for inches). Solid output preserves orientation and moves minimum X, Y and Z to zero; source inspection stays in original coordinates. Layer height supplies printing metadata without reslicing. Connect the solid to Split volume, Bridges or Simplify mesh. Bridges still needs coplanar horizontal top faces.",
             run: mesh_import::run,
         },
         NodeDef {

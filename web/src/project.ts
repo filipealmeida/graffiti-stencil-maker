@@ -1,7 +1,7 @@
 import { zipSync, strToU8 } from 'fflate'
 import { api, artifactUrl, partUrl } from './api'
 import { badgesForNode } from './badges'
-import { useStudio } from './store'
+import { logAction, useStudio } from './store'
 
 export const safeName = (n: string) => (n.trim().replace(/[\\/:*?"<>|]+/g, '-').replace(/\s+/g, '_') || 'project')
 
@@ -32,6 +32,7 @@ const canPick = () => 'showSaveFilePicker' in window && !navigator.webdriver
 
 /** Saves the project file. With the File System Access API it overwrites the file it was last saved to; elsewhere it downloads. */
 export async function saveProject(asNew = false) {
+  logAction(`Save project${asNew ? ' as new file' : ''}: started`)
   const s = useStudio.getState()
   const p = await api.exportProject({ nodes: s.nodes, edges: s.edges })
   const blob = new Blob([JSON.stringify(p)], { type: 'application/json' })
@@ -52,7 +53,8 @@ export async function saveProject(asNew = false) {
       await w.close()
       where = handle.name
     } catch (e) {
-      if ((e as DOMException)?.name === 'AbortError') return
+      if ((e as DOMException)?.name === 'AbortError') { logAction('Save project: cancelled'); return }
+      logAction(`Save to selected file failed: ${e instanceof Error ? e.message : String(e)}; offering a browser download instead`, '', 'error')
       handle = null
       downloadBlob(blob, where)
     }
@@ -62,10 +64,15 @@ export async function saveProject(asNew = false) {
   s.toast(handle ? `Saved ${where}` : `Saved ${where} to your downloads`)
 }
 
-const fetchBytes = async (url: string) => new Uint8Array(await (await fetch(url)).arrayBuffer())
+const fetchBytes = async (url: string) => {
+  const response = await fetch(url)
+  if (!response.ok) throw new Error(`Export download failed: HTTP ${response.status} ${response.statusText}`)
+  return new Uint8Array(await response.arrayBuffer())
+}
 
 /** One zip with the project file, every final model, a findings list and a README. */
 export async function exportEverything() {
+  logAction('Export everything: started')
   const s = useStudio.getState()
   const name = safeName(s.pname)
   const files: Record<string, Uint8Array> = {}

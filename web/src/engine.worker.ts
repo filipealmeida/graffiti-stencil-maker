@@ -5,6 +5,9 @@ type Req =
   | { id: number; op: 'types' }
   | { id: number; op: 'image'; bytes: ArrayBuffer }
   | { id: number; op: 'model'; bytes: ArrayBuffer; format: string }
+  | { id: number; op: 'modelinfo'; modelId: string; format: string }
+  | { id: number; op: 'modelpreview'; modelId: string; format: string }
+  | { id: number; op: 'modelrepair'; modelId: string; format: string; action: string; tolerance: number }
   | { id: number; op: 'has'; imageId: string }
   | { id: number; op: 'imageinfo'; imageId: string; resolution: number }
   | { id: number; op: 'run'; graph: string; targets: string; costs?: Record<string, number> }
@@ -144,6 +147,11 @@ self.onmessage = async (ev: MessageEvent<Req>) => {
     if (m.op === 'imageinfo') return self.postMessage({ id: m.id, ok: JSON.parse(e.image_info(m.imageId, m.resolution)) })
     if (m.op === 'image') return self.postMessage({ id: m.id, ok: JSON.parse(e.add_image(new Uint8Array(m.bytes))) })
     if (m.op === 'model') return self.postMessage({ id: m.id, ok: JSON.parse(e.add_model(new Uint8Array(m.bytes), m.format)) })
+    if (m.op === 'modelinfo') return self.postMessage({ id: m.id, ok: JSON.parse(e.model_info(m.modelId, m.format)) })
+    if (m.op === 'modelpreview' || m.op === 'modelrepair') {
+      const b = (m.op === 'modelpreview' ? e.model_preview(m.modelId, m.format) : e.repair_model(m.modelId, m.format, m.action, m.tolerance)) as Uint8Array<ArrayBuffer>
+      return self.postMessage({ id: m.id, ok: b }, { transfer: [b.buffer] })
+    }
     if (m.op === 'font') { e.add_font(m.name, new Uint8Array(m.bytes)); return self.postMessage({ id: m.id, ok: true }) }
     if (m.op === 'hasfont') return self.postMessage({ id: m.id, ok: e.has_font(m.name) })
     if (m.op === 'part') {

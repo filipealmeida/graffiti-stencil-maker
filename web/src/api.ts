@@ -37,6 +37,19 @@ export interface NodeRun {
 }
 export interface NodeStep { node: string; state: NodeRun; n: number; total: number; log: LogLine[] }
 export interface LogLine { ts: string; ms: number | null; t: number; level: 'info' | 'error'; node: string; type: string; msg: string }
+export interface MeshMarkers {
+  points: [number, number, number][]
+  segments: [[number, number, number], [number, number, number]][]
+  total: number
+  truncated: boolean
+}
+export interface ModelInfo {
+  bytes: number; format: string; vertices: number; triangles: number
+  degenerate: number; duplicate_faces: number; boundary_edges: number; nonmanifold_edges: number
+  winding_edges: number; signed_volume_mm3: number; inverted: boolean; watertight: boolean; valid: boolean
+  size_mm: [number, number, number]; bounds: [[number, number, number], [number, number, number]]
+  components: number; markers: MeshMarkers; checks: string
+}
 export interface GraphJson {
   nodes: { id: string; type: string; params: Record<string, unknown> }[]
   edges: { from: [string, string]; to: [string, string] }[]
@@ -308,6 +321,14 @@ export const api = {
     await idb('readwrite', (s) => s.put({ name: f.name, bytes, modelFormat: format } satisfies StoredImage, info.id))
     return { ...info, name: f.name, format }
   },
+  modelInfo: (modelId: string, format: string) => call<ModelInfo>({ op: 'modelinfo', modelId, format }),
+  modelPreview: (modelId: string, format: string) => call<Uint8Array<ArrayBuffer>>({ op: 'modelpreview', modelId, format }),
+  async repairModel(modelId: string, format: string, action: string, tolerance: number) {
+    const bytes = await call<Uint8Array<ArrayBuffer>>({ op: 'modelrepair', modelId, format, action, tolerance })
+    const source = await api.storedImage(modelId)
+    if (!source) throw new Error('The original model is no longer stored: open it again before repairing.')
+    return api.uploadModel(new File([bytes], source.name.replace(/\.[^.]+$/, '') + '-repaired.stl', { type: 'model/stl' }))
+  },
   async storedImage(id: string) {
     return (await idb('readonly', (s) => s.get(id))) as StoredImage | undefined
   },
@@ -439,6 +460,8 @@ export function saveFile(name: string, bytes: Uint8Array, type: string) {
   const a = document.createElement('a')
   a.href = url
   a.download = name
+  document.body.appendChild(a)
   a.click()
+  a.remove()
   setTimeout(() => URL.revokeObjectURL(url), 10_000)
 }

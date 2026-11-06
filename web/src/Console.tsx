@@ -1,5 +1,5 @@
 import { useEffect, useId, useRef } from 'react'
-import { useStudio } from './store'
+import { logAction, useStudio } from './store'
 
 export default function Console({ nodeId, height }: { nodeId?: string; height?: number }) {
   const logs = useStudio((s) => s.logs)
@@ -9,7 +9,7 @@ export default function Console({ nodeId, height }: { nodeId?: string; height?: 
   const setOpen = useStudio((s) => s.setConsole)
   const logId = useId()
   const box = useRef<HTMLDivElement>(null)
-  const shown = nodeId ? logs.filter((l) => l.node === nodeId) : logs
+  const shown = nodeId ? logs.filter((l) => l.node === nodeId || (!l.node && l.type === 'Action')) : logs
   useEffect(() => { if (open) box.current?.scrollTo(0, box.current.scrollHeight) }, [shown.length, open])
   const name = (id: string, type: string) => nodes.find((n) => n.id === id)?.data.title || type || id
   const line = (l: (typeof shown)[number]) => `${l.ts} ${l.level.toUpperCase()} ${name(l.node, l.type)}: ${l.msg}${l.ms != null ? ` ${l.ms} ms` : ''}`
@@ -19,6 +19,7 @@ export default function Console({ nodeId, height }: { nodeId?: string; height?: 
     a.href = url
     a.download = `stencil-console-${new Date().toISOString().replace(/[:.]/g, '-')}.log`
     a.click()
+    logAction(`Console export handed to browser: ${a.download}`, nodeId)
     URL.revokeObjectURL(url)
   }
   return (

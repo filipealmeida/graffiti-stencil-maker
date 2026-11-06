@@ -56,6 +56,7 @@ export default function Presets({ node }: { node: StudioNode }) {
     a.download = 'stencil-presets.json'
     a.click()
     URL.revokeObjectURL(url)
+    toast('Presets export handed to browser')
   }
   const importFile = async (f: File) => {
     try {

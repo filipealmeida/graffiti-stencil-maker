@@ -11,6 +11,7 @@ import CutsPanel from './CutsPanel'
 import { NodeActions, DeleteNode, downloadFor, runSummary } from './NodeActions'
 import Findings, { useNodeFindings } from './Findings'
 import ImageInfoPanel from './ImageInfo'
+import MeshTools, { useModelInspection } from './MeshTools'
 import { useStudio, type StudioNode } from './store'
 import { parseEdits, stringify, type LayoutInfo } from './layoutEdit'
 const Viewer3D = lazy(() => import('./Viewer3D'))
@@ -21,6 +22,7 @@ const STATS = ['islands_found', 'bridges_added', 'islands_remaining', 'watertigh
 export default function Workbench() {
   const id = useStudio((s) => s.bench)
   const node = useStudio((s) => s.nodes.find((n) => n.id === s.bench))
+  const model = useModelInspection(node, true)
   const types = useStudio((s) => s.types)
   const edges = useStudio((s) => s.edges)
   const nodes = useStudio((s) => s.nodes)
@@ -183,16 +185,17 @@ export default function Workbench() {
           <Presets key={node.id} node={node} />
           {run?.state === 'error' && <div className="err">{run.error}</div>}
           <ParamForm node={node} type={t} before={<>
-            <NodeActions id={node.id} download={downloadFor(cur?.kind as Kind, cur?.key, cur?.out, Object.keys(info?.files ?? {}).length)} />
+            <NodeActions id={node.id} download={t.id === 'mesh_import' && model.snapshot?.info.valid !== true ? null : downloadFor(cur?.kind as Kind, cur?.key, cur?.out, Object.keys(info?.files ?? {}).length)} />
             {t.id === 'source' && <SourceActions id={node.id} imageId={String(node.data.params.image_id)} title={node.data.title} />}
             {t.id === 'mesh_import' && <SourceActions id={node.id} imageId={String(node.data.params.model_id ?? '')} title={node.data.title} model />}
           </>} />
           {t.id === 'source' && <ImageInfoPanel imageId={String(node.data.params.image_id)} resolution={Number(node.data.params.resolution ?? 1000)} />}
+          {t.id === 'mesh_import' && <MeshTools node={node} info={model.snapshot?.info} error={model.error} />}
           </div>
           <div className="panel-foot"><DeleteNode id={node.id} /></div>
         </aside>
         <section className="bench-view">
-          {!cur && <div className="mut center">{run?.state === 'error' ? run.error : 'nothing computed yet'}</div>}
+          {!cur && t.id !== 'mesh_import' && <div className="mut center">{run?.state === 'error' ? run.error : 'nothing computed yet'}</div>}
           {cutView && (cutsUrl
             ? <ImageView key="cuts" src={cutsUrl} kind="image" />
             : <div className="mut center">drawing the sheets…</div>)}
@@ -206,7 +209,10 @@ export default function Workbench() {
               layers={layerProps} />
           )}
           <Suspense fallback={<div className="mut center">loading 3D viewer…</div>}>
-            {cur?.kind === 'solid' && <Viewer3D parts={solidParts()} />}
+            {t.id === 'mesh_import' && (model.snapshot?.url
+              ? <Viewer3D parts={[{ name: 'source mesh', url: model.snapshot.url }]} defects={model.snapshot.info.markers} />
+              : <p className="mut center">{model.error || 'Open a model to inspect it.'}</p>)}
+            {cur?.kind === 'solid' && t.id !== 'mesh_import' && <Viewer3D parts={solidParts()} />}
             {cur?.kind === 'parts' && <Viewer3D parts={partsList()} plate={info?.meta?.plate} />}
           </Suspense>
         </section>
