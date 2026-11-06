@@ -3,20 +3,20 @@ import { api, type ModelInfo } from './api'
 import { checkpoint, logAction, reportError, useStudio, type StudioNode } from './store'
 
 export function useModelInspection(node: StudioNode | undefined, preview = false) {
+  const nodeId = node?.id ?? ''
   const modelId = node?.data.type === 'mesh_import' ? String(node.data.params.model_id ?? '') : ''
   const format = String(node?.data.params.format ?? 'stl')
-  const [snapshot, setSnapshot] = useState<{ id: string; info: ModelInfo; url: string } | null>(null)
+  const [snapshot, setSnapshot] = useState<{ nodeId: string; id: string; info: ModelInfo; url: string } | null>(null)
   const [error, setError] = useState('')
   useEffect(() => {
     let live = true
     let url = ''
-    setSnapshot(null)
     setError('')
     if (!modelId) return
     Promise.all([api.modelInfo(modelId, format), preview ? api.modelPreview(modelId, format) : null]).then(([info, bytes]) => {
       if (!live) return
       url = bytes ? URL.createObjectURL(new Blob([bytes], { type: 'model/stl' })) : ''
-      setSnapshot({ id: modelId, info, url })
+      setSnapshot({ nodeId, id: modelId, info, url })
     }).catch((e: unknown) => {
       if (!live) return
       const message = String(e instanceof Error ? e.message : e)
@@ -24,8 +24,12 @@ export function useModelInspection(node: StudioNode | undefined, preview = false
       logAction(`Mesh inspection failed: ${message}`, node?.id, 'error')
     })
     return () => { live = false; if (url) URL.revokeObjectURL(url) }
-  }, [modelId, format, preview])
-  return { snapshot: snapshot?.id === modelId ? snapshot : null, error }
+  }, [nodeId, modelId, format, preview])
+  return {
+    snapshot: snapshot?.nodeId === node?.id && snapshot?.id === modelId ? snapshot : null,
+    displayInfo: snapshot?.nodeId === node?.id ? snapshot?.info : undefined,
+    error,
+  }
 }
 
 const REPAIRS = [
@@ -66,44 +70,58 @@ export default function MeshTools({ node, info, error }: { node: StudioNode; inf
     } finally { setBusy(false) }
   }
   if (!modelId) return null
+  return <section className="imageinfo mesh-tools" aria-label="Mesh repairs" aria-busy={busy}>
+    <h4>Repair tools</h4>
+    {error && <p className="err" role="alert">{error}</p>}
+    {!info && !error && <p>Inspecting mesh…</p>}
+    {info && <p className={info.valid ? 'mut' : 'err'}>{info.valid ? 'Solid checks passed.' : 'Defects found; solid output blocked. Open preview to locate defects.'}</p>}
+    <fieldset disabled={busy || !info}>
+      <legend>Conservative repairs</legend>
+      {REPAIRS.slice(0, 2).map((r) => <button key={r.action} title={r.hint} onClick={() => void repair(r.action, r.label)}>{r.label}</button>)}
+    </fieldset>
+    <fieldset disabled={busy || !info}>
+      <legend>Geometry-changing repairs</legend>
+      <p className="mut">May change dimensions or close intentional openings.</p>
+      <label>Tolerance (source mm)<input className="numbox" aria-label="Repair tolerance" type="number" min={0.000001} max={10} step={0.001} value={tolerance}
+        onChange={(e) => setTolerance(e.target.valueAsNumber)} /></label>
+      {REPAIRS.slice(2).map((r) => <button key={r.action} disabled={!Number.isFinite(tolerance) || tolerance < 0.000001 || tolerance > 10} title={r.hint} onClick={() => void repair(r.action, r.label)}>{r.label}</button>)}
+    </fieldset>
+    {message?.nodeId === node.id && message.modelId === modelId && <p role="status">{message.text}</p>}
+    <p className="mut">Repairs are undoable working copies. The original disk file is unchanged; source downloads use the working copy.</p>
+  </section>
+}
+
+export function MeshProperties({ node, info, error, updating = false }: { node: StudioNode; info?: ModelInfo; error: string; updating?: boolean }) {
+  if (!node.data.params.model_id) return <p className="mut">Open a model to inspect it.</p>
   const scale = Number(node.data.params.scale ?? 1)
   const rows: [string, string][] = info ? [
-    ['Format', info.format.toUpperCase()],
-    ['Source bytes', info.bytes.toLocaleString()],
-    ['Vertices (exactly indexed)', info.vertices.toLocaleString()],
-    ['Triangles', info.triangles.toLocaleString()],
-    ['Source size (mm)', info.size_mm.map((x) => +x.toFixed(4)).join(' × ')],
-    ['Scaled size (mm)', info.size_mm.map((x) => +(x * scale).toFixed(4)).join(' × ')],
-    ['Signed volume (source mm³)', String(+info.signed_volume_mm3.toFixed(4))],
-    ['Components', String(info.components)],
+    ['Solid output', info.valid ? 'eligible (after node size checks)' : 'blocked'],
+    ['Watertight', info.watertight ? 'yes' : 'no'],
     ['Degenerate faces', String(info.degenerate)],
     ['Duplicate faces', String(info.duplicate_faces)],
     ['Boundary edges', String(info.boundary_edges)],
     ['Non-manifold edges', String(info.nonmanifold_edges)],
     ['Winding conflicts', String(info.winding_edges)],
     ['Inverted winding', info.inverted ? 'yes' : 'no'],
-    ['Watertight', info.watertight ? 'yes' : 'no'],
-    ['Solid output', info.valid ? 'eligible (after node size checks)' : 'blocked'],
+    ['Triangles', info.triangles.toLocaleString()],
+    ['Vertices (exactly indexed)', info.vertices.toLocaleString()],
+    ['Source size (mm)', info.size_mm.map((x) => +x.toFixed(4)).join(' × ')],
+    ['Scaled size (mm)', info.size_mm.map((x) => +(x * scale).toFixed(4)).join(' × ')],
   ] : []
-  return <section className="imageinfo mesh-tools" aria-label="Mesh properties" aria-busy={busy}>
-    <h4>Mesh properties and repairs</h4>
+  const details: [string, string][] = info ? [
+    ['Format', info.format.toUpperCase()],
+    ['Source bytes', info.bytes.toLocaleString()],
+    ['Signed volume (source mm³)', String(+info.signed_volume_mm3.toFixed(4))],
+    ['Components', String(info.components)],
+  ] : []
+  const table = (values: [string, string][]) => <dl>{values.map(([k, v]) => <div key={k} style={{ display: 'contents' }}><dt>{k}</dt><dd>{v}</dd></div>)}</dl>
+  return <section className="imageinfo mesh-properties" aria-label="Mesh properties" aria-busy={updating}>
+    <h4>Mesh properties</h4>
     {error && <p className="err" role="alert">{error}</p>}
     {!info && !error && <p>Inspecting mesh…</p>}
-    <dl>{rows.map(([k, v]) => <div key={k} style={{ display: 'contents' }}><dt>{k}</dt><dd>{v}</dd></div>)}</dl>
-    {info && <p className={info.valid ? 'mut' : 'err'}>{info.valid ? 'Solid checks passed.' : 'Defects found. Solid output is blocked until repaired.'} {info.checks}</p>}
-    <p className="mut">Open preview to locate defects. Repairs create an undoable working copy; the original file on disk is never modified. The source download follows the current working copy.</p>
-    <fieldset disabled={busy || !info}>
-      <legend>Conservative repairs</legend>
-      <p className="mut">Identical coordinates are already indexed together without moving them.</p>
-      {REPAIRS.slice(0, 2).map((r) => <button key={r.action} title={r.hint} onClick={() => void repair(r.action, r.label)}>{r.label}</button>)}
-    </fieldset>
-    <fieldset disabled={busy || !info}>
-      <legend>Geometry-changing repairs</legend>
-      <p className="mut">These may alter dimensions or close intentional openings. Inspect the result and undo if needed.</p>
-      <label>Tolerance (source mm)<input className="numbox" aria-label="Repair tolerance" type="number" min={0.000001} max={10} step={0.001} value={tolerance}
-        onChange={(e) => setTolerance(e.target.valueAsNumber)} /></label>
-      {REPAIRS.slice(2).map((r) => <button key={r.action} disabled={!Number.isFinite(tolerance) || tolerance < 0.000001 || tolerance > 10} title={r.hint} onClick={() => void repair(r.action, r.label)}>{r.label}</button>)}
-    </fieldset>
-    {message?.nodeId === node.id && message.modelId === modelId && <p role="status">{message.text}</p>}
+    {updating && info && <p className="mut">Updating mesh information; previous statistics shown.</p>}
+    {info && !updating && <p className={info.valid ? 'mut' : 'err'}>{info.valid ? 'Solid checks passed.' : 'Defects found. Solid output is blocked until repaired.'}</p>}
+    {table(rows)}
+    <details className="mesh-details"><summary>File and topology details</summary>{table(details)}<p className="mut">{info?.checks}</p></details>
   </section>
 }

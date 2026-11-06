@@ -178,9 +178,17 @@ The maximum source file size is 100 MB. Parseable meshes with defects can be loa
 but their **solid output is blocked** until the topology and volume checks pass. Malformed files or
 non-finite coordinates are still rejected, with the reason logged in the console.
 
-**Mesh properties and repairs**, in both the inspector and workbench, shows the current vertex/triangle
-counts, dimensions, signed volume, components, degenerate/duplicate faces, open/non-manifold edges and
-winding conflicts. The source preview highlights bad edges in red and bad faces with amber points
+**Repair tools** appear above the parameters, so statistics do not push actions down the panel.
+In the workbench, controls stay on the left and a collapsible **Object information** panel on the right
+shows validation, defect counts and mesh dimensions. **File and topology details** expands the remaining
+statistics. On narrower screens, **Controls / Information** switches the side panel without closing the
+preview; on phones the panel sits above the preview. The graph inspector keeps a single panel with
+collapsible **Object information** below the parameters. On phones the viewer toolbar scrolls sideways
+to leave room for the model. Expand **Defect markers · source coordinates** for the marker legend.
+
+**Mesh properties** shows the current vertex/triangle counts, dimensions, signed volume, components,
+degenerate/duplicate faces, open/non-manifold edges and winding conflicts, updating after repairs.
+The source preview highlights bad edges in red and bad faces with amber points
 (up to 2,000 markers of each kind; statistics always cover the entire mesh). The preview uses source
 coordinates before Scale and zero-origin placement. These checks do not detect self-intersections.
 

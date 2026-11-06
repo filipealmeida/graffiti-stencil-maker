@@ -483,7 +483,9 @@ export default function Viewer3D({ parts, plate, defects }: { parts: Part[]; pla
         {parts.length > 1 && <label>{tiled ? 'spacing (mm)' : 'explode'} <input type="range" min={0} max={tiled ? 150 : 12} step={tiled ? 1 : 0.25} value={explode} onChange={(e) => setExplode(+e.target.value)} /></label>}
         <span className="mut">{parts.length > 1 ? `${parts.length} parts` : ''}</span>
       </div>
-      {defects && <p className="mut" role="note">Source coordinates (before scaling). Red: boundary, non-manifold or winding-conflict edges. Amber: degenerate or duplicate faces. Markers remain visible through the surface.{defects.truncated ? ' Showing at most 2,000 face markers and 2,000 edge markers.' : ''}</p>}
+      {defects && <details className="mesh-legend"><summary>Defect markers · source coordinates</summary>
+        <p className="mut" role="note">Source coordinates (before scaling). Red: boundary, non-manifold or winding-conflict edges. Amber: degenerate or duplicate faces. Markers remain visible through the surface.{defects.truncated ? ' Showing at most 2,000 face markers and 2,000 edge markers.' : ''}</p>
+      </details>}
       <div className="v3main">
         <div className="v3host">
           <div className="viewer" ref={host} />

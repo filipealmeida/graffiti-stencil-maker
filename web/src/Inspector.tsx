@@ -8,7 +8,7 @@ import SourceActions from './SourceActions'
 import Presets from './Presets'
 import { NodeActions, DeleteNode, downloadFor, runSummary } from './NodeActions'
 import Findings from './Findings'
-import MeshTools, { useModelInspection } from './MeshTools'
+import MeshTools, { MeshProperties, useModelInspection } from './MeshTools'
 
 export default function Inspector() {
   const id = useStudio((s) => s.selected)
@@ -41,21 +41,27 @@ export default function Inspector() {
 
   if (!node || !t) return <aside className="inspector none"><p className="mut">Select a node to edit its parameters and see its result. Drop a picture on the canvas to start.</p></aside>
   const fileInput = t.id === 'source'
+  const isModel = t.id === 'mesh_import'
+  const actions = <>
+    <NodeActions id={node.id} preview download={isModel && model.snapshot?.info.valid !== true ? null : downloadFor(cur?.type, key, cur?.name, Object.keys(info?.files ?? {}).length)} />
+    {fileInput && <><p className="mut">Image: {String(node.data.title ?? node.data.params.image_id)}</p><SourceActions id={node.id} imageId={String(node.data.params.image_id)} title={node.data.title} /></>}
+    {isModel && <><p className="mut">Model: {node.data.title || 'none loaded'}</p><SourceActions id={node.id} imageId={String(node.data.params.model_id ?? '')} title={node.data.title} model /></>}
+  </>
   return (
     <aside className="inspector">
       <div className="panel-scroll">
       <h2>{t.label} <small className={`tag stage-${t.stage}`}>{STAGE_LABEL[t.stage]}</small></h2>
       <p className="mut status-line">{runSummary(run, busy)}</p>
       <Findings id={node.id} />
+      {isModel && <>{actions}<MeshTools node={node} info={model.snapshot?.info} error={model.error} /></>}
       <Presets key={node.id} node={node} />
-      {run?.state === 'error' && <div className="err">{run.error}</div>}
-      <ParamForm node={node} type={t} layers={layers} before={<>
-      <NodeActions id={node.id} preview download={t.id === 'mesh_import' && model.snapshot?.info.valid !== true ? null : downloadFor(cur?.type, key, cur?.name, Object.keys(info?.files ?? {}).length)} />
-      {fileInput && <><p className="mut">Image: {String(node.data.title ?? node.data.params.image_id)}</p><SourceActions id={node.id} imageId={String(node.data.params.image_id)} title={node.data.title} /></>}
-      {t.id === 'mesh_import' && <><p className="mut">Model: {node.data.title || 'none loaded'}</p><SourceActions id={node.id} imageId={String(node.data.params.model_id ?? '')} title={node.data.title} model /></>}
-      </>} />
+      {run?.state === 'error' && !isModel && <div className="err">{run.error}</div>}
+      <ParamForm node={node} type={t} layers={layers} before={isModel ? undefined : actions} />
       {fileInput && <ImageInfoPanel imageId={String(node.data.params.image_id)} resolution={Number(node.data.params.resolution ?? 1000)} />}
-      {t.id === 'mesh_import' && <MeshTools node={node} info={model.snapshot?.info} error={model.error} />}
+      {isModel && <details className="mesh-details"><summary>Object information</summary>
+        <MeshProperties node={node} info={model.displayInfo} error={model.error} updating={!model.snapshot} />
+        {run?.state === 'error' && <p className="err">{run.error}</p>}
+      </details>}
       {key && cur && (
         <div className="result">
           {avail.length > 1 && (

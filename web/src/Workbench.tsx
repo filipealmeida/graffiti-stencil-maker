@@ -1,5 +1,5 @@
 import { STAGE_LABEL } from './ports'
-import { Suspense, lazy, useEffect, useRef, useState } from 'react'
+import { Suspense, lazy, useEffect, useId, useRef, useState } from 'react'
 import { api, artifactUrl, partUrl, type Kind } from './api'
 import Console from './Console'
 import ImageView, { type LayersProps } from './ImageView'
@@ -11,7 +11,7 @@ import CutsPanel from './CutsPanel'
 import { NodeActions, DeleteNode, downloadFor, runSummary } from './NodeActions'
 import Findings, { useNodeFindings } from './Findings'
 import ImageInfoPanel from './ImageInfo'
-import MeshTools, { useModelInspection } from './MeshTools'
+import MeshTools, { MeshProperties, useModelInspection } from './MeshTools'
 import { useStudio, type StudioNode } from './store'
 import { parseEdits, stringify, type LayoutInfo } from './layoutEdit'
 const Viewer3D = lazy(() => import('./Viewer3D'))
@@ -32,6 +32,10 @@ export default function Workbench() {
   const setParam = useStudio((s) => s.setParam)
   const [view, setView] = useState('')
   const [mode, setMode] = useState<'plate' | 'tiles'>('plate')
+  const [meshPanel, setMeshPanel] = useState<'controls' | 'information'>('controls')
+  const [showMeshInfo, setShowMeshInfo] = useState(true)
+  const meshInfoId = useId()
+  const meshControlsId = useId()
   const [info, setInfo] = useState<Record<string, any> | null>(null)
   const [layout, setLayout] = useState<Record<string, any> | null>(null)
   const [cuts, setCuts] = useState<Record<string, any> | null>(null)
@@ -159,9 +163,15 @@ export default function Workbench() {
   const partsList = () => (info?.files ? Object.keys(info.files).map((n) => ({ name: n, url: partUrl(cur!.key!, cur!.out, n) })) : [])
   // the Cut sheet's own output is shown as the light preview, never as the full drawing
   const cutView = t.id === 'cut_sheet' && cur?.id === 'out:sheet'
+  const isModel = t.id === 'mesh_import'
+  const actions = <>
+    <NodeActions id={node.id} download={isModel && model.snapshot?.info.valid !== true ? null : downloadFor(cur?.kind as Kind, cur?.key, cur?.out, Object.keys(info?.files ?? {}).length)} />
+    {t.id === 'source' && <SourceActions id={node.id} imageId={String(node.data.params.image_id)} title={node.data.title} />}
+    {isModel && <SourceActions id={node.id} imageId={String(node.data.params.model_id ?? '')} title={node.data.title} model />}
+  </>
 
   return (
-    <div className="bench">
+    <div className={`bench${isModel ? ' bench-mesh' : ''}`} data-mesh-panel={meshPanel} data-mesh-info={showMeshInfo}>
       <div className="bench-head">
         <button className="close" onClick={() => open(null)} aria-label="Close preview" title="Close (Esc)">✕</button>
         <h2>{node.data.title || t.label} <small className={`tag stage-${t.stage}`}>{STAGE_LABEL[t.stage]}</small>{problems > 0 && <span className="tb-badge warn" title="Findings on this node">{problems}</span>}</h2>
@@ -175,22 +185,24 @@ export default function Workbench() {
           </div>
         )}
         <span className="spacer" />
+        {isModel && <button className="mesh-info-toggle" aria-expanded={showMeshInfo} aria-controls={meshInfoId}
+          onClick={() => setShowMeshInfo(!showMeshInfo)}>{showMeshInfo ? 'Hide information' : 'Show information'}</button>}
         <span className="mut">{runSummary(run, busy)}</span>
       </div>
       {run?.state === 'running' && <div className="bar"><i style={{ width: `${(run.progress ?? 0) * 100}%` }} /></div>}
+      {isModel && <div className="mesh-panel-tabs tabs" role="group" aria-label="Mesh side panel">
+        <button aria-pressed={meshPanel === 'controls'} aria-controls={meshControlsId} onClick={() => setMeshPanel('controls')}>Controls</button>
+        <button aria-pressed={meshPanel === 'information'} aria-controls={meshInfoId} onClick={() => setMeshPanel('information')}>Information</button>
+      </div>}
       <div className="bench-body">
-        <aside className="bench-params">
+        <aside className="bench-params" id={meshControlsId} aria-label={isModel ? 'Model controls' : undefined}>
           <div className="panel-scroll">
+          {isModel && <>{actions}<MeshTools node={node} info={model.snapshot?.info} error={model.error} /></>}
           <Findings id={node.id} />
           <Presets key={node.id} node={node} />
-          {run?.state === 'error' && <div className="err">{run.error}</div>}
-          <ParamForm node={node} type={t} before={<>
-            <NodeActions id={node.id} download={t.id === 'mesh_import' && model.snapshot?.info.valid !== true ? null : downloadFor(cur?.kind as Kind, cur?.key, cur?.out, Object.keys(info?.files ?? {}).length)} />
-            {t.id === 'source' && <SourceActions id={node.id} imageId={String(node.data.params.image_id)} title={node.data.title} />}
-            {t.id === 'mesh_import' && <SourceActions id={node.id} imageId={String(node.data.params.model_id ?? '')} title={node.data.title} model />}
-          </>} />
+          {run?.state === 'error' && !isModel && <div className="err">{run.error}</div>}
+          <ParamForm node={node} type={t} before={isModel ? undefined : actions} />
           {t.id === 'source' && <ImageInfoPanel imageId={String(node.data.params.image_id)} resolution={Number(node.data.params.resolution ?? 1000)} />}
-          {t.id === 'mesh_import' && <MeshTools node={node} info={model.snapshot?.info} error={model.error} />}
           </div>
           <div className="panel-foot"><DeleteNode id={node.id} /></div>
         </aside>
@@ -216,6 +228,11 @@ export default function Workbench() {
             {cur?.kind === 'parts' && <Viewer3D parts={partsList()} plate={info?.meta?.plate} />}
           </Suspense>
         </section>
+        {isModel && <aside className="bench-object-info" id={meshInfoId} aria-label="Object information">
+          <h3>Object information</h3>
+          <MeshProperties node={node} info={model.displayInfo} error={model.error} updating={!model.snapshot} />
+          {run?.state === 'error' && <details className="mesh-details"><summary>Node error</summary><p className="err">{run.error}</p></details>}
+        </aside>}
         {t.id === 'tile_layout' && info?.kind === 'tiles' && info.tile_list && cur?.key && <TilesPanel info={info} keyOf={cur.key} out={cur.out} />}
         {t.id === 'cut_sheet' && cuts?.piece_list && run?.key && <CutsPanel info={cuts} keyOf={run.key} hidden={hideCut} onHidden={setHideCut} />}
         {t.id === 'canvas' && <LayersPanel updating={updating} layout={shown} picked={picked} onPick={setPicked} onMove={moveLayer} moved={Object.keys(draft ?? committed).length > 0} onReset={() => { draftRef.current = null; setDraft(null); window.clearTimeout(timer.current); setParam(node.id, 'layer_moves', '') }} />}
