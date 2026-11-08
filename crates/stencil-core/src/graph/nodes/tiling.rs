@@ -28,7 +28,7 @@ pub(in crate::graph) fn run_tile_layout(
             seam_gap: p.f("seam_gap"),
         },
     };
-    let layout = match (i.get("mask"), i.get("shapes")) {
+    let mut layout = match (i.get("mask"), i.get("shapes")) {
         (Some(Value::Mask(m)), None) => tf::from_mask(&m.paint, m.w, m.h, &lp)?,
         (None, Some(Value::Shapes(s))) => tf::from_shapes(s, &lp)?,
         (None, None) => {
@@ -36,15 +36,30 @@ pub(in crate::graph) fn run_tile_layout(
         }
         _ => return Err("connect either a mask or shapes, not both".into()),
     };
+    if p.s("connector") == "hinge (slide-in)" {
+        if p.f("seam_gap") != 0.0 || p.f("seam_angle_deg") != 0.0 {
+            return Err("hinge (slide-in) requires zero seam gap and zero seam bevel angle".into());
+        }
+        layout.set_hinge(hinge_params(p, 0.0))?;
+    }
     Ok(vec![("tiles", Value::Tiles(Rc::new(layout)))])
 }
 
-/// The connector choice of a node: a hex or round rod, or none at all.
+/// Slide-in hinges use hex rods on perpendicular seams, without adding a rod shape.
 pub(super) fn connector_shape(p: &P) -> crate::tiles::Shape {
     match p.s("connector") {
         "round" => crate::tiles::Shape::Round,
         "none" => crate::tiles::Shape::None,
         _ => crate::tiles::Shape::Hex,
+    }
+}
+
+pub(super) fn hinge_params(p: &P, thickness: f64) -> crate::hinge::Params {
+    crate::hinge::Params {
+        axis: if p.s("hinge_axis") == "y" { 1 } else { 0 },
+        thickness,
+        clearance: p.f("hinge_clearance"),
+        paint_out: p.b("hinge_paint_out"),
     }
 }
 

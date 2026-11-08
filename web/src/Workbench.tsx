@@ -15,6 +15,7 @@ import MeshTools, { MeshProperties, useModelInspection } from './MeshTools'
 import { useStudio, type StudioNode } from './store'
 import { parseEdits, stringify, type LayoutInfo } from './layoutEdit'
 import useDialogFocus from './useDialogFocus'
+import CatalogueLabel from './CatalogueLabel'
 const Viewer3D = lazy(() => import('./Viewer3D'))
 
 const STATS = ['islands_found', 'bridges_added', 'islands_remaining', 'watertight', 'triangles', 'overhang_area_mm2', 'layers', 'size_mm']
@@ -177,7 +178,7 @@ export default function Workbench() {
     <div ref={dialog} className={`bench${isModel ? ' bench-mesh' : ''}`} data-mesh-panel={meshPanel} data-mesh-info={showMeshInfo} role="dialog" aria-modal="true" aria-label={`${node.data.title || t.label} preview`} tabIndex={-1}>
       <div className="bench-head">
         <button className="close" onClick={() => open(null)} aria-label="Close preview" title="Close (Esc)">✕</button>
-        <h2>{node.data.title || t.label} <small className={`tag stage-${t.stage}`}>{STAGE_LABEL[t.stage]}</small>{problems > 0 && <span className="tb-badge warn" title="Findings on this node">{problems}</span>}</h2>
+        <h2><CatalogueLabel type={t} title={node.data.title} /> <small className={`tag stage-${t.stage}`}>{STAGE_LABEL[t.stage]}</small>{problems > 0 && <span className="tb-badge warn" title="Findings on this node">{problems}</span>}</h2>
         <div className="tabs">
           {views.map((x) => <button key={x.id} className={x.id === cur?.id ? 'on' : ''} onClick={() => setView(x.id)}>{x.label}</button>)}
         </div>

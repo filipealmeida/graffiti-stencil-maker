@@ -182,7 +182,7 @@ fn tiled_parts(
             .to_stl(),
         ));
     }
-    let meta = json!({
+    let mut meta = json!({
         "tiling": b.info,
         "plate": {
             "w": l.width, "h": l.height, "thickness": p.f("thickness_mm"), "layer": b.layer,
@@ -190,6 +190,14 @@ fn tiled_parts(
             "seams": b.seams, "connectors": b.connectors, "parts": parts,
         },
     });
+    if let Some(hp) = &l.hinge {
+        meta["hinge"] = json!({
+            "connector": "hinge (slide-in)", "axis": hp.axis,
+            "clearance_mm": hp.clearance, "paint_out": hp.paint_out,
+            "captive": false, "raised_back": true, "axially_locked": false,
+            "seams": b.seams.iter().filter(|s| s[0] == hp.axis as f64).collect::<Vec<_>>(),
+        });
+    }
     Ok(vec![(
         "parts",
         Value::Parts(Rc::new(Parts { files, meta })),

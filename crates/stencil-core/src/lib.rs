@@ -16,6 +16,7 @@ mod dxf;
 mod fasthash;
 pub mod graph;
 pub mod hardware;
+pub mod hinge;
 pub mod imageinfo;
 mod islands;
 mod layered;

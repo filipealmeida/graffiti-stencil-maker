@@ -1,6 +1,8 @@
 //! Node registrations, port descriptions and parameter schemas; implementations live in adapters.
 
-use super::{bridges, canvas, colour_set, fragments, mesh_import, nodes::*, types::NodeDef};
+use super::{
+    bridges, canvas, colour_set, fragments, mesh_import, nodes::*, roll_up, types::NodeDef,
+};
 use crate::colour;
 use serde_json::{json, Value as Json};
 
@@ -329,7 +331,10 @@ pub(super) fn catalogue() -> Vec<NodeDef> {
                 num("max_y", "Largest tile height (mm)", 150.0, 0.0, 2000.0, 5.0, Some("Tiles"), false),
                 num("seam_shift", "Seam may move up to (mm)", 8.0, 0.0, 50.0, 1.0, Some("Tiles"), false),
                 num("seam_gap", "Seam clearance (mm, total)", 0.0, 0.0, 1.0, 0.05, Some("Tiles"), false),
-                choice("connector", "Connector shape", "hex", &["hex", "round", "none"], Some("Connectors")),
+                choice("connector", "Connector shape", "hex", &["hex", "round", "none", "hinge (slide-in)"], Some("Connectors")),
+                choice("hinge_axis", "Hinge seam coordinate (experimental)", "x", &["x", "y"], Some("Hinges")),
+                num("hinge_clearance", "Hinge radial clearance (mm)", 0.25, 0.15, 0.5, 0.05, Some("Hinges"), false),
+                flag("hinge_paint_out", "Roll with paint face outside", true, Some("Hinges")),
                 choice("connector_d", "Connector diameter (mm)", "3", &["2.5", "3", "4", "5", "6"], Some("Connectors")),
                 num("depth", "Connector depth into each tile (mm)", 10.0, 4.0, 20.0, 0.5, Some("Connectors"), false),
                 num("clearance", "Connector hole clearance (mm, diametral)", 0.2, 0.0, 0.6, 0.05, Some("Connectors"), false),
@@ -408,6 +413,26 @@ pub(super) fn catalogue() -> Vec<NodeDef> {
             run: run_export,
         },
         NodeDef {
+            id: "roll_up_seams",
+            label: "Roll-up seams",
+            stage: "post",
+            inputs: vec![("body", "body", true)],
+            outputs: vec![("solid", "solid"), ("parts", "parts"), ("stiffeners", "parts")],
+            params: vec![
+                num("pitch", "Hinge pitch (mm)", 20.0, 12.0, 200.0, 1.0, Some("Seams"), false),
+                choice("axis", "Seam coordinate", "x", &["x", "y"], Some("Seams")),
+                num("seam_shift", "Seam may move up to (mm)", 2.0, 0.0, 10.0, 0.5, Some("Seams"), false),
+                num("clearance", "Radial clearance (mm)", 0.25, 0.15, 0.5, 0.05, Some("Hinges"), false),
+                flag("paint_out", "Roll with paint face outside", true, Some("Hinges")),
+                num("core_diameter", "Requested inner roll diameter (mm)", 60.0, 30.0, 500.0, 5.0, Some("Hinges"), false),
+                num("max_assembly_length", "Largest printed assembly along roll (mm)", 200.0, 40.0, 2000.0, 5.0, Some("Printing"), false),
+                flag("stiffeners", "Make slide-on stiffener rails", true, Some("Stiffeners")),
+                num("rail_clearance", "Stiffener clearance (mm, per side)", 0.25, 0.15, 0.5, 0.05, Some("Stiffeners"), false),
+            ],
+            doc: "EXPERIMENTAL: makes parallel hinged slats from a plate at least 3 mm thick. Raised bead/socket hinges are on the back; the paint face stays flat, with stepped overlaps to reduce spray paths. Hinges only occupy full-material runs at least 4 mm long; apertures stay open. Assess slicer supports under the raised beads, not in their clearances; test printing, movement and paint leakage. No support-free or paint-tight guarantee. The largest assembly length groups slats using actual geometry bounds: internal seams print in place with end caps, print-boundary seams slide together axially and need external axial locks. Parts downloads printable groups; Solid shows the complete assembly. Optional removable rails lock it flat; with split groups, print two stiffener couplers per junction. Parts input processes each tile and preserves hardware. Bridge and split across the roll axis BEFORE this node; later geometry changes are blocked. Pads above the plate height and loose slats are rejected. Diameter is an estimate, not a folded-state simulation. Seam coordinate x means hinges parallel to Y; y means parallel to X.",
+            run: roll_up::run,
+        },
+        NodeDef {
             id: "tiles",
             label: "Split volume",
             stage: "post",
@@ -420,7 +445,10 @@ pub(super) fn catalogue() -> Vec<NodeDef> {
                 num("seam_gap", "Seam clearance (mm, total)", 0.2, 0.0, 1.0, 0.05, Some("Tiles"), false),
                 num("seam_angle_deg", "Seam bevel angle (deg from vertical, 0 = straight)", 0.0, 0.0, 60.0, 1.0, Some("Tiles"), false),
                 flag("reinforce", "Add material where no connector fits", true, Some("Tiles")),
-                choice("connector", "Connector shape", "hex", &["hex", "round", "none"], Some("Connectors")),
+                choice("connector", "Connector shape", "hex", &["hex", "round", "none", "hinge (slide-in)"], Some("Connectors")),
+                choice("hinge_axis", "Hinge seam coordinate (experimental)", "x", &["x", "y"], Some("Hinges")),
+                num("hinge_clearance", "Hinge radial clearance (mm)", 0.25, 0.15, 0.5, 0.05, Some("Hinges"), false),
+                flag("hinge_paint_out", "Roll with paint face outside", true, Some("Hinges")),
                 choice("connector_d", "Connector diameter (mm)", "4", &["2.5", "3", "4", "5", "6"], Some("Connectors")),
                 num("depth", "Connector depth into each tile (mm)", 10.0, 4.0, 20.0, 0.5, Some("Connectors"), false),
                 num("clearance", "Connector hole clearance (mm, diametral)", 0.2, 0.0, 0.6, 0.05, Some("Connectors"), false),
@@ -793,6 +821,7 @@ pub fn node_types() -> Json {
                     "inputs": d.inputs.iter().map(|(n, t, r)| json!({"name": n, "type": t, "required": r})).collect::<Vec<_>>(),
                     "outputs": d.outputs.iter().map(|(n, t)| json!({"name": n, "type": t})).collect::<Vec<_>>(),
                     "params": d.params, "doc": d.doc, "legacy": d.id == "export",
+                    "experimental": d.id == "roll_up_seams",
                 })
             })
             .collect(),

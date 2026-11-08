@@ -25,6 +25,7 @@ export interface NodeType {
   params: ParamDef[]
   doc: string
   legacy?: boolean
+  experimental?: boolean
 }
 export interface NodeRun {
   state: 'pending' | 'running' | 'done' | 'error'

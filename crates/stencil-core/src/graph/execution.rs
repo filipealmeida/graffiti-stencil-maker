@@ -104,6 +104,29 @@ impl Engine {
                 fail(&mut nodes_json, &mut results, m);
                 continue;
             }
+            if matches!(
+                ty,
+                "bridges"
+                    | "remesh"
+                    | "pads"
+                    | "ring"
+                    | "fragments"
+                    | "tiles"
+                    | "export"
+                    | "roll_up_seams"
+            ) && inputs.values().any(|v| {
+                let meta = match v {
+                    super::Value::Solid(s) => &s.stats,
+                    super::Value::Parts(p) => &p.meta,
+                    _ => return false,
+                };
+                !meta["roll_up"].is_null() || !meta["hinge"].is_null()
+            }) {
+                let m = "geometry-changing nodes cannot follow experimental hinges: bridge, split, simplify and add hardware before hinging".to_string();
+                say("error", &id, ty, m.clone(), None);
+                fail(&mut nodes_json, &mut results, m);
+                continue;
+            }
 
             let pj = Json::Object(params.0.clone()).to_string();
             let key = hash_hex(&[ty.as_bytes(), pj.as_bytes(), keys.join("|").as_bytes()]);

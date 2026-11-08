@@ -10,6 +10,7 @@ import { NodeActions, DeleteNode, downloadFor, runSummary } from './NodeActions'
 import Findings from './Findings'
 import MeshTools, { MeshProperties, useModelInspection } from './MeshTools'
 import useDialogFocus from './useDialogFocus'
+import CatalogueLabel from './CatalogueLabel'
 
 export default function Inspector() {
   const id = useStudio((s) => s.selected)
@@ -60,7 +61,7 @@ export default function Inspector() {
   return (
     <aside ref={panel} className="inspector" role={mobile ? 'dialog' : undefined} aria-modal={mobile ? true : undefined} aria-label={mobile ? 'Node inspector' : undefined} tabIndex={mobile ? -1 : undefined}>
       <div className="panel-scroll">
-      <h2>{t.label} <small className={`tag stage-${t.stage}`}>{STAGE_LABEL[t.stage]}</small></h2>
+      <h2><CatalogueLabel type={t} /> <small className={`tag stage-${t.stage}`}>{STAGE_LABEL[t.stage]}</small></h2>
       <p className="mut status-line">{runSummary(run, busy)}</p>
       <Findings id={node.id} />
       {isModel && <>{actions}<MeshTools node={node} info={model.snapshot?.info} error={model.error} /></>}

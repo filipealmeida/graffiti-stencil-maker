@@ -48,6 +48,7 @@ import useProjectAutosave, { readAutosave } from './useProjectAutosave'
 import Tooltip from './Tooltip'
 import messages from './messages'
 import useProjectIO from './useProjectIO'
+import CatalogueLabel from './CatalogueLabel'
 
 const nodeTypes = { studio: StudioNodeView };
 const edgeTypes = { default: StudioEdge };
@@ -381,6 +382,7 @@ function Canvas() {
       ...current.map((t) => ({
         id: `node:${t.id}`,
         title: t.label,
+        experimental: t.experimental,
         note: `${STAGE_LABEL[t.stage]} · ${t.doc.split(/(?<=\.)\s/)[0]}${FORMER_NAMES[t.id] ? ` · was ${FORMER_NAMES[t.id]}` : ""}`,
         run: () => addFromMenu(t),
       })),
@@ -426,7 +428,7 @@ function Canvas() {
                       title={t.doc}
                       onClick={() => addFromMenu(t)}
                     >
-                      <b>{t.label}</b>
+                      <b><CatalogueLabel type={t} /></b>
                       <small>{t.doc.split(/(?<=\.)\s/)[0]}</small>
                     </button>
                   ))}
@@ -456,7 +458,7 @@ function Canvas() {
                       onClick={() => addFromMenu(t)}
                     >
                       <b>
-                        {t.label}
+                        <CatalogueLabel type={t} />
                         {n > 0 && <span className="cnt">{n}</span>}
                       </b>
                       <small>

@@ -598,6 +598,7 @@ struct Cutter<'a> {
     bevel: Bevel,
     top: f64,
     drilled: &'a Mesh,
+    hinge: Option<(usize, &'a [Mesh])>,
     holes: &'a [Hole],
     cutters: &'a Mesh,
     count: Counts,
@@ -612,6 +613,7 @@ impl Cutter<'_> {
             bevel,
             top,
             drilled,
+            hinge,
             holes,
             cutters,
             count,
@@ -644,8 +646,22 @@ impl Cutter<'_> {
             };
             [[xa, ya], [xb, ya], [xb, yb], [xa, yb]]
         };
-        let bbox = Mesh::loft_quads(rect(-1.0), -1.0, rect(top + 1.0), top + 1.0);
-        let mut m = drilled.intersect(&bbox)?;
+        let (source, bbox) = if let Some((axis, strips)) = hinge {
+            let source = &strips[if *axis == 0 { i } else { j }];
+            let (lo, hi) = source.bounds();
+            let mut a = [xs[i], ys[j], lo[2] - 1.0];
+            let mut b = [xs[i + 1], ys[j + 1], hi[2] + 1.0];
+            // A hinge crosses its nominal seam plane: only clip the perpendicular sides.
+            a[*axis] = lo[*axis] - 1.0;
+            b[*axis] = hi[*axis] + 1.0;
+            (source, Mesh::cuboid(a, b))
+        } else {
+            (
+                *drilled,
+                Mesh::loft_quads(rect(-1.0), -1.0, rect(top + 1.0), top + 1.0),
+            )
+        };
+        let mut m = source.intersect(&bbox)?;
         if m.t.is_empty() {
             return Ok(None);
         }
@@ -766,6 +782,92 @@ impl Cutter<'_> {
 
 /// Tiles the solid. With no seams the plate comes back whole and nothing is drilled.
 pub fn tile(solid: &Mesh, p: &TileParams) -> Result<Tiled, String> {
+    tile_impl(solid, p, None)
+}
+
+/// Experimental slide-in joints on parallel seams; perpendicular seams retain hex rods.
+pub fn tile_with_hinge(
+    solid: &Mesh,
+    p: &TileParams,
+    hinge: &crate::hinge::Params,
+) -> Result<Tiled, String> {
+    if p.seam_gap != 0.0 || p.seam_angle_deg != 0.0 {
+        return Err("hinge (slide-in) requires zero seam gap and zero seam bevel angle".into());
+    }
+    if hinge.axis > 1 {
+        return Err("hinge axis must be x (0) or y (1), the constant seam coordinate".into());
+    }
+    if !hinge.thickness.is_finite() || hinge.thickness < 3.0 {
+        return Err("hinge (slide-in) requires a plate thickness of at least 3 mm".into());
+    }
+    let (lo, hi) = solid.bounds();
+    if lo[2].abs() > 1e-4 || (hi[2] - hinge.thickness).abs() > 1e-4 {
+        return Err("hinge (slide-in) requires a flat plate at Z=0..thickness: remove pads and raised geometry before splitting".into());
+    }
+    if p.bridge.is_some() {
+        return Err("hinge (slide-in) cannot bridge or weld tiles after forming the joints".into());
+    }
+    if p.shape != Shape::Hex {
+        return Err("hinge (slide-in) requires hex rods on perpendicular seams".into());
+    }
+    tile_impl(solid, p, Some(hinge))
+}
+
+/// Form all joints from the original flat plate, combining halves away from the hardware.
+/// This also supports captive internal slats without re-cutting previously raised barrels.
+pub fn hinge_strips(
+    solid: &Mesh,
+    positions: &[f64],
+    hp: &crate::hinge::Params,
+    captive: bool,
+) -> Result<Vec<Mesh>, String> {
+    hp.check()?;
+    if positions.is_empty() {
+        return Ok(vec![solid.clone()]);
+    }
+    if positions
+        .windows(2)
+        .any(|s| s[1] - s[0] <= 2.0 * hp.reach())
+    {
+        return Err(
+            "hinge seams must be separated by more than twice the raised-back barrel reach".into(),
+        );
+    }
+    let cuts: Vec<_> = positions
+        .iter()
+        .map(|&s| crate::hinge::split(solid, s, hp, captive))
+        .collect::<Result<_, _>>()?;
+    let clip = |mesh: &Mesh, from: Option<f64>, to: Option<f64>| -> Result<Mesh, String> {
+        let (mut lo, mut hi) = mesh.bounds();
+        for k in 0..3 {
+            lo[k] -= 1.0;
+            hi[k] += 1.0;
+        }
+        if let Some(s) = from {
+            lo[hp.axis] = s;
+        }
+        if let Some(s) = to {
+            hi[hp.axis] = s;
+        }
+        mesh.intersect(&Mesh::cuboid(lo, hi))
+    };
+    let mut strips = Vec::with_capacity(cuts.len() + 1);
+    strips.push(cuts[0].0.clone());
+    for i in 1..cuts.len() {
+        let mid = (positions[i - 1] + positions[i]) / 2.0;
+        let left = clip(&cuts[i - 1].1, None, Some(mid))?;
+        let right = clip(&cuts[i].0, Some(mid), None)?;
+        strips.push(left.union(&right)?);
+    }
+    strips.push(cuts.last().unwrap().1.clone());
+    Ok(strips)
+}
+
+fn tile_impl(
+    solid: &Mesh,
+    p: &TileParams,
+    hinge: Option<&crate::hinge::Params>,
+) -> Result<Tiled, String> {
     if !p.seam_gap.is_finite() || !(0.0..=1.0).contains(&p.seam_gap) {
         return Err("seam clearance must be between 0 and 1 mm".into());
     }
@@ -802,8 +904,21 @@ pub fn tile(solid: &Mesh, p: &TileParams) -> Result<Tiled, String> {
                 .count()
         })
         .sum::<usize>();
-    if p.shape != Shape::None {
-        check(p, t)?;
+    let rods = hinge.map_or(p.shape != Shape::None, |hp| {
+        if hp.axis == 0 {
+            ny > 1
+        } else {
+            nx > 1
+        }
+    });
+    if rods {
+        check(p, t).map_err(|e| {
+            if hinge.is_some() {
+                format!("perpendicular hex rod diameter {} mm is incompatible with plate thickness {t} mm: {e}", p.diameter)
+            } else {
+                e
+            }
+        })?;
     }
     let zs = row_heights(p.shape, p.diameter + p.clearance, t);
     let r_hole = (p.diameter + p.clearance) / 2.0;
@@ -811,7 +926,10 @@ pub fn tile(solid: &Mesh, p: &TileParams) -> Result<Tiled, String> {
     let depth = p.depth + r_hole * bevel.lean;
     let gap_along = p.seam_gap * bevel.secant;
     let pocket_len = 2.0 * depth + gap_along;
-    for c in [&xs, &ys] {
+    for (axis, c) in [&xs, &ys].into_iter().enumerate() {
+        if hinge.is_some_and(|hp| hp.axis == axis) {
+            continue;
+        }
         if c.len() > 2 && c.windows(2).any(|v| v[1] - v[0] < min_tile(depth) - 1e-6) {
             return Err(format!(
                 "tiles must be at least {} mm wide to hold connector holes",
@@ -835,6 +953,9 @@ pub fn tile(solid: &Mesh, p: &TileParams) -> Result<Tiled, String> {
     let seam_list_all = seams.clone();
     if p.shape == Shape::None {
         seams.clear();
+    }
+    if let Some(hp) = hinge {
+        seams.retain(|&(axis, _, _, _)| axis != hp.axis);
     }
 
     let geom = Geometry {
@@ -868,6 +989,11 @@ pub fn tile(solid: &Mesh, p: &TileParams) -> Result<Tiled, String> {
         solid.subtract(&cutters)?
     };
     crate::progress::step("drill holes", 0.5);
+    let mut hinge_strips = Vec::new();
+    if let Some(hp) = hinge {
+        let coords = if hp.axis == 0 { &xs } else { &ys };
+        hinge_strips = self::hinge_strips(&drilled, &coords[1..coords.len() - 1], hp, false)?;
+    }
     let cells: Vec<(usize, usize)> = (0..ny)
         .rev()
         .flat_map(|j| (0..nx).map(move |i| (i, j)))
@@ -879,6 +1005,7 @@ pub fn tile(solid: &Mesh, p: &TileParams) -> Result<Tiled, String> {
         bevel,
         top,
         drilled: &drilled,
+        hinge: hinge.map(|hp| (hp.axis, hinge_strips.as_slice())),
         holes: &holes,
         cutters: &cutters,
         count: Counts::default(),
@@ -896,13 +1023,23 @@ pub fn tile(solid: &Mesh, p: &TileParams) -> Result<Tiled, String> {
             tiles.push(t);
         }
     }
-    let info = serde_json::json!({
+    let mut info = serde_json::json!({
         "tiles": tiles.len(), "grid": [nx, ny], "connectors": holes.len(), "rows": zs.len(),
         "bridged_tiles": cutter.count.bridged.load(std::sync::atomic::Ordering::Relaxed), "welded_tiles": cutter.count.welded.load(std::sync::atomic::Ordering::Relaxed), "dropped_specks": cutter.count.dropped.load(std::sync::atomic::Ordering::Relaxed), "thin_wall_holes": thin, "positions_without_room": missed,
         "hole_depth_mm": p.depth, "seam_gap_mm": p.seam_gap, "rod_length_mm": rod_length_with_gap(depth, gap_along), "seams_shifted": moved, "seam_angle_deg": p.seam_angle_deg,
         "loose_pieces": cutter.count.loose.load(std::sync::atomic::Ordering::Relaxed), "loose_tiles": cutter.count.loose_tiles.load(std::sync::atomic::Ordering::Relaxed),
         "reinforced_seams": reinforced, "added_material_mm3": added_volume,
     });
+    if let Some(hp) = hinge {
+        info["connector"] = serde_json::json!("hinge (slide-in)");
+        info["hinge_axis"] = serde_json::json!(hp.axis);
+        info["hinge_clearance_mm"] = serde_json::json!(hp.clearance);
+        info["hinge_paint_out"] = serde_json::json!(hp.paint_out);
+        info["assembly_warning"] = serde_json::json!("Experimental raised-back barrels preserve the flat paint-contact face. Assembly requires axially sliding the parallel hinge seams; preserve sliding access at apertures. No end locks are supplied: use temporary tape or a clamp to prevent axial drift. Perpendicular hex rods must be secured; they are not rotationally rigid locks.");
+        if !hp.paint_out {
+            info["orientation_warning"] = serde_json::json!("Paint-in hinges extend into negative Z: orient each part in the slicer before printing.");
+        }
+    }
     let seam_list = seam_list_all
         .iter()
         .map(|&(a, s, f, t)| [a as f64, s, f, t])
@@ -913,7 +1050,7 @@ pub fn tile(solid: &Mesh, p: &TileParams) -> Result<Tiled, String> {
         .collect();
     Ok(Tiled {
         tiles,
-        rod: (p.shape != Shape::None)
+        rod: rods
             .then(|| connector_rod_with_gap(p.shape, p.diameter, depth, gap_along, p.segments)),
         info,
         seams: seam_list,
@@ -924,6 +1061,133 @@ pub fn tile(solid: &Mesh, p: &TileParams) -> Result<Tiled, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn hinge_test_params(thickness: f64) -> TileParams {
+        TileParams {
+            max_x: 55.0,
+            max_y: 0.0,
+            shape: Shape::Hex,
+            diameter: 3.0,
+            depth: 10.0,
+            clearance: 0.2,
+            seam_gap: 0.0,
+            seam_angle_deg: 0.0,
+            segments: 32,
+            thickness,
+            bridge: None,
+            shift_mm: 0.0,
+            avoid: Vec::new(),
+            reinforce: false,
+        }
+    }
+
+    #[test]
+    fn slide_hinge_split_preserves_multiple_joints_apertures_and_origins() {
+        let flat = Mesh::cuboid([10.0, 20.0, 0.0], [160.0, 100.0, 3.0])
+            .subtract(&Mesh::cuboid([55.0, 45.0, -1.0], [65.0, 65.0, 4.0]))
+            .unwrap();
+        let hp = crate::hinge::Params {
+            axis: 0,
+            thickness: 3.0,
+            clearance: 0.25,
+            paint_out: true,
+        };
+        let tiled = tile_with_hinge(&flat, &hinge_test_params(3.0), &hp).unwrap();
+        assert_eq!(tiled.tiles.len(), 3);
+        assert!(tiled.rod.is_none() && tiled.connectors.is_empty());
+        assert_eq!(
+            tiled.seams,
+            vec![[0.0, 60.0, 20.0, 100.0], [0.0, 110.0, 20.0, 100.0]]
+        );
+        let global: Vec<_> = tiled
+            .tiles
+            .iter()
+            .map(|t| {
+                assert!(t.mesh.is_watertight());
+                assert_eq!(crate::tile_bridge::components(&t.mesh).0, 1, "{}", t.name);
+                assert!(t.mesh.bounds().1[2] > 3.0);
+                let mut mesh = t.mesh.clone();
+                mesh.translate([t.origin[0], t.origin[1], 0.0]);
+                mesh
+            })
+            .collect();
+        let hole = Mesh::cuboid([56.0, 46.0, 0.0], [64.0, 64.0, 3.0]);
+        for mesh in &global {
+            assert!(mesh.intersect(&hole).unwrap().volume().abs() < 1e-4);
+        }
+        for pair in global.windows(2) {
+            assert!(pair[0].intersect(&pair[1]).unwrap().volume().abs() < 1e-4);
+        }
+        assert_eq!(tiled.tiles[0].origin, [10.0, 20.0]);
+        assert_eq!(tiled.tiles[1].origin, [60.0, 20.0]);
+        assert_eq!(tiled.tiles[2].origin, [110.0, 20.0]);
+    }
+
+    #[test]
+    fn slide_hinge_keeps_perpendicular_hex_rods_and_rejects_incompatible_settings() {
+        let flat = Mesh::cuboid([0.0; 3], [100.0, 80.0, 6.0]);
+        let hp = crate::hinge::Params {
+            axis: 0,
+            thickness: 6.0,
+            clearance: 0.25,
+            paint_out: true,
+        };
+        let mut p = hinge_test_params(6.0);
+        p.max_y = 45.0;
+        let tiled = tile_with_hinge(&flat, &p, &hp).unwrap();
+        assert_eq!(tiled.tiles.len(), 4);
+        assert!(tiled.rod.as_ref().unwrap().is_watertight());
+        assert!(!tiled.connectors.is_empty());
+        assert!(tiled.tiles.iter().all(|t| t.mesh.is_watertight()));
+        p.seam_gap = 0.1;
+        assert!(tile_with_hinge(&flat, &p, &hp)
+            .err()
+            .unwrap()
+            .contains("zero seam gap"));
+        p.seam_gap = 0.0;
+        p.seam_angle_deg = 10.0;
+        assert!(tile_with_hinge(&flat, &p, &hp)
+            .err()
+            .unwrap()
+            .contains("zero seam bevel"));
+        p.seam_angle_deg = 0.0;
+        p.thickness = 3.0;
+        let hp = crate::hinge::Params {
+            thickness: 3.0,
+            ..hp
+        };
+        let flat = Mesh::cuboid([0.0; 3], [100.0, 80.0, 3.0]);
+        assert!(tile_with_hinge(&flat, &p, &hp)
+            .err()
+            .unwrap()
+            .contains("perpendicular hex rod diameter"));
+    }
+
+    #[test]
+    fn slide_hinge_paint_in_keeps_negative_z_and_rejects_raised_inputs() {
+        let flat = Mesh::cuboid([0.0; 3], [100.0, 80.0, 3.0]);
+        let hp = crate::hinge::Params {
+            axis: 0,
+            thickness: 3.0,
+            clearance: 0.25,
+            paint_out: false,
+        };
+        let mut p = hinge_test_params(3.0);
+        let tiled = tile_with_hinge(&flat, &p, &hp).unwrap();
+        assert!(tiled.tiles.iter().all(|t| t.mesh.bounds().0[2] < -3.0));
+        assert!(tiled.info["orientation_warning"]
+            .as_str()
+            .unwrap()
+            .contains("negative Z"));
+        let raised = flat
+            .union(&Mesh::cuboid([10.0, 10.0, 2.9], [20.0, 20.0, 5.0]))
+            .unwrap();
+        p.max_x = 200.0;
+        assert!(tile_with_hinge(&raised, &p, &hp)
+            .err()
+            .unwrap()
+            .contains("raised geometry"));
+    }
 
     #[test]
     fn splits_a_plate_and_drills_watertight_tiles() {

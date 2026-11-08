@@ -83,6 +83,66 @@ a warning ("loose pieces dropped where tiles were cut"): paint may reach through
 
 ## Studio
 
+### Experimental roll-up stencils
+
+**Roll-up seams** is marked **Experimental** in the node picker, canvas and inspector.
+Connect a flat Vector stencil (or raster Stencil), with **Bridges before Roll-up seams**
+if there are islands. Start with a 3 mm plate, a generous blank margin, 20 mm hinge
+pitch and 0.25 mm radial clearance. `axis=x` makes hinge lines parallel to Y;
+`axis=y` makes them parallel to X. Slats are distributed evenly so the last one
+is not a tiny remainder; automatic seam shifts prefer continuous solid material.
+
+The default rolls with the paint face outside. The paint-contact face remains flat;
+bead/socket barrels protrude on the **back**, and a stepped overlap shields the
+paint-side clearance line. Only full-material runs of at least 4 mm carry barrels;
+apertures stay open. This is not a paint-tightness guarantee: spray angle, paint
+viscosity, filament, wear and printer tolerances all matter. Print a small sample
+first, inspect the slicer's sideways hinge overhangs, free the joints carefully,
+and test for paint leakage before printing a full stencil.
+The raised horizontal beads can begin above the plate without support. Assess
+removable supports beneath their undersides in the slicer, keeping support out
+of the moving clearance channels. A support-free print is **not** guaranteed.
+
+The node outputs print-in-place assembly STLs, not one loose STL per slat.
+**Largest printed assembly along roll** (200 mm by default) groups slats using
+their actual geometry bounds, including the barrels. Internal seams stay captive
+print-in-place hinges; seams between printed groups become slide-in hinges.
+Use the **Parts** output to download these printable groups. The Solid output
+shows the complete assembled scroll. For a plate too wide across the roll axis,
+split into rows first; the length limit only applies along the roll direction.
+
+**Stiffeners** is a separate downloadable Parts output: two slide-on
+rails grip raised runners on blank border strips, without projecting below the
+paint-contact face. Slide them on for painting and remove them before rolling.
+Rails are split alongside the printable groups. With multiple groups, the output
+also includes a coupler model: print **two copies per group junction**, then slide
+one over each pair of rail ends to lock that boundary flat. Remove the couplers
+and rails before rolling. Slide-in hinges have no integral axial end locks;
+secure axial movement with removable tape/clamps. Check the assembly's dimension
+across the roll axis and its height against your printer too.
+With insufficient blank border, turn off stiffeners or enlarge the margin.
+Paint-face-in currently requires stiffeners off and slicer reorientation.
+
+The report includes seam material coverage, hinge height, fold limit and an
+estimated roll diameter. A requested core smaller than the geometric fold limit
+is increased with a warning. The diameter is not a collision-checked rolled-state
+simulation, especially with raised runners. Geometry-changing nodes are blocked
+after hinging so they cannot weld or erase the working clearances. Pads or geometry
+above the described plate height are rejected. Hinge attachment bands must be
+solid through the plate thickness; a cut that leaves a loose slat also fails.
+
+Both **Split volume** and **Tile plan** also offer an experimental
+`hinge (slide-in)` connector mode, with a separate hinge axis and radial clearance.
+The hinge-axis seams get assemblable joints; perpendicular seams retain hex rods.
+Use zero seam gap and zero bevel for hinged seams. The parts must slide together
+along the hinge axis; leave assembly access and secure axial movement with an
+external clamp or tape. Unlike the print-in-place joints, slide-in joints have no
+integral captive end caps.
+These are standalone connector modes: do not feed already-hinged output into
+Roll-up seams. For print-in-place seams inside printable groups and slide-in
+hinges between them, use Roll-up seams' assembly-length limit. If splitting
+across the roll axis first, keep the existing non-hinge connectors there.
+
 With a binary built with the `studio` feature, `stencil studio [--port N] [--no-open]` serves the studio locally and
 opens it in your browser; everything still runs in the browser tab. Stop it with Ctrl+C.
 The **Crop & rotate** node (Trace lane, image in, image out) crops each side by a percentage, flips, turns by 90° steps and rotates freely by up to ±45° (the canvas grows to fit and the corners are white, i.e. no paint). Place it right after the Image node.

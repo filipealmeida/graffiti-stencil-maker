@@ -25,6 +25,7 @@ mod mesh_import;
 mod mesh_repair;
 mod migrate;
 mod nodes;
+mod roll_up;
 
 pub use catalogue::node_types;
 pub use engine::Engine;

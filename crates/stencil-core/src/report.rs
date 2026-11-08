@@ -39,6 +39,21 @@ pub fn findings(ty: &str, params: &Json, infos: &[Json]) -> Vec<Finding> {
     let mut add = |level: Level, text: String| out.push(Finding { level, text });
     for info in infos {
         let s = &info["stats"];
+        let meta = &info["meta"];
+        for descriptor in [&s["roll_up"], &meta["roll_up"], &meta["hinge"]] {
+            for warning in descriptor["warnings"].as_array().into_iter().flatten() {
+                if let Some(text) = warning.as_str() {
+                    add(Level::Warn, text.to_string());
+                }
+            }
+            for tile in descriptor["tiles"].as_array().into_iter().flatten() {
+                for warning in tile["report"]["warnings"].as_array().into_iter().flatten() {
+                    if let Some(text) = warning.as_str() {
+                        add(Level::Warn, text.to_string());
+                    }
+                }
+            }
+        }
         if s.is_object() {
             if n(&s["islands_remaining"]) > 0.0 {
                 add(

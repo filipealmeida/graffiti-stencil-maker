@@ -1,21 +1,14 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import { STLLoader } from 'three/examples/jsm/loaders/STLLoader.js'
 import { toCreasedNormals } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
 import type { MeshMarkers } from './api'
 import { logAction, useStudio } from './store'
+import { layoutPlateMeta, type PlateMeta } from './plateMeta'
+export type { PlateMeta } from './plateMeta'
 
 export interface Part { name: string; url: string }
-/** The plate description a Tiles node (and Pads node) attaches to its parts. */
-export interface PlateMeta {
-  w: number; h: number
-  parts: { file: string; origin: [number, number]; size: [number, number] }[]
-  connectors?: number[][]
-  pads?: { x: number; y: number; r: number }[]
-  holes?: { x: number; y: number; r: number }[]
-  joins?: { a: [number, number]; b: [number, number] }[]
-}
 interface Scene3D {
   meshes: THREE.Mesh[]
   geos: { hi: THREE.BufferGeometry; lo?: THREE.BufferGeometry; sm?: THREE.BufferGeometry; lod: boolean; base?: THREE.BufferAttribute | null; frag?: THREE.BufferAttribute | null; fragOn?: boolean }[]
@@ -122,7 +115,8 @@ function coarse(src: THREE.BufferGeometry): THREE.BufferGeometry {
 // the camera survives regenerations so a finished run doesn't reset the user's view
 let savedCam: { pos: THREE.Vector3; target: THREE.Vector3 } | null = null
 
-export default function Viewer3D({ parts, plate, defects }: { parts: Part[]; plate?: PlateMeta | null; defects?: MeshMarkers }) {
+export default function Viewer3D({ parts, plate: metadata, defects }: { parts: Part[]; plate?: PlateMeta | null; defects?: MeshMarkers }) {
+  const plate = useMemo(() => layoutPlateMeta(metadata), [metadata])
   const host = useRef<HTMLDivElement>(null)
   const sc = useRef<Scene3D | null>(null)
   const [wire, setWire] = useState(false)

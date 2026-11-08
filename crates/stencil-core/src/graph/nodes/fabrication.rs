@@ -259,6 +259,12 @@ pub(in crate::graph) fn run_tiles(
         return Err("nothing is connected to the 'solid' input: connect a solid".into());
     };
     let st = &s.stats;
+    if ["roll_up", "roll_up_seams", "hinge"]
+        .iter()
+        .any(|key| st.get(*key).is_some_and(|v| !v.is_null()))
+    {
+        return Err("cannot split an already-hinged Roll-up stencil: splitting would cut or weld its joints; split the flat plate before adding hinges".into());
+    }
     let (lh, thickness) = (
         st["layer_height_mm"].as_f64().unwrap_or(0.2),
         st["thickness_mm"].as_f64().unwrap_or(0.0),
@@ -281,7 +287,12 @@ pub(in crate::graph) fn run_tiles(
     };
     let mesh = crate::mesh::Mesh::from_stl(&s.stl)?;
     crate::progress::step("read plate", 0.05);
-    let t = tiles::tile(&mesh, &tp)?;
+    let t = if p.s("connector") == "hinge (slide-in)" {
+        let hp = super::tiling::hinge_params(p, st["plate_top_mm"].as_f64().unwrap_or(thickness));
+        tiles::tile_with_hinge(&mesh, &tp, &hp)?
+    } else {
+        tiles::tile(&mesh, &tp)?
+    };
     crate::progress::step("cut tiles", 0.9);
     let mut files = Vec::new();
     let mut parts = Vec::new();
@@ -297,14 +308,18 @@ pub(in crate::graph) fn run_tiles(
         files.push((
             format!(
                 "connector_{}_d{}mm.stl",
-                p.s("connector"),
+                if p.s("connector") == "hinge (slide-in)" {
+                    "hex"
+                } else {
+                    p.s("connector")
+                },
                 p.s("connector_d")
             ),
             r.to_stl(),
         ));
     }
     let (lo, hi) = mesh.bounds();
-    let meta = json!({
+    let mut meta = json!({
         "tiling": t.info,
         "plate": {
             "w": hi[0] - lo[0], "h": hi[1] - lo[1], "thickness": thickness, "layer": lh,
@@ -312,6 +327,21 @@ pub(in crate::graph) fn run_tiles(
             "seams": t.seams, "connectors": t.connectors, "parts": parts,
         },
     });
+    if p.s("connector") == "hinge (slide-in)" {
+        let hp = super::tiling::hinge_params(p, st["plate_top_mm"].as_f64().unwrap_or(thickness));
+        meta["hinge"] = json!({
+            "connector": "hinge (slide-in)", "axis": hp.axis,
+            "clearance_mm": p.f("hinge_clearance"), "paint_out": p.b("hinge_paint_out"),
+            "captive": false, "raised_back": true, "axially_locked": false,
+            "thickness_mm": hp.thickness, "back_height_mm": hp.back_height(),
+            "seams": t.seams.iter().filter(|s| s[0] == hp.axis as f64).collect::<Vec<_>>(),
+        });
+        meta["plate"]["top"] = json!(t
+            .tiles
+            .iter()
+            .map(|t| t.mesh.bounds().1[2])
+            .fold(f64::NEG_INFINITY, f64::max));
+    }
     Ok(vec![(
         "parts",
         Value::Parts(Rc::new(Parts { files, meta })),

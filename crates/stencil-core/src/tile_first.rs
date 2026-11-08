@@ -179,6 +179,8 @@ pub struct Layout {
     pub xs: Vec<f64>,
     pub ys: Vec<f64>,
     pub spec: Connectors,
+    /// Experimental parallel slide-in seams. Thickness is supplied by the stencil build.
+    pub hinge: Option<crate::hinge::Params>,
     pub pockets: Vec<Pocket>,
     /// Where each pocket sat before the pocket edits (the seams already edited).
     pub pocket_auto_u: Vec<f64>,
@@ -293,6 +295,7 @@ pub fn from_mask(
         xs,
         ys,
         spec: lp.spec.clone(),
+        hinge: None,
         pockets,
         pocket_auto_u,
         auto_xs,
@@ -348,6 +351,7 @@ pub fn from_shapes(shapes: &Shapes, lp: &LayoutParams) -> Result<Layout, String>
         xs,
         ys,
         spec: lp.spec.clone(),
+        hinge: None,
         pockets,
         pocket_auto_u,
         auto_xs,
@@ -707,7 +711,14 @@ fn cut_tile(
     } else {
         (x0, x1)
     };
-    let clip = Mesh::cuboid([px0, y0, -1.0], [px1, y1, top + 1.0]);
+    let (lo, hi) = global.bounds();
+    let mut a = [px0, y0, lo[2] - 1.0];
+    let mut b = [px1, y1, hi[2] + 1.0];
+    if let Some(hp) = &l.hinge {
+        a[hp.axis] = lo[hp.axis] - 1.0;
+        b[hp.axis] = hi[hp.axis] + 1.0;
+    }
+    let clip = Mesh::cuboid(a, b);
     let mut m = global.intersect(&clip)?;
     let loose = crate::tile_bridge::components(&m).0.saturating_sub(1);
     let layer = p.layer_height_mm;
@@ -722,7 +733,11 @@ fn cut_tile(
         flip: p.flip,
         ..Default::default()
     };
-    for _ in 0..if p.bridging { 3 } else { 0 } {
+    for _ in 0..if p.bridging && l.hinge.is_none() {
+        3
+    } else {
+        0
+    } {
         let Some(b) = crate::tile_bridge::bridge_mesh(&m, &[], &bp)? else {
             break;
         };
@@ -730,7 +745,7 @@ fn cut_tile(
     }
     let mut dropped = 0;
     let (left, of) = crate::tile_bridge::components(&m);
-    if left > 1 && p.bridging {
+    if left > 1 && p.bridging && l.hinge.is_none() {
         let mut tris = vec![0usize; left];
         let mut lo = vec![[f64::MAX; 2]; left];
         let mut hi = vec![[f64::MIN; 2]; left];
@@ -791,50 +806,64 @@ fn build_tile(
     );
     let fail = |e: String| format!("tile {name}: {e}");
     let mut dropped = 0usize;
-    let out: Output = match (m, &l.source) {
-        (Method::Raster(_), Source::Raster { w, h, cell, paint }) => {
-            let cells = |v: f64| (v / cell).round() as usize;
-            let (c0, c1, g0, g1) = (cells(x0), cells(x1), cells(y0), cells(y1));
-            let mut crop = Vec::with_capacity((c1 - c0) * (g1 - g0));
-            for r in (h - g1)..(h - g0) {
-                crop.extend_from_slice(&paint[r * w + c0..r * w + c1]);
+    let out: Output = if l.hinge.is_some() {
+        let (o, d) = cut_tile(
+            whole.ok_or("the hinged whole plate was not built")?,
+            p,
+            l,
+            (x0, x1, y0, y1),
+        )
+        .map_err(fail)?;
+        dropped = d;
+        o
+    } else {
+        match (m, &l.source) {
+            (Method::Raster(_), Source::Raster { w, h, cell, paint }) => {
+                let cells = |v: f64| (v / cell).round() as usize;
+                let (c0, c1, g0, g1) = (cells(x0), cells(x1), cells(y0), cells(y1));
+                let mut crop = Vec::with_capacity((c1 - c0) * (g1 - g0));
+                for r in (h - g1)..(h - g0) {
+                    crop.extend_from_slice(&paint[r * w + c0..r * w + c1]);
+                }
+                let q = Params {
+                    width_mm: (c1 - c0) as f64 * cell,
+                    margin_mm: 0.0,
+                    frame_largest: true,
+                    ..p.clone()
+                };
+                crate::stencil_from_paint(&crop, c1 - c0, g1 - g0, 0, &q).map_err(fail)?
             }
-            let q = Params {
-                width_mm: (c1 - c0) as f64 * cell,
-                margin_mm: 0.0,
-                frame_largest: true,
-                ..p.clone()
-            };
-            crate::stencil_from_paint(&crop, c1 - c0, g1 - g0, 0, &q).map_err(fail)?
-        }
-        (Method::Vector(_, detail), Source::Vector(shapes)) => {
-            let solid = l
-                .pockets
-                .iter()
-                .map(|pk| pk.block(&l.spec))
-                .filter_map(|b| {
-                    let r = [b[0].max(x0), b[1].max(y0), b[2].min(x1), b[3].min(y1)];
-                    (r[0] < r[2] && r[1] < r[3]).then_some(r)
-                })
-                .collect();
-            let win = Window {
-                origin: [x0, y0],
-                size: [tw, th],
-                solid,
-            };
-            vector_stencil::build_with(shapes, *detail, p, Some(&win)).map_err(fail)?
-        }
-        (Method::Cut(..), Source::Vector(_)) => {
-            let whole = whole.ok_or("the whole plate was not built")?;
-            let (o, d) = cut_tile(whole, p, l, (x0, x1, y0, y1)).map_err(fail)?;
-            dropped = d;
-            o
-        }
-        (Method::Raster(_), _) => {
-            return Err("this layout was made from shapes: connect it to a Vector stencil".into())
-        }
-        (Method::Vector(..) | Method::Cut(..), _) => {
-            return Err("this layout was made from a mask: connect it to a Stencil".into())
+            (Method::Vector(_, detail), Source::Vector(shapes)) => {
+                let solid = l
+                    .pockets
+                    .iter()
+                    .map(|pk| pk.block(&l.spec))
+                    .filter_map(|b| {
+                        let r = [b[0].max(x0), b[1].max(y0), b[2].min(x1), b[3].min(y1)];
+                        (r[0] < r[2] && r[1] < r[3]).then_some(r)
+                    })
+                    .collect();
+                let win = Window {
+                    origin: [x0, y0],
+                    size: [tw, th],
+                    solid,
+                };
+                vector_stencil::build_with(shapes, *detail, p, Some(&win)).map_err(fail)?
+            }
+            (Method::Cut(..), Source::Vector(_)) => {
+                let whole = whole.ok_or("the whole plate was not built")?;
+                let (o, d) = cut_tile(whole, p, l, (x0, x1, y0, y1)).map_err(fail)?;
+                dropped = d;
+                o
+            }
+            (Method::Raster(_), _) => {
+                return Err(
+                    "this layout was made from shapes: connect it to a Vector stencil".into(),
+                )
+            }
+            (Method::Vector(..) | Method::Cut(..), _) => {
+                return Err("this layout was made from a mask: connect it to a Stencil".into())
+            }
         }
     };
     if (p.bridging && out.stats.islands_remaining != 0) || !out.stats.watertight {
@@ -864,6 +893,11 @@ fn build_tile(
                 c.segments,
                 pk.axis,
             );
+            let z = if l.hinge.as_ref().is_some_and(|hp| !hp.paint_out) {
+                -z
+            } else {
+                z
+            };
             r.translate([lx, cy - y0, z]);
             cutters.append(&r);
         }
@@ -919,6 +953,7 @@ fn build_tile(
             small.join("; ")
         )));
     }
+    let top = mesh.bounds().1[2];
     Ok(TileOut {
         tile: tiles::Tile {
             name,
@@ -929,7 +964,7 @@ fn build_tile(
         islands: out.stats.islands_found,
         bridges: out.stats.bridge_pixels,
         fallback: out.fallback,
-        top: out.stats.thickness_mm,
+        top,
         dropped,
         loose: pieces - 1,
     })
@@ -1046,24 +1081,92 @@ pub fn build(l: &Layout, m: &Method) -> Result<Built, String> {
     };
     let (nx, ny) = (l.xs.len() - 1, l.ys.len() - 1);
     let c = &l.spec;
-    if nx * ny > 1 && c.shape != Shape::None {
-        tiles::check_connector(c.shape, c.diameter, p.thickness_mm)?;
+    let rods = !l.pockets.is_empty();
+    if (l.hinge.is_none() && nx * ny > 1 && c.shape != Shape::None) || (l.hinge.is_some() && rods) {
+        tiles::check_connector(c.shape, c.diameter, p.thickness_mm).map_err(|e| {
+            if l.hinge.is_some() {
+                format!("perpendicular hex rod diameter {} mm is incompatible with plate thickness {} mm: {e}", c.diameter, p.thickness_mm)
+            } else { e }
+        })?;
     }
     let zs = tiles::row_heights(c.shape, c.diameter + c.clearance, p.thickness_mm);
     let cells: Vec<(usize, usize)> = (0..ny)
         .rev()
         .flat_map(|j| (0..nx).map(move |i| (i, j)))
         .collect();
-    let whole = match (m, &l.source) {
-        (Method::Cut(_, detail), Source::Vector(shapes)) => {
+    let whole = match (m, &l.source, l.hinge.is_some()) {
+        (Method::Raster(_), Source::Raster { w, h, cell, paint }, true) => {
+            let q = Params {
+                width_mm: *w as f64 * cell,
+                margin_mm: 0.0,
+                frame_largest: true,
+                ..p.clone()
+            };
+            let out = crate::stencil_from_paint(paint, *w, *h, 0, &q)?;
+            Some((Mesh::from_stl(&out.stl)?, out))
+        }
+        (Method::Vector(_, detail), Source::Vector(shapes), true)
+        | (Method::Cut(_, detail), Source::Vector(shapes), _) => {
             let w = whole_plate(l, shapes, *detail, p)?;
             crate::progress::step("bridge the whole plate", 0.5);
             Some(w)
         }
+        (_, _, true) => {
+            return Err("the hinge layout source does not match the stencil method".into());
+        }
         _ => None,
     };
+    let mut hinged = Vec::new();
+    if let Some(hp) = &l.hinge {
+        if c.seam_gap != 0.0 {
+            return Err("hinge (slide-in) requires zero seam gap".into());
+        }
+        if p.thickness_mm < 3.0 {
+            return Err("hinge (slide-in) requires a plate thickness of at least 3 mm".into());
+        }
+        let (global, out) = whole.as_ref().ok_or("the hinge plate was not built")?;
+        let hp = crate::hinge::Params {
+            axis: hp.axis,
+            thickness: out.stats.thickness_mm,
+            clearance: hp.clearance,
+            paint_out: hp.paint_out,
+        };
+        let mut coords: Vec<f64> = if hp.axis == 0 {
+            l.xs[1..nx]
+                .iter()
+                .map(|&x| if p.flip { l.width - x } else { x })
+                .collect()
+        } else {
+            l.ys[1..ny].to_vec()
+        };
+        coords.sort_by(f64::total_cmp);
+        for mesh in tiles::hinge_strips(global, &coords, &hp, false)? {
+            hinged.push((
+                mesh,
+                Output {
+                    stl: out.stl.clone(),
+                    stats: out.stats.clone(),
+                    fallback: out.fallback.clone(),
+                },
+            ));
+        }
+    }
     let results = crate::par::map(&cells, |&cell| {
-        build_tile(l, m, p, cell, &zs, whole.as_ref())
+        let source = if let Some(hp) = &l.hinge {
+            let idx = if hp.axis == 0 {
+                if p.flip {
+                    nx - 1 - cell.0
+                } else {
+                    cell.0
+                }
+            } else {
+                cell.1
+            };
+            hinged.get(idx)
+        } else {
+            whole.as_ref()
+        };
+        build_tile(l, m, p, cell, &zs, source)
     });
     let mut outs = Vec::new();
     for r in results {
@@ -1077,7 +1180,7 @@ pub fn build(l: &Layout, m: &Method) -> Result<Built, String> {
                 .map(|f| json!({"tile": o.tile.name, "note": f}))
         })
         .collect();
-    let info = json!({
+    let mut info = json!({
         "tiles": outs.len(), "grid": [nx, ny], "connectors": l.pockets.len(),
         "rows": if l.pockets.is_empty() { 0 } else { zs.len() },
         "pre_tiled": true, "islands_bridged": outs.iter().map(|o| o.islands).sum::<usize>(),
@@ -1092,6 +1195,17 @@ pub fn build(l: &Layout, m: &Method) -> Result<Built, String> {
         "rod_length_mm": tiles::rod_length_with_gap(c.depth, c.seam_gap),
         "paint_under_blocks_mm2": (l.paint_under_blocks_mm2() * 10.0).round() / 10.0,
     });
+    if let Some(hp) = &l.hinge {
+        info["connector"] = json!("hinge (slide-in)");
+        info["hinge_axis"] = json!(hp.axis);
+        info["hinge_clearance_mm"] = json!(hp.clearance);
+        info["hinge_paint_out"] = json!(hp.paint_out);
+        info["tile_method"] = json!("hinge_whole");
+        info["assembly_warning"] = json!("Experimental raised-back barrels preserve the flat paint-contact face. Assembly requires axially sliding the parallel hinge seams; preserve sliding access at apertures. No end locks are supplied: use temporary tape or a clamp to prevent axial drift. Perpendicular hex rods must be secured; they are not rotationally rigid locks.");
+        if !hp.paint_out {
+            info["orientation_warning"] = json!("Paint-in hinges extend into negative Z: orient each part in the slicer before printing.");
+        }
+    }
     let top = outs.first().map_or(0.0, |o| o.top);
     // plate coordinates of the printed tiles: a flipped plate is mirrored about its width
     let fx = |x: f64| if p.flip { l.width - x } else { x };
@@ -1127,6 +1241,37 @@ pub fn build(l: &Layout, m: &Method) -> Result<Built, String> {
 }
 
 impl Layout {
+    /// Select slide-in joints and remove the parallel rod reservations, including raster blocks.
+    pub fn set_hinge(&mut self, hp: crate::hinge::Params) -> Result<(), String> {
+        if hp.axis > 1 {
+            return Err("hinge axis must be x (0) or y (1), the constant seam coordinate".into());
+        }
+        if self.spec.seam_gap != 0.0 {
+            return Err("hinge (slide-in) requires zero seam gap".into());
+        }
+        let kept: Vec<_> = self
+            .pockets
+            .iter()
+            .copied()
+            .zip(self.pocket_auto_u.iter().copied())
+            .filter(|(pk, _)| pk.axis != hp.axis)
+            .collect();
+        self.pockets = kept.iter().map(|(pk, _)| *pk).collect();
+        self.pocket_auto_u = kept.iter().map(|(_, u)| *u).collect();
+        self.spec.shape = Shape::Hex;
+        if let Source::Raster { paint, .. } = &mut self.source {
+            *paint = self.cover.paint.clone();
+            for pk in &self.pockets {
+                let (c0, c1, r0, r1) = self.cover.range(pk.block(&self.spec));
+                for r in r0..r1 {
+                    paint[r * self.cover.gw + c0..r * self.cover.gw + c1].fill(false);
+                }
+            }
+        }
+        self.hinge = Some(hp);
+        Ok(())
+    }
+
     /// The range a pocket's centre may take along its seam.
     pub fn pocket_range(&self, pk: &Pocket) -> (f64, f64) {
         pocket_range(&self.spec, &self.xs, &self.ys, pk)
@@ -1192,6 +1337,91 @@ mod tests {
             margin_mm: 10.0,
             bridge_mm: 2.0,
             ..Params::default()
+        }
+    }
+
+    #[test]
+    fn hinge_layout_builds_raster_and_vector_tiles_without_parallel_rod_blocks() {
+        let paint: Vec<_> = (0..40 * 40)
+            .map(|i| {
+                let (x, y) = (i % 40, i / 40);
+                (17..23).contains(&x) && (15..25).contains(&y)
+            })
+            .collect();
+        let shapes = crate::trace::trace(
+            &paint,
+            40,
+            40,
+            &crate::trace::TraceParams {
+                smooth_px: 0.0,
+                corner_deg: 60.0,
+                tolerance_px: 0.2,
+                min_area_px: 1.0,
+            },
+        );
+        for axis in [0, 1] {
+            let lp = LayoutParams {
+                max_x: if axis == 0 { 70.0 } else { 0.0 },
+                max_y: if axis == 1 { 70.0 } else { 0.0 },
+                ..lp()
+            };
+            for vector in [false, true] {
+                let mut l = if vector {
+                    from_shapes(&shapes, &lp).unwrap()
+                } else {
+                    from_mask(&paint, 40, 40, &lp).unwrap()
+                };
+                l.set_hinge(crate::hinge::Params {
+                    axis,
+                    thickness: 0.0,
+                    clearance: 0.25,
+                    paint_out: true,
+                })
+                .unwrap();
+                assert!(l.pockets.is_empty());
+                if let Source::Raster { paint: full, .. } = &l.source {
+                    assert_eq!(
+                        full, &l.cover.paint,
+                        "parallel rods must not fill apertures"
+                    );
+                }
+                for flip in [false, true] {
+                    let p = Params {
+                        flip,
+                        thickness_mm: 3.0,
+                        bridging: false,
+                        ..params()
+                    };
+                    let method = if vector {
+                        Method::Vector(&p, 1.0)
+                    } else {
+                        Method::Raster(&p)
+                    };
+                    let b = build(&l, &method).unwrap();
+                    assert_eq!(b.tiles.len(), 2);
+                    for t in &b.tiles {
+                        assert!(t.mesh.is_watertight());
+                        assert_eq!(
+                            crate::tile_bridge::components(&t.mesh).0,
+                            1,
+                            "axis={axis} vector={vector} flip={flip} {}",
+                            t.name
+                        );
+                    }
+                    assert!(b.connectors.is_empty());
+                    assert_eq!(b.info["connector"], "hinge (slide-in)");
+                    assert!(b.info["assembly_warning"]
+                        .as_str()
+                        .unwrap()
+                        .contains("No end locks"));
+                    assert!(b.tiles.iter().all(|t| t.mesh.bounds().1[2] > 3.0));
+                    let mut a = b.tiles[0].mesh.clone();
+                    let mut c = b.tiles[1].mesh.clone();
+                    a.translate([b.tiles[0].origin[0], b.tiles[0].origin[1], 0.0]);
+                    c.translate([b.tiles[1].origin[0], b.tiles[1].origin[1], 0.0]);
+                    assert!(a.intersect(&c).unwrap().volume().abs() < 1e-4);
+                }
+            }
         }
     }
 

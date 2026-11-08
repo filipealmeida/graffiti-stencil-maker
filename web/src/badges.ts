@@ -44,6 +44,16 @@ export function badgesForNode(graph: FindingGraph, id: string, output: string, i
 export function badgesFor(type: string, params: Record<string, unknown>, info: Info | null | undefined): Badge[] {
   const out: Badge[] = []
   const s = info?.stats
+  const warnings = (value: unknown) => {
+    if (Array.isArray(value))
+      for (const text of value)
+        if (typeof text === 'string' && text.trim()) out.push({ level: 'warn', text })
+  }
+  warnings(s?.roll_up?.warnings)
+  warnings(info?.meta?.roll_up?.warnings)
+  warnings(info?.meta?.hinge?.warnings)
+  if (Array.isArray(info?.meta?.roll_up?.tiles))
+    for (const tile of info.meta.roll_up.tiles) warnings(tile?.report?.warnings)
   if (s) {
     if (n(s.islands_remaining) > 0) out.push({ level: 'error', text: `${n(s.islands_remaining)} island${n(s.islands_remaining) > 1 ? 's' : ''} remain` })
     if (s.watertight === false) out.push({ level: 'error', text: 'mesh is not watertight' })

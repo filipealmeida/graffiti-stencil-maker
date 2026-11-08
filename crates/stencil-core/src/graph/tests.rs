@@ -901,6 +901,124 @@ fn tiles_node_cuts_a_stencil_and_describes_the_plate() {
 }
 
 #[test]
+fn slide_hinge_graph_split_and_tile_plan_build_actual_joint_parts() {
+    let image = image::GrayImage::from_fn(40, 40, |x, y| {
+        image::Luma([if (17..23).contains(&x) && (15..25).contains(&y) {
+            0
+        } else {
+            255
+        }])
+    });
+    let mut bytes = std::io::Cursor::new(Vec::new());
+    image.write_to(&mut bytes, image::ImageFormat::Png).unwrap();
+    let mut e = Engine::new();
+    let id = e.add_image(bytes.into_inner()).unwrap()["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    for plan in [false, true] {
+        for vector in [false, true] {
+            for axis in ["x", "y"] {
+                let mut nodes = vec![
+                    json!({"id": "s", "type": "source", "params": {"image_id": id, "resolution": 40}}),
+                    json!({"id": "t", "type": "threshold", "params": {}}),
+                    json!({"id": "st", "type": if vector { "vector_stencil" } else { "stencil" },
+                        "params": {"width_mm": 120, "margin_mm": 10, "thickness_mm": 3, "extra_top_layers": 0}}),
+                ];
+                let mut edges = vec![json!({"from": ["s", "image"], "to": ["t", "image"]})];
+                let source = if vector {
+                    nodes.push(json!({"id": "tr", "type": "trace", "params": {}}));
+                    edges.push(json!({"from": ["t", "mask"], "to": ["tr", "mask"]}));
+                    ["tr", "shapes"]
+                } else {
+                    ["t", "mask"]
+                };
+                nodes.push(json!({"id": "split", "type": if plan { "tile_layout" } else { "tiles" },
+                    "params": {"connector": "hinge (slide-in)", "hinge_axis": axis, "hinge_clearance": 0.25,
+                        "hinge_paint_out": true, "seam_gap": 0, "seam_angle_deg": 0,
+                        "width_mm": 120, "margin_mm": 10,
+                        "max_x": if axis == "x" { 70 } else { 2000 }, "max_y": if axis == "y" { 70 } else { 2000 }}}));
+                if plan {
+                    edges.push(json!({"from": source, "to": ["split", source[1]]}));
+                    edges.push(json!({"from": ["split", "tiles"], "to": ["st", "tiles"]}));
+                } else {
+                    edges.push(json!({"from": source, "to": ["st", source[1]]}));
+                    edges.push(json!({"from": ["st", "solid"], "to": ["split", "solid"]}));
+                }
+                let g = json!({"nodes": nodes, "edges": edges});
+                let result = e.run(&g, None, &|| 0.0);
+                let output = if plan { "st" } else { "split" };
+                assert_eq!(
+                    result["nodes"][output]["state"], "done",
+                    "plan={plan} vector={vector} axis={axis}: {result}"
+                );
+                let Some(Value::Parts(parts)) =
+                    e.value(result["nodes"][output]["key"].as_str().unwrap(), "parts")
+                else {
+                    panic!()
+                };
+                assert_eq!(parts.meta["hinge"]["captive"], false);
+                assert_eq!(parts.meta["hinge"]["axially_locked"], false);
+                assert_eq!(parts.meta["plate"]["parts"].as_array().unwrap().len(), 2);
+                assert_eq!(parts.files.len(), 2, "parallel joints need no loose rods");
+                assert!(parts.meta["tiling"]["assembly_warning"]
+                    .as_str()
+                    .unwrap()
+                    .contains("axially sliding"));
+                let mut assembled = Vec::new();
+                for record in parts.meta["plate"]["parts"].as_array().unwrap() {
+                    let file = record["file"].as_str().unwrap();
+                    let stl = &parts.files.iter().find(|(name, _)| name == file).unwrap().1;
+                    let mut mesh = crate::mesh::Mesh::from_stl(stl).unwrap();
+                    assert!(mesh.is_watertight(), "{file}");
+                    assert_eq!(crate::tile_bridge::components(&mesh).0, 1, "{file}");
+                    assert!(
+                        mesh.bounds().1[2] > 3.0,
+                        "actual barrels must survive tile clipping"
+                    );
+                    mesh.translate([
+                        record["origin"][0].as_f64().unwrap(),
+                        record["origin"][1].as_f64().unwrap(),
+                        0.0,
+                    ]);
+                    assembled.push(mesh);
+                }
+                assert!(
+                    assembled[0]
+                        .intersect(&assembled[1])
+                        .unwrap()
+                        .volume()
+                        .abs()
+                        < 1e-4
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn slide_hinge_graph_rejects_gap_and_bevel_without_rod_fallback() {
+    let mut e = Engine::new();
+    let id = e.add_image(test_png()).unwrap()["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    for params in [
+        json!({"connector": "hinge (slide-in)", "max_x": 70, "seam_gap": 0.2}),
+        json!({"connector": "hinge (slide-in)", "max_x": 70, "seam_gap": 0, "seam_angle_deg": 15}),
+    ] {
+        let mut g = graph(&id, 6.0);
+        g["nodes"][3] = json!({"id": "ex", "type": "tiles", "params": params});
+        let result = e.run(&g, None, &|| 0.0);
+        assert_eq!(result["nodes"]["ex"]["state"], "error", "{result}");
+        assert!(result["nodes"]["ex"]["error"]
+            .as_str()
+            .unwrap()
+            .contains("zero seam"));
+    }
+}
+
+#[test]
 fn pad_thread_none_adds_no_pads_but_keeps_the_mounting_holes() {
     let mut e = Engine::new();
     let id = e.add_image(test_png()).unwrap()["id"]

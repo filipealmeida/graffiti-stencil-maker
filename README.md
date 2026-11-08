@@ -55,6 +55,7 @@ The page and engine worker share their request, result, progress, and error type
 - Image thresholding, colour reduction and splitting, tone patterns, and editable traced curves.
 - Optional raised bridges that preserve islands on the first layer.
 - Tiling, connector rods, threaded pads and mounting holes, joiner/extender plates, and ZIP export.
+- Experimental roll-up stencil seams, raised-back print-in-place hinges, slide-in split joints and removable stiffener rails.
 - Real M3, M4, M5, M6, M8 and M10 thread geometry.
 - SVG input and saved graph projects in the CLI.
 

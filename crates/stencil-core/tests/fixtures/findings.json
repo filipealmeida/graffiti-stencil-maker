@@ -376,5 +376,32 @@
         "text": "1 piece loose in 1 tile: join them with Bridges or drop them with Remove fragments"
       }
     ]
+  },
+  {
+    "name": "experimental roll-up warnings on a solid",
+    "type": "roll_up_seams",
+    "params": {},
+    "info": {"kind": "solid", "stats": {"roll_up": {"warnings": ["Experimental hinges: verify paint leakage."]}}},
+    "expected": [{"level": "warn", "text": "Experimental hinges: verify paint leakage."}]
+  },
+  {
+    "name": "experimental roll-up warnings per tile",
+    "type": "roll_up_seams",
+    "params": {},
+    "info": {"kind": "parts", "meta": {"roll_up": {
+      "warnings": ["Remove stiffeners before rolling."],
+      "tiles": [{"report": {"warnings": ["Roll diameter is an estimate."]}}]
+    }}},
+    "expected": [
+      {"level": "warn", "text": "Remove stiffeners before rolling."},
+      {"level": "warn", "text": "Roll diameter is an estimate."}
+    ]
+  },
+  {
+    "name": "experimental assemblable hinge warnings",
+    "type": "tiles",
+    "params": {},
+    "info": {"kind": "parts", "meta": {"hinge": {"warnings": ["Secure axial movement after assembly."]}}},
+    "expected": [{"level": "warn", "text": "Secure axial movement after assembly."}]
   }
 ]

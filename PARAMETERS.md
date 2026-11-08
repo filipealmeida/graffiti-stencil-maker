@@ -228,7 +228,10 @@
 | `max_y` | Largest tile height (mm) | float | `150.0` | 0.0 to 2000.0 |
 | `seam_shift` | Seam may move up to (mm) | float | `8.0` | 0.0 to 50.0 |
 | `seam_gap` | Seam clearance (mm, total) | float | `0.0` | 0.0 to 1.0 |
-| `connector` | Connector shape | choice | `"hex"` | hex \| round \| none |
+| `connector` | Connector shape | choice | `"hex"` | hex \| round \| none \| hinge (slide-in) |
+| `hinge_axis` | Hinge seam coordinate (experimental) | choice | `"x"` | x \| y |
+| `hinge_clearance` | Hinge radial clearance (mm) | float | `0.25` | 0.15 to 0.5 |
+| `hinge_paint_out` | Roll with paint face outside | bool | `true` | true \| false |
 | `connector_d` | Connector diameter (mm) | choice | `"3"` | 2.5 \| 3 \| 4 \| 5 \| 6 |
 | `depth` | Connector depth into each tile (mm) | float | `10.0` | 4.0 to 20.0 |
 | `clearance` | Connector hole clearance (mm, diametral) | float | `0.2` | 0.0 to 0.6 |
@@ -285,6 +288,20 @@
 | `mount_offset` | Distance from a seam to the hole (mm) | float | `10.0` | 4.0 to 60.0 |
 | `mount_extend` | Extender plate: distance between the two rows of holes (mm) | float | `20.0` | 8.0 to 100.0 |
 
+### Roll-up seams (`roll_up_seams`)
+
+| Parameter | Label | Type | Default | Range or choices |
+|---|---|---|---|---|
+| `pitch` | Hinge pitch (mm) | float | `20.0` | 12.0 to 200.0 |
+| `axis` | Seam coordinate | choice | `"x"` | x \| y |
+| `seam_shift` | Seam may move up to (mm) | float | `2.0` | 0.0 to 10.0 |
+| `clearance` | Radial clearance (mm) | float | `0.25` | 0.15 to 0.5 |
+| `paint_out` | Roll with paint face outside | bool | `true` | true \| false |
+| `core_diameter` | Requested inner roll diameter (mm) | float | `60.0` | 30.0 to 500.0 |
+| `max_assembly_length` | Largest printed assembly along roll (mm) | float | `200.0` | 40.0 to 2000.0 |
+| `stiffeners` | Make slide-on stiffener rails | bool | `true` | true \| false |
+| `rail_clearance` | Stiffener clearance (mm, per side) | float | `0.25` | 0.15 to 0.5 |
+
 ### Split volume (`tiles`)
 
 | Parameter | Label | Type | Default | Range or choices |
@@ -295,7 +312,10 @@
 | `seam_gap` | Seam clearance (mm, total) | float | `0.2` | 0.0 to 1.0 |
 | `seam_angle_deg` | Seam bevel angle (deg from vertical, 0 = straight) | float | `0.0` | 0.0 to 60.0 |
 | `reinforce` | Add material where no connector fits | bool | `true` | true \| false |
-| `connector` | Connector shape | choice | `"hex"` | hex \| round \| none |
+| `connector` | Connector shape | choice | `"hex"` | hex \| round \| none \| hinge (slide-in) |
+| `hinge_axis` | Hinge seam coordinate (experimental) | choice | `"x"` | x \| y |
+| `hinge_clearance` | Hinge radial clearance (mm) | float | `0.25` | 0.15 to 0.5 |
+| `hinge_paint_out` | Roll with paint face outside | bool | `true` | true \| false |
 | `connector_d` | Connector diameter (mm) | choice | `"4"` | 2.5 \| 3 \| 4 \| 5 \| 6 |
 | `depth` | Connector depth into each tile (mm) | float | `10.0` | 4.0 to 20.0 |
 | `clearance` | Connector hole clearance (mm, diametral) | float | `0.2` | 0.0 to 0.6 |

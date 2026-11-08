@@ -1,11 +1,18 @@
 import { useEffect, useRef, useState } from "react";
 import useDialogFocus from './useDialogFocus'
+import CatalogueLabel from './CatalogueLabel'
 
 export interface PaletteAction {
   id: string;
   title: string;
   note: string;
+  experimental?: boolean;
   run: () => void;
+}
+
+export function paletteItems(actions: PaletteAction[], query: string): PaletteAction[] {
+  const needle = query.trim().toLowerCase()
+  return (needle ? actions.filter((a) => `${a.title} ${a.note}${a.experimental ? ' Experimental' : ''}`.toLowerCase().includes(needle)) : actions).slice(0, 14)
 }
 
 /** Ctrl+K: type to filter nodes and templates, Enter or a click runs the match. */
@@ -17,8 +24,7 @@ export default function CommandPalette({ actions, onClose }: { actions: PaletteA
   useEffect(() => {
     input.current?.focus();
   }, []);
-  const needle = q.trim().toLowerCase();
-  const items = (needle ? actions.filter((a) => `${a.title} ${a.note}`.toLowerCase().includes(needle)) : actions).slice(0, 14);
+  const items = paletteItems(actions, q);
   return (
     <div
       className="cmdpal-back"
@@ -49,7 +55,7 @@ export default function CommandPalette({ actions, onClose }: { actions: PaletteA
                 onClose();
               }}
             >
-              <b>{a.title}</b>
+              <b><CatalogueLabel type={{ label: a.title, experimental: a.experimental }} /></b>
               <small>{a.note}</small>
             </button>
           ))}

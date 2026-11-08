@@ -1,8 +1,13 @@
 import { expect, test } from '@playwright/test'
-import type { Edge } from '@xyflow/react'
+import { ReactFlowProvider, type Edge } from '@xyflow/react'
+import { createElement } from 'react'
+import { renderToStaticMarkup } from 'react-dom/server'
 import type { StudioNode } from '../src/store'
 import { badgesFor, badgesForNode } from '../src/badges'
-import { api } from '../src/api'
+import { api, type NodeType } from '../src/api'
+import CatalogueLabel from '../src/CatalogueLabel'
+import CommandPalette, { paletteItems, type PaletteAction } from '../src/CommandPalette'
+import { canLink, portText, portTitle } from '../src/ports'
 import { etaSeconds, formatEta, nodeStarts } from '../src/eta'
 import { applyDrag, checkPocket, checkSeam, hitTest, isEmpty, parseEdits, stringify } from '../src/layoutEdit'
 import type { LayoutInfo } from '../src/layoutEdit'
@@ -15,6 +20,158 @@ const studioNode = (id: string, type: string, params: Record<string, unknown> = 
 
 const edge = (source: string, sourceHandle: string, target: string, targetHandle: string): Edge => ({
   id: `${source}.${sourceHandle}->${target}.${targetHandle}`, source, sourceHandle, target, targetHandle,
+})
+
+const rollUpSeams: NodeType = {
+  id: 'roll_up_seams', label: 'Roll-up seams', stage: 'post', experimental: true,
+  inputs: [{ name: 'body', type: 'body', required: true }],
+  outputs: [{ name: 'parts', type: 'parts' }, { name: 'stiffeners', type: 'parts' }, { name: 'solid', type: 'solid' }],
+  params: [], doc: 'Adds roll-up seams.',
+}
+
+test('experimental catalogue labels stay visible for renamed nodes and are opt-in', () => {
+  const render = (type: NodeType, title?: string) => renderToStaticMarkup(createElement(CatalogueLabel, { type, title }))
+  expect(render(rollUpSeams)).toContain('>Experimental</small>')
+  expect(render(rollUpSeams, 'My plate')).toContain('My plate<small')
+  const { experimental: _, ...ordinary } = rollUpSeams
+  expect(render(ordinary)).toBe('Roll-up seams')
+  expect(render({ ...ordinary, experimental: false })).toBe('Roll-up seams')
+  expect(render({ ...ordinary, id: 'another_node', experimental: true })).toContain('>Experimental</small>')
+})
+
+test('canvas, inspector and workbench label experimental catalogue nodes without marking them as findings', async () => {
+  const originalStorage = Object.getOwnPropertyDescriptor(globalThis, 'localStorage')
+  const originalWindow = Object.getOwnPropertyDescriptor(globalThis, 'window')
+  Object.defineProperty(globalThis, 'localStorage', { configurable: true, value: { getItem: () => null } })
+  Object.defineProperty(globalThis, 'window', { configurable: true, value: { matchMedia: () => ({ matches: false }) } })
+  try {
+    const [{ useStudio }, { default: Inspector }, { default: StudioNodeView }, { default: Workbench }, { default: Report }] = await Promise.all([
+      import('../src/store'), import('../src/Inspector'), import('../src/StudioNode'), import('../src/Workbench'), import('../src/Report'),
+    ])
+    const originalState = { ...useStudio.getState() }
+    const initialState = useStudio.getInitialState()
+    const originalInitialState = { ...initialState }
+    const originalPeekInfo = api.peekInfo
+    const node = { ...studioNode('seams', rollUpSeams.id), data: { type: rollUpSeams.id, params: {}, title: 'My plate' } }
+    try {
+      for (const experimental of [true, false, undefined]) {
+        const state = {
+          nodes: [node], edges: [], runs: {}, selected: node.id, bench: node.id,
+          types: { [rollUpSeams.id]: { ...rollUpSeams, experimental } },
+        }
+        // React's server renderer reads Zustand's initial snapshot, not its live state.
+        Object.assign(initialState, state)
+        useStudio.setState(state)
+        const canvas = renderToStaticMarkup(createElement(ReactFlowProvider, null, createElement(StudioNodeView, {
+          id: node.id, data: node.data, selected: false, type: 'studio', dragging: false,
+          zIndex: 0, isConnectable: true, positionAbsoluteX: 0, positionAbsoluteY: 0,
+          draggable: true, selectable: true, deletable: true,
+        })))
+        const inspector = renderToStaticMarkup(createElement(Inspector))
+        const workbench = renderToStaticMarkup(createElement(Workbench))
+        for (const [surface, markup] of Object.entries({ canvas, inspector, workbench }))
+          expect(markup.includes('>Experimental</small>'), surface).toBe(experimental === true)
+        expect(canvas).toContain(`aria-label="My plate node${experimental ? ', Experimental' : ''}, not run"`)
+        expect(canvas).not.toContain('problem-warn')
+        expect(canvas).not.toContain('aria-label="Findings"')
+        for (const port of rollUpSeams.outputs) expect(canvas).toContain(`data-handleid="${port.name}"`)
+        expect(inspector).toContain('Roll-up seams')
+        expect(workbench).toContain('My plate')
+      }
+      api.peekInfo = (_key, output) => output === 'solid'
+        ? { stats: { roll_up: { warnings: ['Check the rails'] } } }
+        : { kind: 'parts', meta: { roll_up: { warnings: ['Check the rails'], tiles: [{ report: { warnings: ['Check tile clearance'] } }] }, hinge: { warnings: ['Check split spacing'] } } }
+      const state = {
+        runs: { [node.id]: { state: 'done' as const, stale: false, key: 'seams-result', outputs: Object.fromEntries(rollUpSeams.outputs.map((o) => [o.name, { type: o.type, available: true }])) } },
+      }
+      Object.assign(initialState, state)
+      useStudio.setState(state)
+      const canvas = renderToStaticMarkup(createElement(ReactFlowProvider, null, createElement(StudioNodeView, {
+        id: node.id, data: node.data, selected: false, type: 'studio', dragging: false,
+        zIndex: 0, isConnectable: true, positionAbsoluteX: 0, positionAbsoluteY: 0,
+        draggable: true, selectable: true, deletable: true,
+      })))
+      const inspector = renderToStaticMarkup(createElement(Inspector))
+      const report = renderToStaticMarkup(createElement(Report))
+      for (const markup of [canvas, inspector, report]) {
+        expect(markup.match(/Check the rails/g)).toHaveLength(1)
+        expect(markup).toContain('Check tile clearance')
+        expect(markup).toContain('Check split spacing')
+      }
+      expect(canvas).toContain('problem-warn')
+      expect(report).toContain('verdict check')
+      state.runs[node.id].stale = true
+      expect(renderToStaticMarkup(createElement(Inspector))).not.toContain('Check the rails')
+      expect(renderToStaticMarkup(createElement(Report))).not.toContain('Check the rails')
+    } finally {
+      api.peekInfo = originalPeekInfo
+      Object.assign(initialState, originalInitialState)
+      useStudio.setState(originalState, true)
+    }
+  } finally {
+    if (originalStorage) Object.defineProperty(globalThis, 'localStorage', originalStorage)
+    else Reflect.deleteProperty(globalThis, 'localStorage')
+    if (originalWindow) Object.defineProperty(globalThis, 'window', originalWindow)
+    else Reflect.deleteProperty(globalThis, 'window')
+  }
+})
+
+test('node search shows and matches Experimental while preserving ordinary actions and limits', () => {
+  const actions: PaletteAction[] = [
+    { id: 'node:roll_up_seams', title: rollUpSeams.label, note: 'finish · Adds seams.', experimental: true, run: () => {} },
+    { id: 'node:bridges', title: 'Bridges', note: 'finish · Adds bridges.', run: () => {} },
+    { id: 'node:stable', title: 'Stable node', note: 'prepare', experimental: false, run: () => {} },
+  ]
+  const markup = renderToStaticMarkup(createElement(CommandPalette, { actions, onClose: () => {} }))
+  expect(markup.match(/>Experimental<\/small>/g)).toHaveLength(1)
+  expect(markup).toContain('Roll-up seams')
+  expect(paletteItems(actions, ' EXPERIMENTAL ')).toEqual([actions[0]])
+  expect(paletteItems(actions, 'roll-up')).toEqual([actions[0]])
+  expect(paletteItems(actions, 'finish')).toEqual(actions.slice(0, 2))
+  expect(paletteItems(actions, 'bridges')).toEqual([actions[1]])
+  expect(paletteItems(actions, 'missing')).toEqual([])
+  expect(paletteItems(Array.from({ length: 20 }, () => actions[0]), '')).toHaveLength(14)
+})
+
+test('roll-up seams ports describe body, parts, stiffeners and optional solid without changing compatibility', () => {
+  expect(portTitle('roll_up_seams', 'in', 'body', 'body', true)).toContain('Takes a solid or parts')
+  expect(portText('roll_up_seams', 'in', 'body').hint).toContain('flat plate at least 3 mm thick')
+  expect(portText('roll_up_seams', 'in', 'body').hint).toContain('Run Bridges and any split before Roll-up seams')
+  expect(portText('roll_up_seams', 'out', 'parts').hint).toContain('roll-up seams')
+  expect(portTitle('roll_up_seams', 'out', 'stiffeners', 'parts', true)).toContain('stiffeners: parts')
+  expect(portText('roll_up_seams', 'out', 'stiffeners').hint).toContain('separate stiffener parts')
+  expect(portText('roll_up_seams', 'out', 'stiffeners').hint).toContain('Rails are experimental')
+  expect(portTitle('roll_up_seams', 'out', 'solid', 'solid', true)).toContain('solid: solid')
+  expect(canLink('solid', 'body')).toBe(true)
+  expect(canLink('parts', 'body')).toBe(true)
+  expect(canLink('parts', 'parts')).toBe(true)
+  expect(canLink('mask', 'body')).toBe(false)
+})
+
+test('roll-up and hinge metadata warnings become readiness findings for solids, parts and individual tiles', () => {
+  const warning = (text: string) => ({ level: 'warn', text })
+  expect(badgesFor('roll_up_seams', {}, { kind: 'solid', stats: { roll_up: { warnings: ['Check rails'] } } }))
+    .toEqual([warning('Check rails')])
+  expect(badgesFor('roll_up_seams', {}, { kind: 'parts', meta: { roll_up: {
+    warnings: ['Check flatness'], tiles: [
+      { tile: 'a', report: { warnings: ['Tile a clearance'] } },
+      { tile: 'b', report: { warnings: ['Tile b clearance'] } },
+    ],
+  } } })).toEqual([warning('Check flatness'), warning('Tile a clearance'), warning('Tile b clearance')])
+  expect(badgesFor('split', {}, { kind: 'parts', meta: { hinge: { warnings: ['Split before Roll-up'] } } }))
+    .toEqual([warning('Split before Roll-up')])
+  expect(badgesFor('pads', {}, { kind: 'parts', meta: { roll_up: { warnings: ['Inherited rail warning'] } } }))
+    .toEqual([warning('Inherited rail warning')])
+})
+
+test('roll metadata without warnings or malformed warning lists does not create findings', () => {
+  for (const info of [null, {}, { stats: { roll_up: { warnings: [] } } }, { meta: { roll_up: {
+    warnings: 'not an array', tiles: [null, {}, { report: { warnings: [null, {}, 5, '', '  '] } }],
+  }, hinge: { warnings: {} } } }])
+    expect(badgesFor('roll_up_seams', {}, info)).toEqual([])
+  expect(badgesFor('roll_up_seams', {}, { meta: { roll_up: { tiles: {} } } })).toEqual([])
+  expect(badgesFor('roll_up_seams', {}, { stats: { watertight: false, roll_up: { warnings: ['Check rails'] } } }))
+    .toContainEqual({ level: 'error', text: 'mesh is not watertight' })
 })
 
 test('migration renames legacy nodes, remaps their input, and extracts bridges', () => {

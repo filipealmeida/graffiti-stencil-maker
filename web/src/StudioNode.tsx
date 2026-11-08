@@ -8,6 +8,7 @@ import messages from './messages'
 import { useNodeFindings } from './Findings'
 import { runSummary } from './NodeActions'
 import { etaSeconds, formatEta, nodeStarts, useNow } from './eta'
+import CatalogueLabel from './CatalogueLabel'
 
 export const KIND_COLOR = Object.fromEntries(Object.entries(KIND_INFO).map(([k, v]) => [k, v.colour])) as Record<Kind, string>
 
@@ -44,10 +45,10 @@ export default function StudioNodeView({ id, data, selected }: NodeProps<StudioN
   const problem = badges.some((b) => b.level === 'error') || run?.state === 'error' ? ' problem-error' : badges.some((b) => b.level === 'warn') ? ' problem-warn' : ''
   const stale = run?.stale && run.state !== 'running' ? ' stale-node' : ''
   return (
-    <div className={`node stage-${t.stage}${selected ? ' sel' : ''}${problem}${stale}`} aria-label={`${data.title || t.label} node, ${run?.state ?? 'not run'}`}>
+    <div className={`node stage-${t.stage}${selected ? ' sel' : ''}${problem}${stale}`} aria-label={`${data.title || t.label} node${t.experimental ? ', Experimental' : ''}, ${run?.state ?? 'not run'}`}>
       <div className="node-head">
         <span className={`dot ${run?.state ?? 'idle'}`} role="img" aria-label={run?.error ?? run?.state ?? 'not run'} title={run?.error ?? run?.state ?? 'not run'} />
-        <b>{data.title || t.label}</b>
+        <b><CatalogueLabel type={t} title={data.title} /></b>
         <Tooltip content={messages.actions.duplicateNode}><button className="node-del nodrag" aria-label="Duplicate node" onClick={(e) => { e.stopPropagation(); useStudio.getState().duplicate(id) }}>⧉</button></Tooltip>
         <Tooltip content={messages.actions.deleteNode}><button className="node-del nodrag" aria-label={messages.actions.deleteNode} onClick={(e) => { e.stopPropagation(); deleteNodeWithUndo(id) }}>×</button></Tooltip>
         {run?.state === 'running' && <span className="pct">{Math.round((run.progress ?? 0) * 100)}%</span>}
