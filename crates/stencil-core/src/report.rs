@@ -40,7 +40,13 @@ pub fn findings(ty: &str, params: &Json, infos: &[Json]) -> Vec<Finding> {
     for info in infos {
         let s = &info["stats"];
         let meta = &info["meta"];
-        for descriptor in [&s["roll_up"], &meta["roll_up"], &meta["hinge"]] {
+        for descriptor in [
+            &s["roll_up"],
+            &meta["roll_up"],
+            &meta["hinge"],
+            &s["bridge_contacts"],
+            &meta["bridge_contacts"],
+        ] {
             for warning in descriptor["warnings"].as_array().into_iter().flatten() {
                 if let Some(text) = warning.as_str() {
                     add(Level::Warn, text.to_string());

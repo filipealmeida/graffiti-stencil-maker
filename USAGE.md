@@ -155,9 +155,10 @@ the starter templates. The graph is evaluated in a Web Worker; node outputs can 
 New nodes are placed in the first free spot, left to right by stage (Trace, Stencil, Post-process).
 
 Every connection point has a colour and a shape for what it carries, and the links take the colour of their source:
-round blue is an image, round orange a paint mask, a teal square is outlines (vector shapes), a pink diamond a tile plan,
-a green hexagon one 3D solid and a lime octagon a set of parts (tiles, slabs, hardware). Bridges takes either (its
-input is half green, half lime). While you drag a link, the ports it can join light up and the rest fade. Hover a port for
+round blue is an image, round orange a paint mask, a green square is outlines (vector shapes), a pink diamond a tile plan,
+a yellow hexagon one 3D solid and a vermillion (deep orange-red) octagon a set of parts (tiles, slabs, hardware). Bridges
+takes either (its input is half yellow, half vermillion). The colours follow the Okabe–Ito colour-blind-safe palette, and
+each kind also has its own shape, so sockets can be told apart without colour. While you drag a link, the ports it can join light up and the rest fade. Hover a port for
 what it carries. Where two inputs are alternatives (a Stencil takes a paint mask *or* a tile plan) the second reads "or ...".
 A link that replaces the one already in an input shows a toast with Undo. The stages are shown as prepare (Trace),
 build (Stencil) and finish (Post-process).
@@ -216,6 +217,16 @@ The graph is arranged into three stages:
 3. **Post-process:** Tiles & mounting (old) splits plates (the `depth` slider sets how far each connector sinks into each tile, 4–20 mm, default 10; the rod is `2 × depth − 1` mm long and tiles must be at least `depth / 0.4` mm wide), adds optional hardware features, and exports parts as a ZIP.
    Pieces that a seam cuts off from the rest of their tile are counted as `loose_pieces` in the tiling info and
    flagged; put a Bridges node after Split volume to join them.
+   **Bridges: Minimum bridge contact** (mm, default 3 for new nodes; CLI
+   `--set bridges.bridge_min_contact_mm=3`) prefers substantial landing sites and flares bridge ends locally,
+   keeping the middle of long spans at **Bridge width**. It may reduce nearby paint openings. The algorithm
+   retries larger ends when necessary and samples contiguous contact spans through the bridge height after
+   clipping to the tile, including bevelled seams. Shortfalls appear as warnings with tile names and measured
+   minimum spans; connectivity alone does not mean a strong joint. This geometric target is not a print-strength
+   guarantee. Connector pockets stay clear. Existing projects open with contact 0 to preserve their geometry;
+   raise the value on the Bridges node that creates the bridges to enable reinforcement. Already connected
+   bridges supplied by an upstream node are not repaired. The existing Stencil **Minimum surface contact**
+   setting applies before bridges are created and is independent of this setting.
    The Hardware node can produce fasteners and connector fit-test parts.
 
 Use the Vector template for the traced-outline workflow. Use the Colour template for multi-colour/tone-pattern

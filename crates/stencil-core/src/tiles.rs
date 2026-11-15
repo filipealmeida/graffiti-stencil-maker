@@ -1311,6 +1311,7 @@ mod tests {
             reinforce: false,
             bridge: bridge.then_some(crate::tile_bridge::BridgeParams {
                 bridge_mm: 2.0,
+                min_contact_mm: 0.0,
                 per_island: 1,
                 raised: false,
                 easy: false,

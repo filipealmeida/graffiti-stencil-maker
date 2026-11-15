@@ -50,6 +50,8 @@ export function badgesFor(type: string, params: Record<string, unknown>, info: I
         if (typeof text === 'string' && text.trim()) out.push({ level: 'warn', text })
   }
   warnings(s?.roll_up?.warnings)
+  warnings(s?.bridge_contacts?.warnings)
+  warnings(info?.meta?.bridge_contacts?.warnings)
   warnings(info?.meta?.roll_up?.warnings)
   warnings(info?.meta?.hinge?.warnings)
   if (Array.isArray(info?.meta?.roll_up?.tiles))

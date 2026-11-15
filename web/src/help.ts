@@ -25,6 +25,7 @@ export const PARAM_HELP: Record<string, string> = {
   margin_mm: 'Solid frame around the artwork. It stiffens the plate and gives room for tape, magnets or registration holes. 0 = no frame.',
   flip: 'Mirror the plate so it prints with the flat face up. Turn it on when the first layer must be the artwork side.',
   bridge_mm: 'Width of the strips that hold floating pieces (islands) to the frame. Wider is stronger but hides more of the picture. Keep it above your nozzle width.',
+  bridge_min_contact_mm: 'Prefers substantial landing sites and flares bridge ends toward this contact width. May reduce nearby paint openings. Contacts are measured through the bridge height after tile clipping; unmet targets produce warnings. This is not a strength guarantee. 0 keeps the original geometry. Does not repair bridges already present upstream.',
   bridge_spacing: 'Closest takes the shortest links. Spread places each further bridge of an island at an angle to the earlier ones, so they hold it from different sides; if no such link exists the angle is relaxed, never the number of bridges.',
   bridge_min_angle_deg: 'With Spread: the smallest angle between two bridges of one island (90 is perpendicular).',
   bridge_max_length: 'With Spread: how much longer than the island\'s shortest link a bridge may be, to reach an angle. 4 keeps bridges short; raise it for more freedom.',

@@ -7,6 +7,7 @@ use crate::mesh::{Mesh, P3};
 #[derive(Clone, Copy, Debug)]
 pub struct BridgeParams {
     pub bridge_mm: f64,
+    pub min_contact_mm: f64,
     pub per_island: usize,
     pub raised: bool,
     pub easy: bool,
@@ -25,6 +26,7 @@ impl Default for BridgeParams {
     fn default() -> Self {
         BridgeParams {
             bridge_mm: 1.6,
+            min_contact_mm: 0.0,
             per_island: 1,
             raised: true,
             easy: true,
@@ -194,6 +196,11 @@ pub fn bridge_mesh(
         bp.min_angle_deg,
         bp.max_length,
         Some(&avoid_mask),
+        if bp.min_contact_mm > 0.0 {
+            (bp.min_contact_mm / cell).ceil() as i64 + 4
+        } else {
+            0
+        },
     );
     if carved == 0 {
         return Ok(None);

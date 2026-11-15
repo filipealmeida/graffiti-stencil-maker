@@ -43,5 +43,8 @@ export function migrateProject(nodes: StudioNode[], edges: Edge[]): { nodes: Stu
     es.push({ ...link, id: edgeId(link) })
     ns.push({ id, type: 'studio', position: { x: n.position.x + 300, y: n.position.y + 110 }, data: { type: 'bridges', params, title: undefined } })
   }
+  ns = ns.map((n) => n.data.type === 'bridges' && !('bridge_min_contact_mm' in n.data.params)
+    ? { ...n, data: { ...n.data, params: { ...n.data.params, bridge_min_contact_mm: 0 } } }
+    : n)
   return { nodes: ns, edges: es }
 }

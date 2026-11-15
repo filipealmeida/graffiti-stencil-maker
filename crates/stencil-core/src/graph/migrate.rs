@@ -74,6 +74,18 @@ pub(super) fn migrate(graph: &Json) -> Json {
     for (id, ty) in legacy {
         insert_bridges(&mut g, &id, &ty);
     }
+    for n in g["nodes"].as_array_mut().into_iter().flatten() {
+        if n["type"] == "bridges" {
+            if !n["params"].is_object() {
+                n["params"] = json!({});
+            }
+            n["params"]
+                .as_object_mut()
+                .unwrap()
+                .entry("bridge_min_contact_mm")
+                .or_insert(json!(0.0));
+        }
+    }
     g
 }
 
@@ -145,6 +157,20 @@ pub(super) fn add_bridges(g: &mut Json, id: &str, ty: &str, params: serde_json::
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn bridge_contact_migration_preserves_old_geometry_and_explicit_targets() {
+        let g = json!({"nodes": [
+            {"id": "old", "type": "bridges"},
+            {"id": "new", "type": "bridges", "params": {"bridge_min_contact_mm": 3.0}},
+            {"id": "renamed", "type": "bridge_fragments", "params": {}}
+        ], "edges": []});
+        let m = migrate(&g);
+        assert_eq!(m["nodes"][0]["params"]["bridge_min_contact_mm"], 0.0);
+        assert_eq!(m["nodes"][1]["params"]["bridge_min_contact_mm"], 3.0);
+        assert_eq!(m["nodes"][2]["params"]["bridge_min_contact_mm"], 0.0);
+        assert_eq!(migrate(&m), m);
+    }
 
     #[test]
     fn a_stencil_with_bridge_parameters_gets_a_bridges_node_after_it() {

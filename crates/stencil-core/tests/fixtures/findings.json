@@ -378,6 +378,33 @@
     ]
   },
   {
+    "name": "bridge contact shortfalls on a solid",
+    "type": "bridges",
+    "params": {"bridge_min_contact_mm": 3},
+    "info": {"kind": "solid", "stats": {"bridge_contacts": {
+      "warnings": ["1 bridge contact below the 3.00 mm target"]
+    }}},
+    "expected": [{"level": "warn", "text": "1 bridge contact below the 3.00 mm target"}]
+  },
+  {
+    "name": "bridge contact shortfalls on a single-part output",
+    "type": "bridges",
+    "params": {"bridge_min_contact_mm": 3},
+    "info": {"kind": "parts", "meta": {"bridge_contacts": {
+      "warnings": ["1 bridge contact below the 3.00 mm target"]
+    }}},
+    "expected": [{"level": "warn", "text": "1 bridge contact below the 3.00 mm target"}]
+  },
+  {
+    "name": "bridge contact shortfalls identify the tile",
+    "type": "bridges",
+    "params": {"bridge_min_contact_mm": 3},
+    "info": {"kind": "parts", "meta": {"bridged_fragments": {
+      "warnings": ["stencil_r2c1.stl: 1 bridge contact below the 3.00 mm target"]
+    }}},
+    "expected": [{"level": "warn", "text": "stencil_r2c1.stl: 1 bridge contact below the 3.00 mm target"}]
+  },
+  {
     "name": "experimental roll-up warnings on a solid",
     "type": "roll_up_seams",
     "params": {},

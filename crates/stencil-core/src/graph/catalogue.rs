@@ -527,6 +527,7 @@ pub(super) fn catalogue() -> Vec<NodeDef> {
             outputs: vec![("solid", "solid"), ("parts", "parts")],
             params: vec![
                 num("bridge_mm", "Bridge width (mm)", 1.6, 0.4, 6.0, 0.1, Some("Bridges"), false),
+                num("bridge_min_contact_mm", "Minimum bridge contact (mm)", 3.0, 0.0, 12.0, 0.1, Some("Bridges"), false),
                 num("bridges_per_island", "Bridges per island", 1.0, 1.0, 5.0, 1.0, Some("Bridges"), true),
                 choice("bridge_spacing", "Bridge spacing", "spread", &["closest", "spread"], Some("Bridges")),
                 num("bridge_min_angle_deg", "Minimum angle between bridges (deg)", 45.0, 15.0, 90.0, 5.0, Some("Bridges"), false),
@@ -534,7 +535,7 @@ pub(super) fn catalogue() -> Vec<NodeDef> {
                 flag("raised_bridges", "Raised bridges", true, Some("Bridges")),
                 choice("z_bridging", "Z bridging", "easy", &["easy", "steps"], Some("Bridges")),
             ],
-            doc: "Joins every separate piece (island) of a solid, or of each tile of some parts, to the biggest piece with bridges on the stencil's top layer. A solid in gives the bridged solid and the same plate as one part; parts in give the bridged parts only. Use it after a Stencil node, after Split volume, or both: it is safe to run more than once. Width, number per island, spacing and raised bridges work as they do on the old stencil nodes. Islands that have no top face, or that only a connector pocket separates, are reported and left alone.",
+            doc: "Joins every separate piece (island) of a solid, or of each tile of some parts, to the biggest piece with bridges on the stencil's top layer. A solid in gives the bridged solid and the same plate as one part; parts in give the bridged parts only. Minimum bridge contact prefers substantial landing sites and flares bridge ends without widening the whole span. Contacts are checked through the bridge height after clipping to the tile; shortfalls are reported per tile. The target is geometric, not a strength guarantee. 0 keeps the original unreinforced bridges. Use after a Stencil node or Split volume. Already connected geometry is left unchanged; changing this setting does not repair bridges made upstream. Islands with no suitable face are reported.",
             run: bridges::run_bridges,
         },
         NodeDef {

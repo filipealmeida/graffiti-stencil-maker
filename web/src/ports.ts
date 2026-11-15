@@ -4,18 +4,21 @@ export type Shape = 'circle' | 'square' | 'diamond' | 'hex' | 'oct' | 'tri'
 
 export interface KindInfo { name: string; what: string; colour: string; shape: Shape }
 
-/** One colour and handle shape per kind: 2D raster is round, vector is square, the plan is a diamond, 3D is a polygon. */
+/**
+ * One colour and handle shape per kind: 2D raster is round, vector is square, the plan is a diamond, 3D is a polygon.
+ * Colours follow the Okabe–Ito colour-blind-safe palette (layer is the Okabe–Ito blue, brightened for the dark UI).
+ */
 export const KIND_INFO: Record<Kind, KindInfo> = {
-  image: { name: 'Image', what: 'a picture', colour: '#4aa3ff', shape: 'circle' },
-  mask: { name: 'Paint mask', what: 'a black and white map of where the paint goes', colour: '#ffa24a', shape: 'circle' },
-  shapes: { name: 'Outlines', what: 'vector outlines of the paint (curves)', colour: '#2ec4b6', shape: 'square' },
-  tiles: { name: 'Tile plan', what: 'how the plate is divided into tiles, planned before it is built', colour: '#ff6fb5', shape: 'diamond' },
-  solid: { name: 'Solid', what: 'one 3D model', colour: '#3fbf72', shape: 'hex' },
-  parts: { name: 'Parts', what: 'a set of 3D models: tiles, slabs or hardware', colour: '#a6dd4f', shape: 'oct' },
-  body: { name: 'Solid or parts', what: 'either one 3D model or a set of parts', colour: '#3fbf72', shape: 'hex' },
-  layer: { name: 'Layer', what: 'a picture, paint mask or outlines with a position and size on a canvas', colour: '#9b7dff', shape: 'tri' },
+  image: { name: 'Image', what: 'a picture', colour: '#56B4E9', shape: 'circle' },
+  mask: { name: 'Paint mask', what: 'a black and white map of where the paint goes', colour: '#E69F00', shape: 'circle' },
+  shapes: { name: 'Outlines', what: 'vector outlines of the paint (curves)', colour: '#009E73', shape: 'square' },
+  tiles: { name: 'Tile plan', what: 'how the plate is divided into tiles, planned before it is built', colour: '#CC79A7', shape: 'diamond' },
+  solid: { name: 'Solid', what: 'one 3D model', colour: '#F0E442', shape: 'hex' },
+  parts: { name: 'Parts', what: 'a set of 3D models: tiles, slabs or hardware', colour: '#D55E00', shape: 'oct' },
+  body: { name: 'Solid or parts', what: 'either one 3D model or a set of parts', colour: '#F0E442', shape: 'hex' },
+  layer: { name: 'Layer', what: 'a picture, paint mask or outlines with a position and size on a canvas', colour: '#1A7FC2', shape: 'tri' },
   item: { name: 'Picture, paint, outlines or layer', what: 'a picture, a paint mask, outlines, or a placed layer', colour: '#cfd6df', shape: 'circle' },
-  any: { name: 'Image or mask', what: 'a picture or a paint mask', colour: '#8a93a0', shape: 'circle' },
+  any: { name: 'Image or mask', what: 'a picture or a paint mask', colour: '#999999', shape: 'circle' },
 }
 
 export const kindBackground = (k: Kind) =>

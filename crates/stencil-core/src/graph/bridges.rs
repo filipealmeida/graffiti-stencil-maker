@@ -5,6 +5,8 @@ use super::*;
 use crate::mesh::Mesh;
 use crate::tile_bridge::{bridge_mesh, components, BridgeParams};
 
+mod contact;
+
 const SOLID_FILE: &str = "stencil.stl";
 
 fn num(v: &Json) -> f64 {
@@ -51,11 +53,11 @@ fn bridge_piece(
     pockets: &[[f64; 4]],
     sides: Option<&Sides>,
     bp: &BridgeParams,
-) -> Result<(Mesh, usize, usize), String> {
+) -> Result<(Mesh, usize, usize, contact::Contacts), String> {
     let top = bp.plate_top;
     let before = components(&m).0;
     if before < 2 {
-        return Ok((m, before, before));
+        return Ok((m, before, before, contact::Contacts::default()));
     }
     let (ml, mh) = m.bounds();
     let avoid: Vec<([f64; 3], [f64; 3])> = pockets
@@ -88,6 +90,13 @@ fn bridge_piece(
     if let Some(sd) = sides.filter(|sd| sd.lean > 1e-9 && sd.seam.iter().any(|&b| b)) {
         clip = clip.intersect(&sd.clip(top))?;
     }
+    if bp.min_contact_mm > 0.0 {
+        for &(lo, hi) in &avoid {
+            clip = clip.subtract(&Mesh::cuboid(lo, hi))?;
+        }
+    }
+    let original = m.clone();
+    let mut added: Option<Mesh> = None;
     for _ in 0..bp.passes.max(1) {
         if components(&m).0 < 2 {
             break;
@@ -95,7 +104,31 @@ fn bridge_piece(
         let Some(b) = bridge_mesh(&m, &avoid, bp)? else {
             break;
         };
-        m = m.union(&b.intersect(&clip)?)?;
+        let mut b = b.intersect(&clip)?;
+        if bp.min_contact_mm > 0.0 {
+            let mut quality = contact::measure(&m, &b, bp.layer_height);
+            for factor in [1.5, 2.0] {
+                if quality.weak(bp.min_contact_mm) == 0 && !quality.widths.is_empty() {
+                    break;
+                }
+                let mut wider = *bp;
+                wider.min_contact_mm *= factor;
+                let Some(candidate) = bridge_mesh(&m, &avoid, &wider)? else {
+                    break;
+                };
+                let candidate = candidate.intersect(&clip)?;
+                let candidate_quality = contact::measure(&m, &candidate, bp.layer_height);
+                if candidate_quality.minimum().unwrap_or(0.0) > quality.minimum().unwrap_or(0.0) {
+                    b = candidate;
+                    quality = candidate_quality;
+                }
+            }
+            added = Some(match added {
+                Some(previous) => previous.union(&b)?,
+                None => b.clone(),
+            });
+        }
+        m = m.union(&b)?;
     }
     // the STL stores f32: round now so what is checked is what is written
     m.quantize_f32();
@@ -103,12 +136,17 @@ fn bridge_piece(
     if !m.is_watertight() {
         return Err("verification failed: not watertight after bridging".into());
     }
-    Ok((m, before, after))
+    let contacts = added.map_or_else(contact::Contacts::default, |mut b| {
+        b.quantize_f32();
+        contact::measure(&original, &b, bp.layer_height)
+    });
+    Ok((m, before, after, contacts))
 }
 
 fn bridge_params(p: &P, top: f64, layer: f64, thickness: f64, flip: bool) -> BridgeParams {
     BridgeParams {
         bridge_mm: p.f("bridge_mm"),
+        min_contact_mm: p.f("bridge_min_contact_mm"),
         per_island: p.f("bridges_per_island") as usize,
         raised: p.b("raised_bridges"),
         easy: p.s("z_bridging") == "easy",
@@ -124,6 +162,30 @@ fn bridge_params(p: &P, top: f64, layer: f64, thickness: f64, flip: bool) -> Bri
         max_length: p.f("bridge_max_length"),
         passes: 3,
     }
+}
+
+fn contact_report(contacts: &contact::Contacts, target: f64) -> Json {
+    json!({
+        "target_mm": target,
+        "minimum_mm": contacts.minimum(),
+        "contacts_checked": contacts.widths.len(),
+        "weak_contacts": contacts.weak(target),
+    })
+}
+
+fn contact_warning(contacts: &contact::Contacts, target: f64) -> Vec<String> {
+    if target > 0.0 && contacts.widths.is_empty() {
+        return vec!["No bridge contacts could be verified against the contact target".into()];
+    }
+    let weak = contacts.weak(target);
+    if weak == 0 {
+        return vec![];
+    }
+    vec![format!(
+        "{weak} bridge contact{} below the {target:.2} mm target (minimum {:.2} mm); increase contact or bridge width, or change the tile layout",
+        if weak == 1 { "" } else { "s" },
+        contacts.minimum().unwrap_or(0.0)
+    )]
 }
 
 fn warning(left_over: usize) -> Vec<String> {
@@ -156,7 +218,8 @@ fn bridge_solid(s: &Solid, p: &P) -> Result<Outputs, String> {
     }
     let flip = st["flip"] == true;
     let bp = bridge_params(p, top, layer, num(&st["thickness_mm"]), flip);
-    let (m, before, after) = bridge_piece(Mesh::from_stl(&s.stl)?, [0.0, 0.0], &[], None, &bp)?;
+    let (m, before, after, contacts) =
+        bridge_piece(Mesh::from_stl(&s.stl)?, [0.0, 0.0], &[], None, &bp)?;
     let stl = m.to_stl();
     let mut stats = s.stats.clone();
     stats["islands_found"] = json!(before.saturating_sub(1) + num(&st["islands_found"]) as usize);
@@ -164,10 +227,17 @@ fn bridge_solid(s: &Solid, p: &P) -> Result<Outputs, String> {
     stats["triangles"] = json!(m.t.len());
     stats["stl_bytes"] = json!(stl.len());
     stats["watertight"] = json!(true);
+    let mut contact_stats = contact_report(&contacts, bp.min_contact_mm);
+    contact_stats["warnings"] = json!(if before > 1 {
+        contact_warning(&contacts, bp.min_contact_mm)
+    } else {
+        vec![]
+    });
+    stats["bridge_contacts"] = contact_stats.clone();
     let (lo, hi) = m.bounds();
     let parts = Parts {
         files: vec![(SOLID_FILE.to_string(), stl.clone())],
-        meta: json!({"plate": {
+        meta: json!({"bridge_contacts": contact_stats, "plate": {
             "top": top, "layer": layer, "thickness": num(&st["thickness_mm"]), "flip": flip,
             "connectors": [],
             "parts": [{"file": SOLID_FILE, "role": "tile", "origin": [0.0, 0.0],
@@ -257,6 +327,7 @@ fn bridge_parts(src: &Parts, p: &P) -> Result<Outputs, String> {
         .unwrap_or_default();
     let mut files = Vec::with_capacity(src.files.len());
     let mut report = Vec::new();
+    let mut contact_warnings = Vec::new();
     let (mut islands_found, mut islands_bridged, mut tiles_bridged, mut left_over) =
         (0usize, 0usize, 0usize, 0usize);
     for (name, data) in &src.files {
@@ -269,20 +340,30 @@ fn bridge_parts(src: &Parts, p: &P) -> Result<Outputs, String> {
             files.push((name.clone(), data.clone()));
             continue;
         }
-        let (m, before, after) = bridge_piece(m, *origin, &pockets, sides.as_ref(), &bp)
+        let (m, before, after, contacts) = bridge_piece(m, *origin, &pockets, sides.as_ref(), &bp)
             .map_err(|e| format!("{name}: {e}"))?;
         islands_found += before - 1;
         islands_bridged += (before - after).min(before - 1);
         left_over += after - 1;
         tiles_bridged += usize::from(after < before);
-        report.push(json!({"file": name, "islands": before - 1, "left": after - 1}));
+        contact_warnings.extend(
+            contact_warning(&contacts, bp.min_contact_mm)
+                .into_iter()
+                .map(|w| format!("{name}: {w}")),
+        );
+        report.push(
+            json!({"file": name, "islands": before - 1, "left": after - 1,
+            "bridge_contacts": contact_report(&contacts, bp.min_contact_mm)}),
+        );
         files.push((name.clone(), m.to_stl()));
     }
     let mut meta = src.meta.clone();
+    let mut warnings = warning(left_over);
+    warnings.extend(contact_warnings);
     meta["bridged_fragments"] = json!({
         "islands_found": islands_found, "islands_bridged": islands_bridged,
         "islands_left": left_over, "tiles_bridged": tiles_bridged,
-        "tiles": report, "warnings": warning(left_over),
+        "tiles": report, "warnings": warnings,
     });
     Ok(vec![(
         "parts",
@@ -344,6 +425,101 @@ mod tests {
         );
         assert_eq!(p.meta["bridged_fragments"]["islands_left"], 1);
         assert_eq!(pieces(&p, "stencil_r1c1.stl"), 2);
+    }
+
+    #[test]
+    fn reinforced_ends_meet_the_target_without_widening_the_whole_span() {
+        let mut m = Mesh::cuboid([0.0; 3], [30.0, 30.0, 5.0]);
+        m.append(&Mesh::cuboid([50.0, 5.0, 0.0], [60.0, 25.0, 5.0]));
+        for flip in [false, true] {
+            for easy in [false, true] {
+                let bp = BridgeParams {
+                    bridge_mm: 2.0,
+                    min_contact_mm: 3.0,
+                    raised: true,
+                    easy,
+                    base_layers: 25,
+                    layer_height: 0.2,
+                    plate_top: 5.0,
+                    flip,
+                    ..Default::default()
+                };
+                let (out, _, after, contacts) =
+                    bridge_piece(m.clone(), [0.0; 2], &[], None, &bp).unwrap();
+                assert_eq!(after, 1);
+                assert!(out.is_watertight());
+                assert!(!contacts.widths.is_empty());
+                assert_eq!(
+                    contacts.weak(3.0),
+                    0,
+                    "flip={flip}, easy={easy}: {:?}",
+                    contacts.widths
+                );
+                assert!(out.volume() > m.volume());
+                let mut mid = Vec::new();
+                for t in &out.t {
+                    for j in 0..3 {
+                        let (a, b) = (out.v[t[j]], out.v[t[(j + 1) % 3]]);
+                        if (a[0] > 40.0) != (b[0] > 40.0) {
+                            let f = (40.0 - a[0]) / (b[0] - a[0]);
+                            mid.push(a[1] + f * (b[1] - a[1]));
+                        }
+                    }
+                }
+                assert!(!mid.is_empty());
+                let width = mid.iter().copied().fold(f64::MIN, f64::max)
+                    - mid.iter().copied().fold(f64::MAX, f64::min);
+                assert!(width <= 2.01, "middle of the span widened to {width}");
+            }
+        }
+    }
+
+    #[test]
+    fn impossible_contact_targets_are_reported_per_tile() {
+        let mut m = Mesh::cuboid([0.0; 3], [30.0, 30.0, 5.0]);
+        m.append(&Mesh::cuboid([40.0, 14.5, 0.0], [40.5, 15.0, 5.0]));
+        let out = run(
+            &m,
+            json!({
+                "bridge_mm": 1.0, "bridge_min_contact_mm": 3.0,
+                "bridges_per_island": 1, "raised_bridges": false
+            }),
+        );
+        let report = &out.meta["bridged_fragments"];
+        assert_eq!(report["islands_left"], 0);
+        assert!(
+            report["tiles"][0]["bridge_contacts"]["weak_contacts"]
+                .as_u64()
+                .unwrap()
+                > 0
+        );
+        assert!(report["warnings"][0]
+            .as_str()
+            .unwrap()
+            .starts_with("stencil_r1c1.stl:"));
+    }
+
+    #[test]
+    fn reinforced_ends_do_not_fill_connector_pockets() {
+        let mut m = Mesh::cuboid([0.0; 3], [10.0, 30.0, 5.0]);
+        m.append(&Mesh::cuboid([20.0, 5.0, 0.0], [30.0, 25.0, 5.0]));
+        let pocket = [9.0, 9.0, 21.0, 12.0];
+        let bp = BridgeParams {
+            bridge_mm: 2.0,
+            min_contact_mm: 3.0,
+            raised: false,
+            base_layers: 25,
+            layer_height: 0.2,
+            plate_top: 5.0,
+            ..Default::default()
+        };
+        let (out, _, after, _) = bridge_piece(m.clone(), [0.0; 2], &[pocket], None, &bp).unwrap();
+        assert_eq!(after, 1);
+        assert!(out.is_watertight());
+        let keep_open = Mesh::cuboid([pocket[0], pocket[1], 0.0], [pocket[2], pocket[3], 5.0]);
+        let added_in_pocket =
+            out.intersect(&keep_open).unwrap().volume() - m.intersect(&keep_open).unwrap().volume();
+        assert!(added_in_pocket.abs() < 1e-4, "{added_in_pocket}");
     }
 
     #[test]

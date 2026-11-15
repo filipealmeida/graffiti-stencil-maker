@@ -190,7 +190,7 @@ test('migration renames legacy nodes, remaps their input, and extracts bridges',
   expect(result.nodes.find((n) => n.id === 'old')?.data.type).toBe('bridges')
   expect(result.edges[0]).toEqual(edge('source', 'solid', 'old', 'body'))
   expect(result.nodes.find((n) => n.id === 'stencil')?.data.params).toEqual({ width_mm: 50 })
-  expect(result.nodes.find((n) => n.id === 'stencil-bridges')?.data.params).toEqual({ bridge_mm: 0.6, bridges_per_island: 2 })
+  expect(result.nodes.find((n) => n.id === 'stencil-bridges')?.data.params).toEqual({ bridge_mm: 0.6, bridges_per_island: 2, bridge_min_contact_mm: 0 })
   expect(result.edges).toContainEqual(edge('stencil', 'solid', 'stencil-bridges', 'body'))
   expect(result.edges).toContainEqual(edge('stencil-bridges', 'solid', 'end', 'body'))
 })
@@ -204,6 +204,25 @@ test('migration honors disabled bridging and avoids generated node ID collisions
   expect(result.nodes.map((n) => n.id)).toContain('a-bridges_')
   expect(result.nodes.find((n) => n.id === 'b')?.data.params).toEqual({ width_mm: 90 })
   expect(result.nodes.some((n) => n.id === 'b-bridges')).toBe(false)
+})
+
+test('bridge contact migration preserves old geometry, explicit targets and idempotence', () => {
+  const result = migrateProject([
+    studioNode('old', 'bridges'),
+    studioNode('new', 'bridges', { bridge_min_contact_mm: 3 }),
+  ], [])
+  expect(result.nodes[0].data.params.bridge_min_contact_mm).toBe(0)
+  expect(result.nodes[1].data.params.bridge_min_contact_mm).toBe(3)
+  expect(migrateProject(result.nodes, result.edges)).toEqual(result)
+})
+
+test('bridge contact shortfalls appear on solids and parts', () => {
+  const text = 'stencil_r2c1.stl: 1 bridge contact below the 3.00 mm target'
+  for (const info of [
+    { stats: { bridge_contacts: { warnings: [text] } } },
+    { kind: 'parts', meta: { bridge_contacts: { warnings: [text] } } },
+    { kind: 'parts', meta: { bridged_fragments: { warnings: [text] } } },
+  ]) expect(badgesFor('bridges', {}, info)).toContainEqual({ level: 'warn', text })
 })
 
 test('planning includes dependencies of requested targets and orders ready work by cost', () => {

@@ -241,7 +241,7 @@ pub(crate) fn bridge_islands(
         label[0]
     };
     bridge_labelled(
-        g, &label, frame, radius, rise, per_island, min_angle, max_length, None,
+        g, &label, frame, radius, rise, per_island, min_angle, max_length, None, 0,
     )
 }
 
@@ -258,8 +258,33 @@ pub(crate) fn bridge_labelled(
     min_angle: f64,
     max_length: f64,
     avoid: Option<&[bool]>,
+    contact: i64,
 ) -> usize {
     let (w, h) = (g.w, g.h);
+    let landing = if contact > 0 {
+        let mut area = vec![0u32; (w + 1) * (h + 1)];
+        for y in 0..h {
+            let mut row = 0;
+            for x in 0..w {
+                row += u32::from(g.m[y * w + x]);
+                area[(y + 1) * (w + 1) + x + 1] = area[y * (w + 1) + x + 1] + row;
+            }
+        }
+        (0..w * h)
+            .map(|i| {
+                let (x, y, r) = (i % w, i / w, contact as usize);
+                let (xa, xb) = (x.saturating_sub(r), (x + r + 1).min(w));
+                let (ya, yb) = (y.saturating_sub(r), (y + r + 1).min(h));
+                let at = |x: usize, y: usize| area[y * (w + 1) + x] as i64;
+                let solid = at(xb, yb) + at(xa, ya) - at(xa, yb) - at(xb, ya);
+                let wanted = ((2 * r + 1).pow(2) / 2).max(1) as f64;
+                let deficit = (1.0 - solid as f64 / wanted).max(0.0);
+                (deficit * contact as f64 * 4.0).ceil() as u32
+            })
+            .collect::<Vec<_>>()
+    } else {
+        vec![]
+    };
     let mut cost = vec![u32::MAX; w * h];
     let mut parent = vec![u32::MAX; w * h];
     let mut dq = std::collections::BinaryHeap::new();
@@ -280,13 +305,16 @@ pub(crate) fn bridge_labelled(
                 continue;
             }
             let j = ny as usize * w + nx as usize;
-            let step = if g.m[j] {
+            let mut step = if g.m[j] {
                 0
             } else if avoid.is_some_and(|a| a[j]) {
                 40
             } else {
                 1
             };
+            if contact > 0 && g.m[i] != g.m[j] {
+                step += landing[if g.m[i] { i } else { j }];
+            }
             if cost[i] + step < cost[j] {
                 cost[j] = cost[i] + step;
                 parent[j] = i as u32;
@@ -316,13 +344,13 @@ pub(crate) fn bridge_labelled(
             i = parent[i] as usize;
         }
         let holes: Vec<usize> = path.into_iter().filter(|&q| !original[q]).collect();
-        carved += carve(g, &original, rise, &holes, radius).len();
+        carved += carve(g, &original, rise, &holes, radius, contact, avoid).len();
         primary.push((label[start], holes));
     }
     if per_island > 1 {
         carved += extra_bridges(
             g, &original, label, frame, radius, rise, &primary, per_island, min_angle, max_length,
-            avoid,
+            avoid, contact,
         );
     }
     carved
@@ -335,19 +363,44 @@ fn carve(
     rise: &mut [f32],
     holes: &[usize],
     radius: i64,
+    contact: i64,
+    avoid: Option<&[bool]>,
 ) -> Vec<usize> {
     let (w, h) = (g.w, g.h);
     let mut added = Vec::new();
     let n = holes.len() as f32;
+    let mut end_distances = vec![0i64; holes.len()];
+    if contact > 0 {
+        let adjacent = |a: usize, b: usize| (a % w).abs_diff(b % w) + (a / w).abs_diff(b / w) == 1;
+        for j in 1..holes.len() {
+            if adjacent(holes[j - 1], holes[j]) {
+                end_distances[j] = end_distances[j - 1] + 1;
+            }
+        }
+        if let Some(last) = end_distances.last_mut() {
+            *last = 0;
+        }
+        let mut distance = 0;
+        for j in (0..holes.len().saturating_sub(1)).rev() {
+            distance = if adjacent(holes[j], holes[j + 1]) {
+                distance + 1
+            } else {
+                0
+            };
+            end_distances[j] = end_distances[j].min(distance);
+        }
+    }
     for (j, &q) in holes.iter().enumerate() {
         let r = (j as f32 + 1.0) / (n + 1.0);
         let (x, y) = ((q % w) as i64, (q / w) as i64);
-        for dy in 0..radius {
-            for dx in 0..radius {
-                let (cx, cy) = (x + dx - radius / 2, y + dy - radius / 2);
+        let end_distance = end_distances[j];
+        let width = radius.max(contact - end_distance);
+        for dy in 0..width {
+            for dx in 0..width {
+                let (cx, cy) = (x + dx - width / 2, y + dy - width / 2);
                 if cx >= 0 && cy >= 0 && cx < w as i64 && cy < h as i64 {
                     let t = cy as usize * w + cx as usize;
-                    if !original[t] {
+                    if !original[t] && !(contact > 0 && avoid.is_some_and(|a| a[t])) {
                         if !g.m[t] {
                             g.m[t] = true;
                             added.push(t);
@@ -407,6 +460,7 @@ fn extra_bridges(
     min_angle: f64,
     max_length: f64,
     avoid: Option<&[bool]>,
+    contact: i64,
 ) -> usize {
     let (w, h) = (g.w, g.h);
     let mut pixels: HashMap<u32, Vec<usize>> = HashMap::new();
@@ -499,7 +553,7 @@ fn extra_bridges(
             if path.is_empty() {
                 break 'island;
             }
-            let added = carve(g, original, rise, &path, radius);
+            let added = carve(g, original, rise, &path, radius, contact, avoid);
             mark_near(&mut blocked, &added, radius + 1, w, h);
             mark_near(&mut own, &path, 2 * radius + 2, w, h);
             dirs.push(chord(&path, w));
