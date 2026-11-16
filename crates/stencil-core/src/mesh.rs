@@ -152,6 +152,31 @@ impl Mesh {
         fwd.windows(2).all(|w| w[0] != w[1]) && fwd == rev
     }
 
+    /// No position-welded edge is shared by more than two triangles. The boolean engine welds bit-identical
+    /// vertices, so two solids that touch exactly along an edge make a mesh it rejects, even when every edge
+    /// is manifold by index.
+    pub fn is_edge_manifold(&self) -> bool {
+        let mut ids: std::collections::HashMap<[u64; 3], usize> = Default::default();
+        let weld: Vec<usize> = self
+            .v
+            .iter()
+            .map(|p| {
+                let key = p.map(f64::to_bits);
+                let n = ids.len();
+                *ids.entry(key).or_insert(n)
+            })
+            .collect();
+        let mut edges = Vec::with_capacity(self.t.len() * 3);
+        for t in &self.t {
+            for k in 0..3 {
+                let (a, b) = (weld[t[k]], weld[t[(k + 1) % 3]]);
+                edges.push(((a.min(b) as u64) << 32) | a.max(b) as u64);
+            }
+        }
+        edges.sort_unstable();
+        edges.chunk_by(|a, b| a == b).all(|run| run.len() <= 2)
+    }
+
     /// Rounds the vertices to the single precision an STL file stores, welds the ones that become identical and
     /// drops the triangles that collapse, so the mesh checked is the mesh a slicer reads.
     pub fn quantize_f32(&mut self) {
@@ -472,5 +497,23 @@ mod tests {
         side.translate([5.0, 5.0, 2.0]);
         assert!(side.volume() > 0.0 && side.is_watertight());
         assert!(r.subtract(&side).unwrap().is_watertight());
+    }
+
+    /// Two solids that touch exactly along an edge union into a mesh the boolean engine cannot ingest again;
+    /// bridge building detects this with is_edge_manifold and retries with a nudge far below print resolution.
+    #[test]
+    fn edge_touching_unions_are_detected_and_a_nudge_resolves_them() {
+        let a = Mesh::cuboid([0.0, 0.0, 0.0], [10.0, 10.0, 4.0]);
+        let b = Mesh::cuboid([10.0, 10.0, 0.0], [20.0, 20.0, 4.0]);
+        let far = Mesh::cuboid([30.0; 3], [40.0; 3]);
+        let touching = a.union(&b).unwrap();
+        assert!(touching.is_watertight());
+        assert!(!touching.is_edge_manifold());
+        assert!(touching.union(&far).is_err(), "must error, not panic");
+        let mut nudged = b.clone();
+        nudged.translate([-1e-3, -1e-3, 0.0]);
+        let overlapping = a.union(&nudged).unwrap();
+        assert!(overlapping.is_edge_manifold());
+        assert!(overlapping.union(&far).is_ok());
     }
 }

@@ -212,8 +212,21 @@ pub fn bridge_mesh(
 
     let mut out = Mesh::default();
     for path in &carved.paths {
-        let bridge = geometry::build(&path.cells, w, [lo[0], lo[1]], cell, bp, path.straight)?;
-        out = out.union(&bridge)?;
+        let mut bridge = geometry::build(&path.cells, w, [lo[0], lo[1]], cell, bp, path.straight)?;
+        // Bridges planned in adjacent grid corridors can touch exactly edge to edge; such a union is joined
+        // along a single edge, which the boolean engine rejects on the next operation. A nudge far below
+        // print resolution (but above f32 rounding) turns the exact contact into an overlap or a clearance.
+        let mut merged = out.union(&bridge)?;
+        let mut nudge = 1e-3;
+        while !merged.is_edge_manifold() {
+            if nudge > 0.1 {
+                return Err("bridges could not be joined into a manifold solid".into());
+            }
+            bridge.translate([nudge, nudge, 0.0]);
+            merged = out.union(&bridge)?;
+            nudge *= 2.0;
+        }
+        out = merged;
     }
     for &(lo, hi) in avoid {
         out = out.subtract(&Mesh::cuboid(lo, hi))?;

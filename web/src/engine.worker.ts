@@ -117,7 +117,8 @@ async function runGraph(m: Extract<WorkerRequest, { op: 'run' }>): Promise<Worke
       post(m.id, { node: id, state: { state: 'running', progress: frac, message: label }, log: [line], n, total: order.length })
     })
     let r: EngineRunResult
-    try { r = JSON.parse(e.run(m.graph, JSON.stringify([id]))) } finally { e.set_progress(undefined) }
+    // after a panic the module is poisoned and set_progress itself throws; the original error must win
+    try { r = JSON.parse(e.run(m.graph, JSON.stringify([id]))) } finally { try { e.set_progress(undefined) } catch { /* poisoned module */ } }
     if (r.status === 'error') return { status: 'error', error: r.error, log: [] }
     const state = r.nodes[id]
     if (state.state === 'error') failed.add(id)
@@ -155,8 +156,11 @@ self.onmessage = async (ev: MessageEvent<WorkerRequest>) => {
     if (m.op === 'threads') return result(m, { n: threads, why, version: e.version() })
     result(m, await runGraph(m))
   } catch (err) {
-    // a Rust panic surfaces as a WebAssembly.RuntimeError and leaves the module unusable
-    if (err instanceof WebAssembly.RuntimeError) {
+    // a Rust panic surfaces as a WebAssembly.RuntimeError and leaves the module unusable; any call made on
+    // the poisoned module afterwards throws wasm-bindgen's "recursive use of an object" borrow error instead
+    const poisoned = err instanceof WebAssembly.RuntimeError
+      || (err instanceof Error && err.message.includes('recursive use of an object'))
+    if (poisoned) {
       let reason = ''
       try { reason = engine?.last_panic() ?? '' } catch { /* the module is already dead */ }
       const detail = reason || err.message
