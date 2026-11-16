@@ -4,6 +4,7 @@ import { badgesForNode, type Badge } from './badges'
 import { useStudio } from './store'
 
 const ICON = { error: '✖', warn: '▲', info: 'ℹ' } as const
+export const LEVEL_ORDER = { error: 0, warn: 1, info: 2 } as const
 
 /** What to try for a finding: a line of advice and, when one click can do it, that action. */
 export function hintFor(text: string): { hint: string; add?: string } | null {
@@ -51,13 +52,18 @@ export function useNodeFindings(id: string | null | undefined): Badge[] {
   return out
 }
 
-/** The findings of one node inside its panel. Errors and warnings stay open; notes fold away. */
+/** The findings of one node inside its panel: a one-line summary that keeps the parameters
+ * below it in the same place however many findings there are. The list opens on demand
+ * and scrolls within a capped height. */
 export default function Findings({ id }: { id: string }) {
   const all = useNodeFindings(id)
-  const [notes, setNotes] = useState(false)
+  const [open, setOpen] = useState(false)
   if (!all.length) return null
-  const loud = all.filter((b) => b.level !== 'info')
-  const quiet = all.filter((b) => b.level === 'info')
+  const noun = { error: 'error', warn: 'warning', info: 'note' } as const
+  const counts = (['error', 'warn', 'info'] as const)
+    .map((level) => ({ level, n: all.filter((b) => b.level === level).length }))
+    .filter((c) => c.n > 0)
+  const sorted = [...all].sort((a, b) => LEVEL_ORDER[a.level] - LEVEL_ORDER[b.level])
   const row = (b: Badge) => {
     const h = b.level === 'info' ? null : hintFor(b.text)
     return (
@@ -72,13 +78,15 @@ export default function Findings({ id }: { id: string }) {
   }
   return (
     <section className="findings" aria-label="Findings">
-      {loud.length > 0 && <ul>{loud.map(row)}</ul>}
-      {quiet.length > 0 && (
-        <>
-          <button className="linkish" aria-expanded={notes} onClick={() => setNotes(!notes)}>{notes ? 'Hide' : 'Show'} {quiet.length} note{quiet.length > 1 ? 's' : ''}</button>
-          {notes && <ul>{quiet.map(row)}</ul>}
-        </>
-      )}
+      <button className="findings-head" aria-expanded={open} onClick={() => setOpen(!open)}>
+        <span className="mut">{open ? 'Hide' : 'Show'}</span>
+        {counts.map((c) => (
+          <span key={c.level} className={`finding-count ${c.level}`}>
+            <span aria-hidden="true">{ICON[c.level]}</span> {c.n} {noun[c.level]}{c.n > 1 ? 's' : ''}
+          </span>
+        ))}
+      </button>
+      <ul className="findings-list" hidden={!open}>{sorted.map(row)}</ul>
     </section>
   )
 }

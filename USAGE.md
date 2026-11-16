@@ -18,7 +18,7 @@ Examples:
 stencil logo.png -o logo.stl
 stencil artwork.svg --width 120 --thickness 3 --margin 10 --bridge 2 -o plate.stl
 stencil artwork.svg --vector --bridges-per-island 3 -o plate.stl   # three bridges for every island
-stencil artwork.svg --vector --bridges-per-island 2 --bridge-spread -o plate.stl   # the second bridge leaves at 45° or more from the first (--bridge-min-angle DEG)
+stencil artwork.svg --vector --bridges-per-island 2 --bridge-spread -o plate.stl   # distribute attachment positions around islands (--bridge-min-angle DEG)
 stencil portrait.jpg --threshold 110 --invert
 stencil logo.png --vector --detail 4
 stencil tiled.png --tile-width 60 --tile-height 60 --connector hex --pads 4 --pad-thread M6
@@ -82,6 +82,20 @@ it made no difference (6 mm) and took 8× longer. Loose pieces of 10 mm or less 
 a warning ("loose pieces dropped where tiles were cut"): paint may reach through there. Larger ones fail the build; use `per_tile`.
 
 ## Studio
+
+### Bridges
+
+The Bridges node targets independent bridge routes from each original island to the main
+piece, not just a local attachment count. It also reinforces shared bottlenecks: several
+well-connected islands must not all depend on one bridge to the main piece. Bridges may
+land on supported islands; intermediate islands can need more attachments than the target.
+Closest prefers short links; Spread prefers attachment positions distributed around islands.
+Both enforce the minimum angle between rays from each island's area centre to its attachment
+positions, without silently relaxing it. This is not the angle between bridge strips:
+parallel bridges at different heights can qualify. Width/contact, length, angle or
+pocket-clearance constraints can prevent the target being met. Solid and per-tile reports
+include verified local attachment counts (`placed`), independent routes to the main piece
+(`independent_routes`), and warnings for any route shortfall after clipping.
 
 ### Experimental roll-up stencils
 

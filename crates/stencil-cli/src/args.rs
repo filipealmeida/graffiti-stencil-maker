@@ -37,10 +37,10 @@ pub(crate) struct Args {
     /// Bridges from every island to the plate (1-5)
     #[arg(long)]
     pub(crate) bridges_per_island: Option<f64>,
-    /// Place the further bridges of an island at an angle to the earlier ones, not just on the shortest links
+    /// Prefer attachment positions distributed around islands, rather than only the shortest links
     #[arg(long)]
     pub(crate) bridge_spread: bool,
-    /// Smallest angle between two bridges of an island in degrees (default 45); implies --bridge-spread
+    /// Minimum angle between attachment positions about an island's centre (default 45); implies --bridge-spread
     #[arg(long)]
     pub(crate) bridge_min_angle: Option<f64>,
     /// With --bridge-spread: longest bridge as a multiple of the shortest link (1-16, default 4)

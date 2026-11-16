@@ -90,45 +90,43 @@ fn bridge_piece(
     if let Some(sd) = sides.filter(|sd| sd.lean > 1e-9 && sd.seam.iter().any(|&b| b)) {
         clip = clip.intersect(&sd.clip(top))?;
     }
-    if bp.min_contact_mm > 0.0 {
-        for &(lo, hi) in &avoid {
-            clip = clip.subtract(&Mesh::cuboid(lo, hi))?;
-        }
+    for &(lo, hi) in &avoid {
+        clip = clip.subtract(&Mesh::cuboid(lo, hi))?;
     }
     let original = m.clone();
-    let mut added: Option<Mesh> = None;
-    for _ in 0..bp.passes.max(1) {
-        if components(&m).0 < 2 {
-            break;
-        }
-        let Some(b) = bridge_mesh(&m, &avoid, bp)? else {
-            break;
-        };
+    let mut added = Mesh::default();
+    if let Some(b) = bridge_mesh(&original, &avoid, bp)? {
         let mut b = b.intersect(&clip)?;
         if bp.min_contact_mm > 0.0 {
-            let mut quality = contact::measure(&m, &b, bp.layer_height);
+            let mut quality = contact::measure(&original, &b, bp.layer_height);
             for factor in [1.5, 2.0] {
                 if quality.weak(bp.min_contact_mm) == 0 && !quality.widths.is_empty() {
                     break;
                 }
                 let mut wider = *bp;
                 wider.min_contact_mm *= factor;
-                let Some(candidate) = bridge_mesh(&m, &avoid, &wider)? else {
+                let Some(candidate) = bridge_mesh(&original, &avoid, &wider)? else {
                     break;
                 };
                 let candidate = candidate.intersect(&clip)?;
-                let candidate_quality = contact::measure(&m, &candidate, bp.layer_height);
-                if candidate_quality.minimum().unwrap_or(0.0) > quality.minimum().unwrap_or(0.0) {
+                let candidate_quality = contact::measure(&original, &candidate, bp.layer_height);
+                let deficit = |mesh: &Mesh| {
+                    contact::attachments(&original, mesh, plane, bp.layer_height, bp.flip)
+                        .routes
+                        .iter()
+                        .map(|&(_, count)| bp.per_island.saturating_sub(count))
+                        .sum::<usize>()
+                };
+                if candidate_quality.minimum().unwrap_or(0.0) > quality.minimum().unwrap_or(0.0)
+                    && deficit(&candidate) <= deficit(&b)
+                {
                     b = candidate;
                     quality = candidate_quality;
                 }
             }
-            added = Some(match added {
-                Some(previous) => previous.union(&b)?,
-                None => b.clone(),
-            });
         }
         m = m.union(&b)?;
+        added = b;
     }
     // the STL stores f32: round now so what is checked is what is written
     m.quantize_f32();
@@ -136,10 +134,15 @@ fn bridge_piece(
     if !m.is_watertight() {
         return Err("verification failed: not watertight after bridging".into());
     }
-    let contacts = added.map_or_else(contact::Contacts::default, |mut b| {
-        b.quantize_f32();
-        contact::measure(&original, &b, bp.layer_height)
-    });
+    added.quantize_f32();
+    let mut contacts = if bp.min_contact_mm > 0.0 {
+        contact::measure(&original, &added, bp.layer_height)
+    } else {
+        contact::Contacts::default()
+    };
+    let attachments = contact::attachments(&original, &added, plane, bp.layer_height, bp.flip);
+    contacts.counts = attachments.counts;
+    contacts.routes = attachments.routes;
     Ok((m, before, after, contacts))
 }
 
@@ -154,23 +157,31 @@ fn bridge_params(p: &P, top: f64, layer: f64, thickness: f64, flip: bool) -> Bri
         layer_height: layer,
         plate_top: top,
         flip,
-        min_angle_deg: if p.s("bridge_spacing") == "spread" {
-            p.f("bridge_min_angle_deg")
-        } else {
-            0.0
-        },
+        min_angle_deg: p.f("bridge_min_angle_deg"),
+        spread: p.s("bridge_spacing") == "spread",
         max_length: p.f("bridge_max_length"),
         passes: 3,
     }
 }
 
-fn contact_report(contacts: &contact::Contacts, target: f64) -> Json {
+fn contact_report(contacts: &contact::Contacts, target: f64, requested: usize) -> Json {
     json!({
         "target_mm": target,
         "minimum_mm": contacts.minimum(),
         "contacts_checked": contacts.widths.len(),
         "weak_contacts": contacts.weak(target),
+        "bridges_requested": requested,
+        "islands": contacts.counts.iter().zip(&contacts.routes).map(|(&(island, placed), &(_, routes))| json!({
+            "island": island + 1, "placed": placed, "independent_routes": routes, "requested": requested,
+        })).collect::<Vec<_>>(),
     })
+}
+
+fn count_warning(contacts: &contact::Contacts, bp: &BridgeParams) -> Vec<String> {
+    contacts.routes.iter().filter(|(_, count)| *count < bp.per_island).map(|&(island, count)| {
+        format!("Island {}: {count} of {} independent bridge routes to the main piece; no further route found within the {:.0} degree minimum attachment-position angle, bridge width/contact, length and pocket-clearance constraints",
+            island + 1, bp.per_island, bp.min_angle_deg)
+    }).collect()
 }
 
 fn contact_warning(contacts: &contact::Contacts, target: f64) -> Vec<String> {
@@ -227,12 +238,14 @@ fn bridge_solid(s: &Solid, p: &P) -> Result<Outputs, String> {
     stats["triangles"] = json!(m.t.len());
     stats["stl_bytes"] = json!(stl.len());
     stats["watertight"] = json!(true);
-    let mut contact_stats = contact_report(&contacts, bp.min_contact_mm);
-    contact_stats["warnings"] = json!(if before > 1 {
+    let mut contact_stats = contact_report(&contacts, bp.min_contact_mm, bp.per_island);
+    let mut warnings = if before > 1 {
         contact_warning(&contacts, bp.min_contact_mm)
     } else {
         vec![]
-    });
+    };
+    warnings.extend(count_warning(&contacts, &bp));
+    contact_stats["warnings"] = json!(warnings);
     stats["bridge_contacts"] = contact_stats.clone();
     let (lo, hi) = m.bounds();
     let parts = Parts {
@@ -351,9 +364,14 @@ fn bridge_parts(src: &Parts, p: &P) -> Result<Outputs, String> {
                 .into_iter()
                 .map(|w| format!("{name}: {w}")),
         );
+        contact_warnings.extend(
+            count_warning(&contacts, &bp)
+                .into_iter()
+                .map(|w| format!("{name}: {w}")),
+        );
         report.push(
             json!({"file": name, "islands": before - 1, "left": after - 1,
-            "bridge_contacts": contact_report(&contacts, bp.min_contact_mm)}),
+            "bridge_contacts": contact_report(&contacts, bp.min_contact_mm, bp.per_island)}),
         );
         files.push((name.clone(), m.to_stl()));
     }
@@ -395,6 +413,120 @@ mod tests {
 
     fn pieces(p: &Parts, name: &str) -> usize {
         components(&Mesh::from_stl(&p.files.iter().find(|f| f.0 == name).unwrap().1).unwrap()).0
+    }
+
+    fn nested() -> Mesh {
+        let mut frame = Mesh::cuboid([0.0; 3], [80.0, 80.0, 5.0])
+            .subtract(&Mesh::cuboid([5.0, 5.0, -1.0], [75.0, 75.0, 6.0]))
+            .unwrap();
+        let ring = Mesh::cuboid([20.0, 20.0, 0.0], [60.0, 60.0, 5.0])
+            .subtract(&Mesh::cuboid([25.0, 25.0, -1.0], [55.0, 55.0, 6.0]))
+            .unwrap();
+        frame.append(&ring);
+        frame.append(&Mesh::cuboid([35.0, 35.0, 0.0], [45.0, 45.0, 5.0]));
+        frame
+    }
+
+    #[test]
+    fn nested_components_have_four_verified_attachments_after_meshing() {
+        for spread in [false, true] {
+            for flip in [false, true] {
+                for easy in [false, true] {
+                    let bp = BridgeParams {
+                        bridge_mm: 2.0,
+                        per_island: 4,
+                        min_angle_deg: 30.0,
+                        spread,
+                        flip,
+                        easy,
+                        base_layers: 25,
+                        plate_top: 5.0,
+                        ..Default::default()
+                    };
+                    let (mesh, _, after, contacts) =
+                        bridge_piece(nested(), [0.0; 2], &[], None, &bp).unwrap();
+                    assert_eq!(after, 1);
+                    assert!(mesh.is_watertight());
+                    assert_eq!(contacts.counts.len(), 2);
+                    for &(_, count) in &contacts.counts {
+                        assert!(
+                            count >= 4,
+                            "spread={spread}, flip={flip}, easy={easy}: {count}"
+                        );
+                    }
+                    assert!(
+                        count_warning(&contacts, &bp).is_empty(),
+                        "{:?}",
+                        count_warning(&contacts, &bp)
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn unmet_counts_are_reported_in_both_modes() {
+        for spacing in ["closest", "spread"] {
+            let p = run(
+                &{
+                    let mut m = Mesh::cuboid([0.0; 3], [80.0, 80.0, 5.0])
+                        .subtract(&Mesh::cuboid([5.0, 5.0, -1.0], [75.0, 75.0, 6.0]))
+                        .unwrap();
+                    m.append(&Mesh::cuboid([35.0, 35.0, 0.0], [45.0, 45.0, 5.0]));
+                    m
+                },
+                json!({
+                    "bridge_mm": 2.0, "bridges_per_island": 5, "bridge_min_angle_deg": 90.0,
+                    "bridge_spacing": spacing, "raised_bridges": true, "z_bridging": "easy"
+                }),
+            );
+            let report = &p.meta["bridged_fragments"];
+            assert_eq!(report["islands_left"], 0);
+            let islands = report["tiles"][0]["bridge_contacts"]["islands"]
+                .as_array()
+                .unwrap();
+            assert_eq!(islands.len(), 1);
+            assert!(islands.iter().all(|i| i["placed"].as_u64().unwrap() < 5));
+            assert!(report["warnings"].as_array().unwrap().iter().any(|w| {
+                w.as_str()
+                    .unwrap()
+                    .contains("of 5 independent bridge routes")
+            }));
+        }
+    }
+
+    #[test]
+    fn connector_pockets_stay_open_with_contact_disabled() {
+        let mut m = Mesh::cuboid([0.0; 3], [10.0, 30.0, 5.0]);
+        m.append(&Mesh::cuboid([20.0, 0.0, 0.0], [30.0, 30.0, 5.0]));
+        let bp = BridgeParams {
+            bridge_mm: 2.0,
+            min_contact_mm: 0.0,
+            per_island: 4,
+            plate_top: 5.0,
+            raised: false,
+            ..Default::default()
+        };
+        let (out, _, after, contacts) =
+            bridge_piece(m.clone(), [0.0; 2], &[[10.0, 0.0, 20.0, 30.0]], None, &bp).unwrap();
+        assert_eq!(after, 2);
+        assert!((out.volume() - m.volume()).abs() < 1e-6);
+        assert_eq!(contacts.counts.len(), 1);
+        assert_eq!(contacts.counts[0].1, 0);
+        assert_eq!(count_warning(&contacts, &bp).len(), 1);
+    }
+
+    #[test]
+    fn closest_also_respects_the_configured_angle() {
+        for spacing in ["closest", "spread"] {
+            let p = P(serde_json::from_value(json!({
+                "bridge_spacing": spacing, "bridge_min_angle_deg": 65.0,
+            }))
+            .unwrap());
+            let bp = bridge_params(&p, 5.0, 0.2, 5.0, false);
+            assert_eq!(bp.min_angle_deg, 65.0);
+            assert_eq!(bp.spread, spacing == "spread");
+        }
     }
 
     #[test]

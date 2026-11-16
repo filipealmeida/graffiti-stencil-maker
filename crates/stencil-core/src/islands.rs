@@ -2,6 +2,9 @@
 
 use std::collections::HashMap;
 
+mod bridges;
+pub(crate) use bridges::{independent_routes, BridgePlan};
+
 /// Material grid, row 0 at the bottom (y up). `true` = plate, `false` = hole (paint).
 pub(crate) struct Grid {
     pub(crate) w: usize,
@@ -241,8 +244,19 @@ pub(crate) fn bridge_islands(
         label[0]
     };
     bridge_labelled(
-        g, &label, frame, radius, rise, per_island, min_angle, max_length, None, 0,
+        g,
+        &label,
+        frame,
+        radius,
+        rise,
+        per_island,
+        min_angle,
+        max_length,
+        None,
+        0,
+        min_angle > 0.0,
     )
+    .carved
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -259,7 +273,8 @@ pub(crate) fn bridge_labelled(
     max_length: f64,
     avoid: Option<&[bool]>,
     contact: i64,
-) -> usize {
+    spread: bool,
+) -> BridgePlan {
     let (w, h) = (g.w, g.h);
     let landing = if contact > 0 {
         let mut area = vec![0u32; (w + 1) * (h + 1)];
@@ -334,26 +349,20 @@ pub(crate) fn bridge_labelled(
     let mut starts: Vec<usize> = best.values().copied().collect();
     starts.sort_unstable();
     let original = g.m.clone();
-    let mut carved = 0;
-    let mut primary: Vec<(u32, Vec<usize>)> = Vec::new();
+    let mut primary = Vec::new();
     for start in starts {
-        let mut path = Vec::new();
+        let mut path = vec![start];
         let mut i = start;
         while parent[i] != u32::MAX {
-            path.push(i);
             i = parent[i] as usize;
+            path.push(i);
         }
-        let holes: Vec<usize> = path.into_iter().filter(|&q| !original[q]).collect();
-        carved += carve(g, &original, rise, &holes, radius, contact, avoid).len();
-        primary.push((label[start], holes));
+        primary.push(path);
     }
-    if per_island > 1 {
-        carved += extra_bridges(
-            g, &original, label, frame, radius, rise, &primary, per_island, min_angle, max_length,
-            avoid, contact,
-        );
-    }
-    carved
+    bridges::plan(
+        g, &original, label, frame, radius, rise, &primary, per_island, min_angle, max_length,
+        avoid, contact, &landing, spread,
+    )
 }
 
 /// Paint one bridge along `holes` (ordered from the island to the frame); returns the pixels that became plate.
@@ -414,151 +423,4 @@ fn carve(
         }
     }
     added
-}
-
-/// Square neighbourhood of half-width `r` around every pixel in `px`, inserted into `set`.
-fn mark_near(set: &mut [bool], px: &[usize], r: i64, w: usize, h: usize) {
-    for &q in px {
-        let (x, y) = ((q % w) as i64, (q / w) as i64);
-        for cy in (y - r).max(0)..=(y + r).min(h as i64 - 1) {
-            for cx in (x - r).max(0)..=(x + r).min(w as i64 - 1) {
-                set[cy as usize * w + cx as usize] = true;
-            }
-        }
-    }
-}
-
-/// The unit direction from the first to the last pixel of a path; a path that goes nowhere conflicts with nothing.
-fn chord(path: &[usize], w: usize) -> [f64; 2] {
-    let (Some(&a), Some(&b)) = (path.first(), path.last()) else {
-        return [0.0, 0.0];
-    };
-    let (dx, dy) = (
-        (b % w) as f64 - (a % w) as f64,
-        (b / w) as f64 - (a / w) as f64,
-    );
-    let n = dx.hypot(dy);
-    if n < 1e-9 {
-        [0.0, 0.0]
-    } else {
-        [dx / n, dy / n]
-    }
-}
-
-/// Up to `per_island - 1` more bridges for every island: each is the shortest hole path to the frame that stays
-/// clear of every other bridge and leaves the island away from its own bridges, so they run in different directions.
-#[allow(clippy::too_many_arguments)]
-fn extra_bridges(
-    g: &mut Grid,
-    original: &[bool],
-    label: &[u32],
-    frame: u32,
-    radius: i64,
-    rise: &mut [f32],
-    primary: &[(u32, Vec<usize>)],
-    per_island: usize,
-    min_angle: f64,
-    max_length: f64,
-    avoid: Option<&[bool]>,
-    contact: i64,
-) -> usize {
-    let (w, h) = (g.w, g.h);
-    let mut pixels: HashMap<u32, Vec<usize>> = HashMap::new();
-    for (i, &l) in label.iter().enumerate() {
-        if g.m[i] && original[i] && l != frame && l != 0 {
-            pixels.entry(l).or_default().push(i);
-        }
-    }
-    let mut blocked = avoid.map_or_else(|| vec![false; w * h], <[bool]>::to_vec);
-    let all: Vec<usize> = (0..w * h).filter(|&i| g.m[i] && !original[i]).collect();
-    mark_near(&mut blocked, &all, radius + 1, w, h);
-    let mut stamp = vec![0u32; w * h];
-    let mut parent = vec![u32::MAX; w * h];
-    let mut gen = 0u32;
-    let mut carved = 0;
-    for (l, holes) in primary {
-        let Some(src) = pixels.get(l) else { continue };
-        let spread = min_angle > 0.0;
-        let factor = if spread { max_length } else { 4.0 };
-        let limit =
-            (factor * holes.len().max(radius as usize) as f64) as usize + 4 * radius as usize;
-        let mut own = vec![false; w * h];
-        mark_near(&mut own, holes, 2 * radius + 2, w, h);
-        let mut dirs = vec![chord(holes, w)];
-        // the wanted angle is relaxed in steps, so an island never gets fewer bridges than without it
-        let tiers: Vec<f64> = if spread {
-            vec![min_angle, min_angle * 2.0 / 3.0, min_angle / 3.0, 0.0]
-        } else {
-            vec![0.0]
-        };
-        'island: for _ in 1..per_island {
-            let mut path = Vec::new();
-            for &tier in &tiers {
-                let widest = tier.to_radians().cos();
-                gen += 1;
-                let mut frontier: Vec<usize> = src.clone();
-                for &i in &frontier {
-                    stamp[i] = gen;
-                    parent[i] = u32::MAX;
-                }
-                let mut hit = None;
-                let mut layer = 0;
-                'bfs: while !frontier.is_empty() && layer < limit {
-                    layer += 1;
-                    let mut next = Vec::new();
-                    for &i in &frontier {
-                        let (x, y) = ((i % w) as i64, (i / w) as i64);
-                        for (dx, dy) in [(1, 0), (-1, 0), (0, 1), (0, -1)] {
-                            let (nx, ny) = (x + dx, y + dy);
-                            if nx < 0 || ny < 0 || nx >= w as i64 || ny >= h as i64 {
-                                continue;
-                            }
-                            let j = ny as usize * w + nx as usize;
-                            if stamp[j] == gen {
-                                continue;
-                            }
-                            if original[j] {
-                                if label[j] == frame && parent[i] != u32::MAX {
-                                    let mut candidate = Vec::new();
-                                    let mut k = i;
-                                    while parent[k] != u32::MAX {
-                                        candidate.push(k);
-                                        k = parent[k] as usize;
-                                    }
-                                    candidate.reverse();
-                                    let d = chord(&candidate, w);
-                                    if tier <= 0.0
-                                        || dirs
-                                            .iter()
-                                            .all(|e| (d[0] * e[0] + d[1] * e[1]).abs() <= widest)
-                                    {
-                                        hit = Some(candidate);
-                                        break 'bfs;
-                                    }
-                                }
-                            } else if !g.m[j] && !blocked[j] && !own[j] {
-                                stamp[j] = gen;
-                                parent[j] = i as u32;
-                                next.push(j);
-                            }
-                        }
-                    }
-                    frontier = next;
-                }
-                if let Some(found) = hit {
-                    path = found;
-                    break;
-                }
-            }
-            if path.is_empty() {
-                break 'island;
-            }
-            let added = carve(g, original, rise, &path, radius, contact, avoid);
-            mark_near(&mut blocked, &added, radius + 1, w, h);
-            mark_near(&mut own, &path, 2 * radius + 2, w, h);
-            dirs.push(chord(&path, w));
-            carved += added.len();
-        }
-    }
-    carved
 }

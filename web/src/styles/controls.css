@@ -338,6 +338,11 @@ header > .pal .menu:not(.wide) {
   border-radius: 4px;
   padding: 1px 5px;
   max-width: 224px;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
 }
 .badge.error {
   color: var(--err);

@@ -16,8 +16,9 @@ pub struct BridgeParams {
     /// Total plate height of the stencil (top of the layered solid).
     pub plate_top: f64,
     pub flip: bool,
-    /// Spread bridging: minimum angle between bridges of one island (0 = closest) and longest bridge.
+    /// Minimum angle between attachment positions about an island's area centre, in either spacing mode.
     pub min_angle_deg: f64,
+    pub spread: bool,
     pub max_length: f64,
     pub passes: usize,
 }
@@ -35,6 +36,7 @@ impl Default for BridgeParams {
             plate_top: 0.0,
             flip: false,
             min_angle_deg: 0.0,
+            spread: false,
             max_length: 4.0,
             passes: 3,
         }
@@ -201,8 +203,9 @@ pub fn bridge_mesh(
         } else {
             0
         },
+        bp.spread,
     );
-    if carved == 0 {
+    if carved.carved == 0 {
         return Ok(None);
     }
 

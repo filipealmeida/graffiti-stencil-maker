@@ -8,6 +8,8 @@ const EPS: f64 = 1e-5;
 #[derive(Default)]
 pub(super) struct Contacts {
     pub widths: Vec<f64>,
+    pub counts: Vec<(usize, usize)>,
+    pub routes: Vec<(usize, usize)>,
 }
 
 impl Contacts {
@@ -88,7 +90,7 @@ fn covered([a, b]: Segment, edges: &[Segment]) -> Vec<Segment> {
         .collect()
 }
 
-fn narrowest_patch(segments: Vec<Segment>) -> Option<f64> {
+fn patches(segments: Vec<Segment>) -> Vec<Vec<Point>> {
     let key = |p: Point| ((p[0] / EPS).round() as i64, (p[1] / EPS).round() as i64);
     let mut ends: HashMap<(i64, i64), Vec<usize>> = HashMap::new();
     for (i, segment) in segments.iter().enumerate() {
@@ -97,7 +99,7 @@ fn narrowest_patch(segments: Vec<Segment>) -> Option<f64> {
         }
     }
     let mut seen = vec![false; segments.len()];
-    let mut minimum: Option<f64> = None;
+    let mut patches = Vec::new();
     for start in 0..segments.len() {
         if seen[start] {
             continue;
@@ -121,6 +123,14 @@ fn narrowest_patch(segments: Vec<Segment>) -> Option<f64> {
                 }
             }
         }
+        patches.push(points);
+    }
+    patches
+}
+
+fn narrowest_patch(segments: Vec<Segment>) -> Option<f64> {
+    let mut minimum: Option<f64> = None;
+    for mut points in patches(segments) {
         // Projected span avoids counting a jagged staircase as a wide attachment.
         points.sort_by(|a, b| a[0].total_cmp(&b[0]).then(a[1].total_cmp(&b[1])));
         points.dedup();
@@ -221,12 +231,115 @@ pub(super) fn measure(original: &Mesh, bridge: &Mesh, layer: f64) -> Contacts {
     }
     Contacts {
         widths: widths.into_values().collect(),
+        counts: vec![],
+        routes: vec![],
+    }
+}
+
+/// Count distinct attachments on the original components at the bridging face, after clipping.
+pub(super) fn attachments(
+    original: &Mesh,
+    bridge: &Mesh,
+    plane: f64,
+    layer: f64,
+    flip: bool,
+) -> Contacts {
+    let (n, original_labels) = components(original);
+    let (_, bridge_labels) = components(bridge);
+    let mut area = vec![0.0; n];
+    for (t, &l) in original.t.iter().zip(&original_labels) {
+        let [a, b, c] = t.map(|i| original.v[i]);
+        if [a, b, c].iter().all(|p| (p[2] - plane).abs() < 1e-3) {
+            area[l] += ((b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0])).abs();
+        }
+    }
+    let frame = (0..n).max_by(|&a, &b| area[a].total_cmp(&area[b]));
+    let z = plane + if flip { layer * 0.01 } else { -layer * 0.01 };
+    let solids = slice(original, &original_labels, z);
+    let bridges = slice(bridge, &bridge_labels, z);
+    let mut counts = vec![0; n];
+    let mut links = Vec::new();
+    for (junction, edges) in bridges.values().enumerate() {
+        let contacts: Vec<_> = solids
+            .iter()
+            .filter_map(|(&s, boundary)| {
+                let contact: Vec<_> = boundary.iter().flat_map(|&e| covered(e, edges)).collect();
+                (!contact.is_empty()).then_some((s, patches(contact).len()))
+            })
+            .collect();
+        // A clipped strip touching only one solid is not a bridge.
+        if contacts.len() >= 2 {
+            for (s, count) in contacts {
+                counts[s] += count;
+                for _ in 0..count {
+                    links.push([s, n + junction]);
+                }
+            }
+        }
+    }
+    let counts: Vec<_> = counts
+        .into_iter()
+        .enumerate()
+        .filter(|(i, _)| Some(*i) != frame)
+        .collect();
+    let routes = counts
+        .iter()
+        .map(|&(island, _)| {
+            let routes = frame.map_or(0, |frame| {
+                crate::islands::independent_routes(
+                    n + bridges.len(),
+                    &links,
+                    frame,
+                    island,
+                    usize::MAX,
+                )
+                .0
+            });
+            (island, routes)
+        })
+        .collect();
+    Contacts {
+        counts,
+        routes,
+        ..Default::default()
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn attachments_on_neighbours_do_not_hide_the_only_route_to_the_main_piece() {
+        let mut original = Mesh::cuboid([0.0; 3], [10.0, 30.0, 5.0]);
+        original.append(&Mesh::cuboid([20.0, 0.0, 0.0], [30.0, 20.0, 5.0]));
+        original.append(&Mesh::cuboid([40.0, 0.0, 0.0], [50.0, 20.0, 5.0]));
+        let mut bridge = Mesh::cuboid([9.0, 15.0, 2.0], [21.0, 17.0, 5.0]);
+        for y in [2.0, 6.0, 10.0] {
+            bridge.append(&Mesh::cuboid([29.0, y, 2.0], [41.0, y + 1.0, 5.0]));
+        }
+        let report = attachments(&original, &bridge, 5.0, 0.2, false);
+        assert_eq!(report.counts, vec![(1, 4), (2, 3)]);
+        assert_eq!(report.routes, vec![(1, 1), (2, 1)]);
+    }
+
+    #[test]
+    fn clipped_single_ended_strips_do_not_count_as_bridges() {
+        let mut original = Mesh::cuboid([0.0; 3], [10.0, 20.0, 5.0]);
+        original.append(&Mesh::cuboid([20.0, 0.0, 0.0], [25.0, 20.0, 5.0]));
+        let bridge = Mesh::cuboid([9.0, 4.0, 2.0], [21.0, 6.0, 5.0]);
+        assert_eq!(
+            attachments(&original, &bridge, 5.0, 0.2, false).counts[0].1,
+            1
+        );
+        let clipped = bridge
+            .intersect(&Mesh::cuboid([0.0; 3], [19.0, 20.0, 5.0]))
+            .unwrap();
+        assert_eq!(
+            attachments(&original, &clipped, 5.0, 0.2, false).counts[0].1,
+            0
+        );
+    }
 
     #[test]
     fn measures_the_small_end_not_the_nominal_bridge_width() {

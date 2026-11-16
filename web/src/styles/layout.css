@@ -256,6 +256,28 @@ header > .pal.project .menu.pmenu {
   border-radius: 8px;
   background: #ffffff06;
 }
+.findings-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  width: 100%;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  text-align: left;
+  font-size: 13px;
+  min-height: 24px;
+  cursor: pointer;
+}
+.findings-list {
+  margin-top: 8px;
+  max-height: min(220px, 35vh);
+  overflow-y: auto;
+}
+.findings-list[hidden] {
+  display: none;
+}
 .findings ul {
   list-style: none;
   margin: 0;
@@ -284,6 +306,15 @@ header > .pal.project .menu.pmenu {
 .finding .fix button {
   margin-left: 4px;
   min-height: 24px;
+}
+.finding-count.error {
+  color: var(--err);
+}
+.finding-count.warn {
+  color: var(--warn);
+}
+.finding-count.info {
+  color: var(--mut);
 }
 .linkish {
   border: 0;
