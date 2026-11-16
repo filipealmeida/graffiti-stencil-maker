@@ -16,6 +16,23 @@ interface FindingGraph {
   types: Record<string, NodeType>
 }
 
+/** All current findings of one node, deduplicated across its outputs. Nothing for stale or unfinished runs. */
+export function nodeFindings(graph: FindingGraph, id: string): Badge[] {
+  const node = graph.nodes.find((x) => x.id === id)
+  const run = graph.runs[id]
+  const t = node ? graph.types[node.data.type] : undefined
+  if (!node || !run?.key || run.stale || run.state !== 'done' || !t) return []
+  const seen = new Set<string>()
+  const out: Badge[] = []
+  for (const o of t.outputs) {
+    if (!run.outputs?.[o.name]?.available) continue
+    for (const b of badgesForNode(graph, node.id, o.name, api.peekInfo(run.key, o.name))) {
+      if (!seen.has(b.text)) { seen.add(b.text); out.push(b) }
+    }
+  }
+  return out
+}
+
 /** Only resolved, current results on every outgoing branch can soften an upstream error. */
 export function badgesForNode(graph: FindingGraph, id: string, output: string, info: Info | null | undefined): Badge[] {
   const node = graph.nodes.find((x) => x.id === id)

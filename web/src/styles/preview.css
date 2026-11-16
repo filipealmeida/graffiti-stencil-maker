@@ -255,6 +255,9 @@
 .console-lines .error {
   color: var(--err);
 }
+.console-lines .warn {
+  color: var(--warn);
+}
 .console-lines b {
   color: var(--fg);
   font-weight: 600;

@@ -6,6 +6,7 @@ import {
   type Connection, type Edge, type EdgeChange, type Node, type NodeChange,
 } from '@xyflow/react'
 import { api, type GraphJson, type LogLine, type NodeRun, type NodeType } from './api'
+import { nodeFindings } from './badges'
 import { nodeStarts } from './eta'
 
 export interface StudioData extends Record<string, unknown> {
@@ -605,6 +606,17 @@ export function rerun() {
   doneSig = null
   return runGraph()
 }
+/** Logs a finished node's findings so warnings and notes land in the console with the run. */
+function logFindings(id: string, runs: Record<string, NodeRun>) {
+  const st = useStudio.getState()
+  const type = st.nodes.find((n) => n.id === id)?.data.type ?? ''
+  const ts = new Date().toLocaleTimeString()
+  st.addLogs(nodeFindings({ nodes: st.nodes, edges: st.edges, runs, types: st.types }, id)
+    .map((b) => ({ ts, ms: null, t: 0, level: b.level, node: id, type, msg: b.text })))
+}
+
+const fmtMs = (ms: number) => (ms >= 1000 ? `${(ms / 1000).toFixed(1)} s` : `${Math.round(ms)} ms`)
+
 export async function runGraph(draft = false) {
   const st = useStudio.getState()
   const full = st.graph()
@@ -624,6 +636,7 @@ export async function runGraph(draft = false) {
     merged[n.id] = prev ? { ...prev, stale: true } : { state: 'pending' }
   }
   useStudio.setState({ runs: merged, busy: true, stopped: false, error: null, progress: { done: 0, total: g.nodes.length } })
+  const runStart = performance.now()
   try {
     const r = await api.run(g, undefined, (step) => {
       if (mine !== token) return
@@ -638,6 +651,15 @@ export async function runGraph(draft = false) {
     // a draft is never final: the full run must still happen
     if (r.status === 'done' && !draft) doneSig = sig
     useStudio.setState({ busy: false, error: r.error ?? null, draft: draft && r.status === 'done' })
+    if (r.status === 'done' && !draft) {
+      // findings are logged once the whole run settled, so errors a downstream node resolves arrive softened
+      for (const n of g.nodes) logFindings(n.id, merged)
+      const states = Object.values(merged)
+      const computed = states.filter((x) => x.state === 'done' && !x.cached).length
+      const cached = states.filter((x) => x.state === 'done' && x.cached).length
+      const failed = states.filter((x) => x.state === 'error').length
+      logAction(`Run finished in ${fmtMs(performance.now() - runStart)}: ${computed} node(s) computed, ${cached} from cache${failed ? `, ${failed} failed` : ''}`)
+    }
   } catch (e) {
     if (mine !== token) return
     runningSig = null

@@ -97,6 +97,12 @@ pocket-clearance constraints can prevent the target being met. Solid and per-til
 include verified local attachment counts (`placed`), independent routes to the main piece
 (`independent_routes`), and warnings for any route shortfall after clipping.
 
+Bridge placement uses a grid for routing and clearance checks, but the Bridges node
+exports straight-sided strips, including diagonal bridges, rather than pixel staircases.
+Reinforced ends taper into the span; Steps still changes height in whole print layers,
+without introducing a staircase into the plan-view edges. Real bends needed to route
+around obstacles are retained.
+
 ### Experimental roll-up stencils
 
 **Roll-up seams** is marked **Experimental** in the node picker, canvas and inspector.

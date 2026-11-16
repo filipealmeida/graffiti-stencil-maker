@@ -5,15 +5,15 @@ import { useStudio, type StudioNode } from './store'
 import { deleteNodeWithUndo } from './NodeActions'
 import Tooltip from './Tooltip'
 import messages from './messages'
-import { useNodeFindings, LEVEL_ORDER } from './Findings'
+import { useNodeFindings } from './Findings'
 import { runSummary } from './NodeActions'
 import { etaSeconds, formatEta, nodeStarts, useNow } from './eta'
 import CatalogueLabel from './CatalogueLabel'
 
 export const KIND_COLOR = Object.fromEntries(Object.entries(KIND_INFO).map(([k, v]) => [k, v.colour])) as Record<Kind, string>
 
-// The most badges a node shows on the canvas; the rest fold into one "+n more" line.
-const MAX_BADGES = 3
+// A hover tooltip lists this many finding texts before folding the rest into a count.
+const MAX_TITLE_LINES = 8
 
 /** What a running node is doing and how long it has left. */
 function RunNote({ id, message, progress, ms }: { id: string; message?: string; progress?: number; ms?: number }) {
@@ -45,9 +45,9 @@ export default function StudioNodeView({ id, data, selected }: NodeProps<StudioN
   if (!t) return <div className="node">unknown node {data.type}</div>
   const done = !!run?.key && run.state !== 'error'
   const shown = t.outputs
-  const worstFirst = [...badges].sort((a, b) => LEVEL_ORDER[a.level] - LEVEL_ORDER[b.level])
-  const topBadges = worstFirst.slice(0, MAX_BADGES)
-  const folded = worstFirst.slice(MAX_BADGES)
+  const counts = (['error', 'warn', 'info'] as const)
+    .map((level) => ({ level, found: badges.filter((b) => b.level === level) }))
+    .filter((c) => c.found.length > 0)
   const problem = badges.some((b) => b.level === 'error') || run?.state === 'error' ? ' problem-error' : badges.some((b) => b.level === 'warn') ? ' problem-warn' : ''
   const stale = run?.stale && run.state !== 'running' ? ' stale-node' : ''
   return (
@@ -63,8 +63,16 @@ export default function StudioNodeView({ id, data, selected }: NodeProps<StudioN
       {run?.state === 'running' && <RunNote id={id} message={run.message} progress={run.progress} ms={run.ms} />}
       {badges.length > 0 && (
         <ul className="badges" aria-label="Findings">
-          {topBadges.map((b) => <li key={b.text} className={`badge ${b.level}`}><span aria-hidden="true">{b.level === 'error' ? '✖' : b.level === 'warn' ? '▲' : 'ℹ'}</span> {b.text}</li>)}
-          {folded.length > 0 && <li className={`badge ${folded[0].level}`} title="Select the node to read every finding">+{folded.length} more finding{folded.length > 1 ? 's' : ''}</li>}
+          {counts.map((c) => {
+            const noun = { error: 'error', warn: 'warning', info: 'note' }[c.level]
+            const texts = c.found.slice(0, MAX_TITLE_LINES).map((b) => b.text)
+            if (c.found.length > MAX_TITLE_LINES) texts.push(`+${c.found.length - MAX_TITLE_LINES} more in the inspector`)
+            return (
+              <li key={c.level} className={`badge ${c.level}`} aria-label={`${c.found.length} ${noun}${c.found.length > 1 ? 's' : ''}`} title={texts.join('\n')}>
+                <span aria-hidden="true">{c.level === 'error' ? '✖' : c.level === 'warn' ? '▲' : 'ℹ'} {c.found.length}</span>
+              </li>
+            )
+          })}
         </ul>
       )}
       <div className="node-body">

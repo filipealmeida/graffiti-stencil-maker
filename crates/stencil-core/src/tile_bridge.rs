@@ -1,8 +1,10 @@
 //! Per-tile bridging: a tile cut from a bridged stencil can hold pieces that were only joined through another
 //! tile. They are found as 3D components, rasterised on the plate's top layer and bridged to the tile's largest
 //! piece with the same bridge rules as the stencil itself.
-use crate::islands::{bridge_labelled, fix_diagonals_k, Grid};
+use crate::islands::{bridge_labelled, Grid};
 use crate::mesh::{Mesh, P3};
+
+mod geometry;
 
 #[derive(Clone, Copy, Debug)]
 pub struct BridgeParams {
@@ -85,7 +87,7 @@ fn in_tri(p: [f64; 2], a: [f64; 2], b: [f64; 2], c: [f64; 2]) -> bool {
 }
 
 /// A mesh that, unioned into `m`, joins its separate pieces; `None` when `m` is a single piece.
-/// `avoid` boxes (connector pockets) are crossed only when nothing else connects a piece.
+/// `avoid` boxes (connector pockets) remain open.
 pub fn bridge_mesh(
     m: &Mesh,
     avoid: &[(P3, P3)],
@@ -175,7 +177,6 @@ pub fn bridge_mesh(
         h,
         m: label.iter().map(|&l| l > 0).collect(),
     };
-    let original = grid.m.clone();
     let mut avoid_mask = vec![false; w * h];
     for (bl, bh) in avoid {
         let (x0, y0) = to_cell(bl[0], bl[1]);
@@ -209,57 +210,13 @@ pub fn bridge_mesh(
         return Ok(None);
     }
 
-    let lh = bp.layer_height;
-    let l = ((bp.plate_top / lh).round() as u32).max(1);
-    let base = bp.base_layers.min(l);
-    let mut kmin = vec![l; w * h];
-    for i in 0..w * h {
-        if grid.m[i] && !original[i] {
-            kmin[i] = if bp.raised && base > 1 && !rise[i].is_nan() {
-                if bp.easy {
-                    (base / 2).max(1)
-                } else {
-                    ((rise[i] as f64 * (base - 1) as f64 - 1e-6).ceil() as i64)
-                        .clamp(1, base as i64 - 1) as u32
-                }
-            } else {
-                0
-            };
-        }
-    }
-    // overlap one cell into the existing plate so the union has no coplanar seams
-    let fresh = kmin.clone();
-    for y in 0..h {
-        for x in 0..w {
-            let i = y * w + x;
-            if !original[i] {
-                continue;
-            }
-            let mut best = l;
-            for (dx, dy) in [(1i64, 0i64), (-1, 0), (0, 1), (0, -1)] {
-                let (nx, ny) = (x as i64 + dx, y as i64 + dy);
-                if nx >= 0 && ny >= 0 && nx < w as i64 && ny < h as i64 {
-                    best = best.min(fresh[ny as usize * w + nx as usize]);
-                }
-            }
-            kmin[i] = best;
-        }
-    }
-    fix_diagonals_k(&mut kmin, w, h, l);
-    let lm = crate::layered::layered_mesh(&kmin, w, h, l, cell, lh)?;
     let mut out = Mesh::default();
-    for v in &lm.verts {
-        let k = (v[2] as f64 / lh).round() as u32;
-        let z = if k >= l { bp.plate_top } else { k as f64 * lh };
-        out.v.push([
-            lo[0] + v[0] as f64,
-            lo[1] + v[1] as f64,
-            if bp.flip { bp.plate_top - z } else { z },
-        ]);
+    for path in &carved.paths {
+        let bridge = geometry::build(&path.cells, w, [lo[0], lo[1]], cell, bp, path.straight)?;
+        out = out.union(&bridge)?;
     }
-    for t in &lm.tris {
-        let t = [t[0] as usize, t[1] as usize, t[2] as usize];
-        out.t.push(if bp.flip { [t[0], t[2], t[1]] } else { t });
+    for &(lo, hi) in avoid {
+        out = out.subtract(&Mesh::cuboid(lo, hi))?;
     }
     Ok(Some(out))
 }

@@ -39,7 +39,7 @@ export interface NodeRun {
   outputs?: Record<string, { type: Kind; available: boolean }>
 }
 export interface NodeStep { node: string; state: NodeRun; n: number; total: number; log: LogLine[] }
-export interface LogLine { ts: string; ms: number | null; t: number; level: 'info' | 'error'; node: string; type: string; msg: string }
+export interface LogLine { ts: string; ms: number | null; t: number; level: 'info' | 'warn' | 'error'; node: string; type: string; msg: string }
 export interface MeshMarkers {
   points: [number, number, number][]
   segments: [[number, number, number], [number, number, number]][]

@@ -1,6 +1,5 @@
 import { useState } from 'react'
-import { api } from './api'
-import { badgesForNode, type Badge } from './badges'
+import { nodeFindings, type Badge } from './badges'
 import { useStudio } from './store'
 
 const ICON = { error: '✖', warn: '▲', info: 'ℹ' } as const
@@ -33,23 +32,11 @@ function addAfter(from: string, type: string) {
 }
 
 export function useNodeFindings(id: string | null | undefined): Badge[] {
-  const node = useStudio((s) => s.nodes.find((n) => n.id === id))
-  const run = useStudio((s) => (id ? s.runs[id] : undefined))
-  const t = useStudio((s) => (node ? s.types[node.data.type] : undefined))
-  const edges = useStudio((s) => s.edges)
   const nodes = useStudio((s) => s.nodes)
+  const edges = useStudio((s) => s.edges)
   const runs = useStudio((s) => s.runs)
   const types = useStudio((s) => s.types)
-  if (!node || !run?.key || run.stale || run.state !== 'done' || !t) return []
-  const seen = new Set<string>()
-  const out: Badge[] = []
-  for (const o of t.outputs) {
-    if (!run.outputs?.[o.name]?.available) continue
-    for (const b of badgesForNode({ nodes, edges, runs, types }, node.id, o.name, api.peekInfo(run.key, o.name))) {
-      if (!seen.has(b.text)) { seen.add(b.text); out.push(b) }
-    }
-  }
-  return out
+  return id ? nodeFindings({ nodes, edges, runs, types }, id) : []
 }
 
 /** The findings of one node inside its panel: a one-line summary that keeps the parameters

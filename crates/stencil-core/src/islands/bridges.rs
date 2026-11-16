@@ -47,11 +47,18 @@ pub(crate) struct BridgePlan {
     pub frame: u32,
     pub directions: Vec<Vec<[f64; 2]>>,
     pub routes: Vec<usize>,
+    pub paths: Vec<BridgePath>,
+}
+
+pub(crate) struct BridgePath {
+    pub cells: Vec<usize>,
+    pub straight: bool,
 }
 
 struct Link {
     path: Vec<usize>,
     ends: [u32; 2],
+    straight: bool,
 }
 
 fn attachment_direction(at: usize, centre: [f64; 2], w: usize) -> [f64; 2] {
@@ -62,11 +69,12 @@ fn attachment_direction(at: usize, centre: [f64; 2], w: usize) -> [f64; 2] {
 }
 
 impl Link {
-    fn new(path: Vec<usize>, label: &[u32]) -> Self {
+    fn new(path: Vec<usize>, label: &[u32], straight: bool) -> Self {
         let last = path.len() - 1;
         Self {
             ends: [label[path[0]], label[path[last]]],
             path,
+            straight,
         }
     }
 
@@ -211,6 +219,10 @@ impl Planner<'_> {
         let b = self.group(link.ends[1] as usize);
         self.groups[b] = a;
         self.links.push(link.ends.map(|l| l as usize));
+        self.plan.paths.push(BridgePath {
+            cells: link.path,
+            straight: link.straight,
+        });
         self.plan.carved += added.len();
     }
 
@@ -245,7 +257,7 @@ impl Planner<'_> {
                     return None;
                 }
                 path.push(i);
-                return Some(Link::new(path, self.label));
+                return Some(Link::new(path, self.label, true));
             }
             if self.blocked[i] || self.avoid.is_some_and(|a| a[i]) {
                 return None;
@@ -379,7 +391,7 @@ pub(super) fn plan(
         for j in 1..path.len() {
             if label[path[j]] != 0 {
                 if j > start + 1 {
-                    let link = Link::new(path[start..=j].to_vec(), label);
+                    let link = Link::new(path[start..=j].to_vec(), label, false);
                     for &l in &link.ends {
                         shortest[l as usize] = shortest[l as usize].min(link.holes().len() as f64);
                     }

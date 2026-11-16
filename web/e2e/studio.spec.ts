@@ -1411,7 +1411,7 @@ test('console starts compact, opens on errors and can be collapsed again', async
 test('resolved downstream islands are notes on the canvas and in the report', async ({ page }) => {
   await open(page, 'Vector')
   const stencil = page.locator('.react-flow__node').filter({ hasText: 'Vector stencil' })
-  await expect(stencil.locator('.badge.info')).toContainText('bridged downstream')
+  await expect(stencil.locator('.badge.info')).toHaveAttribute('title', /bridged downstream/)
   await expect(stencil).not.toContainClass('problem-error')
   await stencil.dispatchEvent('click')
   await page.locator('.inspector').getByRole('button', { name: /Show .*note/ }).click()
@@ -1426,7 +1426,7 @@ test('resolved downstream islands are notes on the canvas and in the report', as
   expect(exported).toContain('[info] Vector stencil: 1 island bridged downstream')
   expect(exported).not.toContain('[error] Vector stencil:')
   await page.locator('.react-flow__node').filter({ hasText: 'Bridges' }).getByRole('button', { name: 'Delete node' }).dispatchEvent('click')
-  await expect(stencil.locator('.badge.error')).toContainText('island')
+  await expect(stencil.locator('.badge.error')).toHaveAttribute('title', /island/)
 })
 
 test('initial canvas stays readable and parameter edits preserve user zoom', async ({ page }, testInfo) => {
