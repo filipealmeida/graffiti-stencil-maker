@@ -1,4 +1,7 @@
 use super::{carve, Grid};
+use crate::tile_bridge::BridgeSpacing;
+
+mod aligned;
 
 /// Unit-capacity undirected max flow counts bridge-disjoint routes, not just local attachments.
 /// The residual source side identifies a bottleneck when fewer than requested routes exist.
@@ -53,12 +56,14 @@ pub(crate) struct BridgePlan {
 pub(crate) struct BridgePath {
     pub cells: Vec<usize>,
     pub straight: bool,
+    pub axis: Option<[[f64; 2]; 2]>,
 }
 
 struct Link {
     path: Vec<usize>,
     ends: [u32; 2],
     straight: bool,
+    axis: Option<[[f64; 2]; 2]>,
 }
 
 fn attachment_direction(at: usize, centre: [f64; 2], w: usize) -> [f64; 2] {
@@ -75,6 +80,7 @@ impl Link {
             ends: [label[path[0]], label[path[last]]],
             path,
             straight,
+            axis: None,
         }
     }
 
@@ -105,6 +111,7 @@ struct Planner<'a> {
     links: Vec<[usize; 2]>,
     plan: BridgePlan,
     min_angle: f64,
+    aligned: bool,
 }
 
 impl Planner<'_> {
@@ -120,6 +127,10 @@ impl Planner<'_> {
     }
 
     fn direction(&self, link: &Link, end: usize) -> [f64; 2] {
+        if let Some([a, b]) = link.axis {
+            let length = (b[0] - a[0]).hypot(b[1] - a[1]);
+            return [(b[0] - a[0]) / length, (b[1] - a[1]) / length];
+        }
         attachment_direction(
             link.attachment(end),
             self.centres[link.ends[end] as usize],
@@ -136,7 +147,8 @@ impl Planner<'_> {
             }
             let direction = self.direction(link, end);
             for d in &self.plan.directions[l] {
-                parallel = parallel.max(d[0] * direction[0] + d[1] * direction[1]);
+                let dot = d[0] * direction[0] + d[1] * direction[1];
+                parallel = parallel.max(if self.aligned { dot.abs() } else { dot });
             }
         }
         parallel
@@ -222,6 +234,7 @@ impl Planner<'_> {
         self.plan.paths.push(BridgePath {
             cells: link.path,
             straight: link.straight,
+            axis: link.axis,
         });
         self.plan.carved += added.len();
     }
@@ -338,8 +351,9 @@ pub(super) fn plan(
     avoid: Option<&[bool]>,
     contact: i64,
     landing: &[u32],
-    spread: bool,
+    spacing: BridgeSpacing,
 ) -> BridgePlan {
+    let spread = spacing == BridgeSpacing::Spread;
     let n = label.iter().copied().max().unwrap_or(frame).max(frame) as usize + 1;
     let mut planner = Planner {
         w: g.w,
@@ -359,6 +373,7 @@ pub(super) fn plan(
             ..Default::default()
         },
         min_angle,
+        aligned: spacing == BridgeSpacing::Aligned,
     };
     let mut boundaries = vec![Vec::new(); n];
     let mut areas = vec![0usize; n];
@@ -400,6 +415,28 @@ pub(super) fn plan(
                 start = j;
             }
         }
+    }
+    if spacing == BridgeSpacing::Aligned {
+        aligned::plan(
+            &mut planner,
+            g,
+            original,
+            rise,
+            &shortest,
+            max_length,
+            landing,
+            per_island,
+        );
+        planner.plan.routes = (0..n)
+            .map(|i| {
+                if i == frame as usize || boundaries[i].is_empty() {
+                    0
+                } else {
+                    planner.routes(i, per_island).0
+                }
+            })
+            .collect();
+        return planner.plan;
     }
     seeds.sort_by_key(|l| l.holes().len());
     for link in seeds {
@@ -541,7 +578,21 @@ mod tests {
                 };
                 let mut rise = vec![f32::NAN; w * h];
                 let plan = super::super::bridge_labelled(
-                    &mut grid, &label, 3, 2, &mut rise, 4, angle, 4.0, None, 0, spread,
+                    &mut grid,
+                    &label,
+                    3,
+                    2,
+                    &mut rise,
+                    4,
+                    angle,
+                    4.0,
+                    None,
+                    0,
+                    if spread {
+                        BridgeSpacing::Spread
+                    } else {
+                        BridgeSpacing::Closest
+                    },
                 );
                 let minimum = if angle == 30.0 { 4 } else { 2 };
                 assert!(
@@ -596,7 +647,21 @@ mod tests {
         };
         let mut rise = vec![f32::NAN; w * w];
         let plan = super::super::bridge_labelled(
-            &mut grid, &label, 1, 2, &mut rise, requested, angle, 4.0, None, 0, spread,
+            &mut grid,
+            &label,
+            1,
+            2,
+            &mut rise,
+            requested,
+            angle,
+            4.0,
+            None,
+            0,
+            if spread {
+                BridgeSpacing::Spread
+            } else {
+                BridgeSpacing::Closest
+            },
         );
         (grid, label, plan)
     }

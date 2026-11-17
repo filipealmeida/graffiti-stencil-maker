@@ -113,6 +113,46 @@ fn vector_mode_makes_an_island_free_stl() {
 }
 
 #[test]
+fn aligned_spacing_exports_raster_and_vector_stencils() {
+    let d = scratch("aligned");
+    let input = d.join("ring.svg");
+    fs::write(&input, RING).unwrap();
+    for vector in [false, true] {
+        let out = d.join(if vector { "vector.stl" } else { "raster.stl" });
+        let mut command = bin();
+        command
+            .arg(&input)
+            .args([
+                "--bridge-spacing",
+                "aligned",
+                "--bridge-min-angle",
+                "90",
+                "--bridges-per-island",
+                "5",
+                "--resolution",
+                "120",
+                "--width",
+                "60",
+                "--report",
+            ])
+            .arg("-o")
+            .arg(&out);
+        if vector {
+            command.args(["--vector", "--detail", "2"]);
+        }
+        let result = command.output().unwrap();
+        let stderr = String::from_utf8_lossy(&result.stderr);
+        assert!(result.status.success(), "{stderr}");
+        assert_stl(&out);
+        let mesh = stencil_core::mesh::Mesh::from_stl(&fs::read(&out).unwrap()).unwrap();
+        assert!(mesh.is_watertight());
+        assert!(stderr.contains("0 remaining, watertight true"), "{stderr}");
+        assert!(stderr.contains("line-axis angle"), "{stderr}");
+    }
+    fs::remove_dir_all(d).unwrap();
+}
+
+#[test]
 fn hardware_writes_parts_and_a_zip() {
     let d = scratch("hardware");
     let input = d.join("ring.svg");

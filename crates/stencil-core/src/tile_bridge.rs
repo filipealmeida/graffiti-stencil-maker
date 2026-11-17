@@ -6,6 +6,14 @@ use crate::mesh::{Mesh, P3};
 
 mod geometry;
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum BridgeSpacing {
+    #[default]
+    Closest,
+    Spread,
+    Aligned,
+}
+
 #[derive(Clone, Copy, Debug)]
 pub struct BridgeParams {
     pub bridge_mm: f64,
@@ -18,9 +26,9 @@ pub struct BridgeParams {
     /// Total plate height of the stencil (top of the layered solid).
     pub plate_top: f64,
     pub flip: bool,
-    /// Minimum angle between attachment positions about an island's area centre, in either spacing mode.
+    /// Minimum attachment-position angle, or undirected line-axis angle for Aligned.
     pub min_angle_deg: f64,
-    pub spread: bool,
+    pub spacing: BridgeSpacing,
     pub max_length: f64,
     pub passes: usize,
 }
@@ -38,7 +46,7 @@ impl Default for BridgeParams {
             plate_top: 0.0,
             flip: false,
             min_angle_deg: 0.0,
-            spread: false,
+            spacing: BridgeSpacing::Closest,
             max_length: 4.0,
             passes: 3,
         }
@@ -204,7 +212,7 @@ pub fn bridge_mesh(
         } else {
             0
         },
-        bp.spread,
+        bp.spacing,
     );
     if carved.carved == 0 {
         return Ok(None);
@@ -212,7 +220,11 @@ pub fn bridge_mesh(
 
     let mut out = Mesh::default();
     for path in &carved.paths {
-        let mut bridge = geometry::build(&path.cells, w, [lo[0], lo[1]], cell, bp, path.straight)?;
+        let mut bridge = if let Some(axis) = path.axis {
+            geometry::build_axis(axis, [lo[0], lo[1]], cell, bp)?
+        } else {
+            geometry::build(&path.cells, w, [lo[0], lo[1]], cell, bp, path.straight)?
+        };
         // Bridges planned in adjacent grid corridors can touch exactly edge to edge; such a union is joined
         // along a single edge, which the boolean engine rejects on the next operation. A nudge far below
         // print resolution (but above f32 rounding) turns the exact contact into an overlap or a clearance.

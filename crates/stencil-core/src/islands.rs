@@ -254,7 +254,11 @@ pub(crate) fn bridge_islands(
         max_length,
         None,
         0,
-        min_angle > 0.0,
+        if min_angle > 0.0 {
+            crate::tile_bridge::BridgeSpacing::Spread
+        } else {
+            crate::tile_bridge::BridgeSpacing::Closest
+        },
     )
     .carved
 }
@@ -273,7 +277,7 @@ pub(crate) fn bridge_labelled(
     max_length: f64,
     avoid: Option<&[bool]>,
     contact: i64,
-    spread: bool,
+    spacing: crate::tile_bridge::BridgeSpacing,
 ) -> BridgePlan {
     let (w, h) = (g.w, g.h);
     let landing = if contact > 0 {
@@ -361,7 +365,7 @@ pub(crate) fn bridge_labelled(
     }
     bridges::plan(
         g, &original, label, frame, radius, rise, &primary, per_island, min_angle, max_length,
-        avoid, contact, &landing, spread,
+        avoid, contact, &landing, spacing,
     )
 }
 

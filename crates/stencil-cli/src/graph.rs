@@ -46,7 +46,9 @@ pub(crate) fn pipeline(a: &Args, image: &str) -> Json {
     if a.raised_bridges {
         br.insert("raised_bridges".into(), json!(true));
     }
-    if a.bridge_spread || a.bridge_min_angle.is_some() {
+    if let Some(spacing) = &a.bridge_spacing {
+        br.insert("bridge_spacing".into(), json!(spacing));
+    } else if a.bridge_spread || a.bridge_min_angle.is_some() {
         br.insert("bridge_spacing".into(), json!("spread"));
     }
     set(&mut br, "bridge_min_angle_deg", a.bridge_min_angle);
@@ -324,5 +326,46 @@ pub(crate) fn load_input(a: &Args, engine: &mut Engine) -> (Json, String, PathBu
             )
         }
         (None, None) => fail("give a picture or --project (see --help)"),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use clap::Parser;
+
+    #[test]
+    fn bridge_spacing_preserves_legacy_flags_and_explicit_choice() {
+        for (flags, expected) in [
+            (vec![], Json::Null),
+            (vec!["--bridge-spread"], json!("spread")),
+            (vec!["--bridge-min-angle", "60"], json!("spread")),
+            (
+                vec!["--bridge-spacing", "aligned", "--bridge-min-angle", "60"],
+                json!("aligned"),
+            ),
+            (
+                vec!["--bridge-spacing", "closest", "--bridge-min-angle", "60"],
+                json!("closest"),
+            ),
+        ] {
+            let args = Args::try_parse_from(std::iter::once("stencil").chain(flags)).unwrap();
+            let graph = pipeline(&args, "image");
+            let bridges = graph["nodes"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|n| n["id"] == "br")
+                .unwrap();
+            assert_eq!(bridges["params"]["bridge_spacing"], expected);
+        }
+        assert!(Args::try_parse_from([
+            "stencil",
+            "--bridge-spacing",
+            "aligned",
+            "--bridge-spread"
+        ])
+        .is_err());
+        assert!(Args::try_parse_from(["stencil", "--bridge-spacing", "invalid"]).is_err());
     }
 }

@@ -78,6 +78,25 @@ pub(super) fn build(
     } else {
         simplify(&points, cell * 0.8, &mut line);
     }
+    build_line(&line, cell, bp)
+}
+
+pub(super) fn build_axis(
+    axis: [[f64; 2]; 2],
+    origin: Point,
+    cell: f64,
+    bp: &BridgeParams,
+) -> Result<Mesh, String> {
+    let line = axis.map(|p| {
+        [
+            origin[0] + (p[0] + 0.5) * cell,
+            origin[1] + (p[1] + 0.5) * cell,
+        ]
+    });
+    build_line(&line, cell, bp)
+}
+
+fn build_line(line: &[Point], cell: f64, bp: &BridgeParams) -> Result<Mesh, String> {
     let total: f64 = line.windows(2).map(|p| distance(p[0], p[1])).sum();
     let span_width = bp.bridge_mm.max(cell);
     let end_width = if bp.min_contact_mm > 0.0 {
@@ -267,6 +286,36 @@ mod tests {
                         assert!((hi[2] - if flip { 8.2 - low } else { 8.2 }).abs() < 1e-6);
                     }
                 }
+            }
+        }
+    }
+
+    #[test]
+    fn aligned_gap_meshes_share_the_exact_axis_not_rounded_cell_endpoints() {
+        let bp = BridgeParams {
+            bridge_mm: 2.0,
+            raised: false,
+            plate_top: 5.0,
+            ..Default::default()
+        };
+        let direction = [0.8, 0.6];
+        let origin = [12.0, -4.0];
+        let cell = 0.5;
+        let anchor = [3.25, 7.5];
+        let physical = [
+            origin[0] + (anchor[0] + 0.5) * cell,
+            origin[1] + (anchor[1] + 0.5) * cell,
+        ];
+        for [start, end] in [[0.0, 12.0], [28.0, 49.0], [65.0, 100.0]] {
+            let axis =
+                [start, end].map(|s| [anchor[0] + s * direction[0], anchor[1] + s * direction[1]]);
+            let mesh = build_axis(axis, origin, cell, &bp).unwrap();
+            assert!(mesh.is_watertight());
+            assert_eq!(mesh.t.len(), 12);
+            for p in &mesh.v {
+                let normal =
+                    -(p[0] - physical[0]) * direction[1] + (p[1] - physical[1]) * direction[0];
+                assert!((normal.abs() - 1.0).abs() < 0.00015, "{p:?}");
             }
         }
     }

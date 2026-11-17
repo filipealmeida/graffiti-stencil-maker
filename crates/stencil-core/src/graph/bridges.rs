@@ -3,7 +3,7 @@
 use super::types::Outputs;
 use super::*;
 use crate::mesh::Mesh;
-use crate::tile_bridge::{bridge_mesh, components, BridgeParams};
+use crate::tile_bridge::{bridge_mesh, components, BridgeParams, BridgeSpacing};
 
 mod contact;
 
@@ -158,7 +158,11 @@ fn bridge_params(p: &P, top: f64, layer: f64, thickness: f64, flip: bool) -> Bri
         plate_top: top,
         flip,
         min_angle_deg: p.f("bridge_min_angle_deg"),
-        spread: p.s("bridge_spacing") == "spread",
+        spacing: match p.s("bridge_spacing") {
+            "aligned" => BridgeSpacing::Aligned,
+            "spread" => BridgeSpacing::Spread,
+            _ => BridgeSpacing::Closest,
+        },
         max_length: p.f("bridge_max_length"),
         passes: 3,
     }
@@ -178,8 +182,13 @@ fn contact_report(contacts: &contact::Contacts, target: f64, requested: usize) -
 }
 
 fn count_warning(contacts: &contact::Contacts, bp: &BridgeParams) -> Vec<String> {
+    let angle = if bp.spacing == BridgeSpacing::Aligned {
+        "line-axis"
+    } else {
+        "attachment-position"
+    };
     contacts.routes.iter().filter(|(_, count)| *count < bp.per_island).map(|&(island, count)| {
-        format!("Island {}: {count} of {} independent bridge routes to the main piece; no further route found within the {:.0} degree minimum attachment-position angle, bridge width/contact, length and pocket-clearance constraints",
+        format!("Island {}: {count} of {} independent bridge routes to the main piece; no further route found within the {:.0} degree minimum {angle} angle, bridge width/contact, length and pocket-clearance constraints",
             island + 1, bp.per_island, bp.min_angle_deg)
     }).collect()
 }
@@ -429,14 +438,18 @@ mod tests {
 
     #[test]
     fn nested_components_have_four_verified_attachments_after_meshing() {
-        for spread in [false, true] {
+        for spacing in [
+            BridgeSpacing::Closest,
+            BridgeSpacing::Spread,
+            BridgeSpacing::Aligned,
+        ] {
             for flip in [false, true] {
                 for easy in [false, true] {
                     let bp = BridgeParams {
                         bridge_mm: 2.0,
                         per_island: 4,
                         min_angle_deg: 30.0,
-                        spread,
+                        spacing,
                         flip,
                         easy,
                         base_layers: 25,
@@ -451,7 +464,7 @@ mod tests {
                     for &(_, count) in &contacts.counts {
                         assert!(
                             count >= 4,
-                            "spread={spread}, flip={flip}, easy={easy}: {count}"
+                            "spacing={spacing:?}, flip={flip}, easy={easy}: {count}"
                         );
                     }
                     assert!(
@@ -465,8 +478,8 @@ mod tests {
     }
 
     #[test]
-    fn unmet_counts_are_reported_in_both_modes() {
-        for spacing in ["closest", "spread"] {
+    fn unmet_counts_are_reported_in_all_modes() {
+        for spacing in ["closest", "spread", "aligned"] {
             let p = run(
                 &{
                     let mut m = Mesh::cuboid([0.0; 3], [80.0, 80.0, 5.0])
@@ -477,11 +490,12 @@ mod tests {
                 },
                 json!({
                     "bridge_mm": 2.0, "bridges_per_island": 5, "bridge_min_angle_deg": 90.0,
-                    "bridge_spacing": spacing, "raised_bridges": true, "z_bridging": "easy"
+                    "bridge_spacing": spacing, "bridge_max_length": 4.0,
+                    "raised_bridges": true, "z_bridging": "easy"
                 }),
             );
             let report = &p.meta["bridged_fragments"];
-            assert_eq!(report["islands_left"], 0);
+            assert_eq!(report["islands_left"], 0, "spacing={spacing}: {report}");
             let islands = report["tiles"][0]["bridge_contacts"]["islands"]
                 .as_array()
                 .unwrap();
@@ -517,15 +531,22 @@ mod tests {
     }
 
     #[test]
-    fn closest_also_respects_the_configured_angle() {
-        for spacing in ["closest", "spread"] {
+    fn every_spacing_mode_keeps_the_configured_angle() {
+        for spacing in ["closest", "spread", "aligned"] {
             let p = P(serde_json::from_value(json!({
                 "bridge_spacing": spacing, "bridge_min_angle_deg": 65.0,
             }))
             .unwrap());
             let bp = bridge_params(&p, 5.0, 0.2, 5.0, false);
             assert_eq!(bp.min_angle_deg, 65.0);
-            assert_eq!(bp.spread, spacing == "spread");
+            assert_eq!(
+                bp.spacing,
+                match spacing {
+                    "aligned" => BridgeSpacing::Aligned,
+                    "spread" => BridgeSpacing::Spread,
+                    _ => BridgeSpacing::Closest,
+                }
+            );
         }
     }
 
@@ -545,6 +566,50 @@ mod tests {
         assert_eq!(pieces(&p, "rod.stl"), 2);
         let tile = Mesh::from_stl(&p.files[0].1).unwrap();
         assert!(tile.is_watertight() && tile.volume() > m.volume());
+    }
+
+    #[test]
+    fn aligned_plans_each_tile_independently_and_keeps_global_pockets_open() {
+        let mut mesh = Mesh::cuboid([0.0; 3], [8.0, 40.0, 5.0]);
+        for x in [20.0, 40.0] {
+            mesh.append(&Mesh::cuboid([x, 15.0, 0.0], [x + 8.0, 25.0, 5.0]));
+        }
+        let stl = mesh.to_stl();
+        let parts = Parts {
+            files: vec![
+                ("blocked.stl".into(), stl.clone()),
+                ("free.stl".into(), stl.clone()),
+                ("rod.stl".into(), stl.clone()),
+            ],
+            meta: json!({"plate": {
+                "top": 5.0, "layer": 0.2, "thickness": 5.0, "flip": false,
+                "connectors": [[8.0, 0.0, 20.0, 40.0]],
+                "parts": [
+                    {"file": "blocked.stl", "role": "tile", "origin": [0.0, 0.0], "size": [48.0, 40.0]},
+                    {"file": "free.stl", "role": "tile", "origin": [100.0, 0.0], "size": [48.0, 40.0]},
+                ],
+            }}),
+        };
+        let mut inputs = HashMap::new();
+        inputs.insert("body".into(), Value::Parts(Rc::new(parts)));
+        let params = P(serde_json::from_value(json!({
+            "bridge_spacing": "aligned", "bridge_mm": 2.0, "bridges_per_island": 1,
+            "bridge_min_angle_deg": 45.0, "bridge_max_length": 4.0,
+        }))
+        .unwrap());
+        let outputs = run_bridges(&Engine::new(), &inputs, &params).unwrap();
+        let Value::Parts(out) = &outputs[0].1 else {
+            panic!()
+        };
+        assert_eq!(pieces(out, "blocked.stl"), 3);
+        assert_eq!(pieces(out, "free.stl"), 1);
+        assert_eq!(out.files[2].1, stl);
+        assert_eq!(out.meta["bridged_fragments"]["islands_left"], 2);
+        assert_eq!(out.meta["bridged_fragments"]["tiles_bridged"], 1);
+        let free = Mesh::from_stl(&out.files[1].1).unwrap();
+        assert!(free.is_watertight());
+        let (lo, hi) = free.bounds();
+        assert!(lo[0] >= 0.0 && hi[0] <= 48.0 && lo[1] >= 0.0 && hi[1] <= 40.0);
     }
 
     #[test]

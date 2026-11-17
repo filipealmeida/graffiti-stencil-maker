@@ -51,7 +51,7 @@ The page and engine worker share their request, result, progress, and error type
 
 ## Features
 
-- Raster and direct polygon-vector stencil generation, with automatic island bridges and watertightness checks.
+- Raster and direct polygon-vector stencil generation, with Closest, Spread and Aligned island bridges and watertightness checks.
 - Image thresholding, colour reduction and splitting, tone patterns, and editable traced curves.
 - Optional raised bridges that preserve islands on the first layer.
 - Tiling, connector rods, threaded pads and mounting holes, joiner/extender plates, and ZIP export.

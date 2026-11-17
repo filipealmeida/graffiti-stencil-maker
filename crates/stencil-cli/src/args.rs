@@ -40,10 +40,13 @@ pub(crate) struct Args {
     /// Prefer attachment positions distributed around islands, rather than only the shortest links
     #[arg(long)]
     pub(crate) bridge_spread: bool,
-    /// Minimum angle between attachment positions about an island's centre (default 45); implies --bridge-spread
+    /// Bridge spacing strategy; --bridge-spread is the legacy shortcut for spread
+    #[arg(long, value_parser = ["closest", "spread", "aligned"], conflicts_with = "bridge_spread")]
+    pub(crate) bridge_spacing: Option<String>,
+    /// Minimum attachment-position angle, or line-axis angle for aligned (default 45); implies spread unless spacing is set
     #[arg(long)]
     pub(crate) bridge_min_angle: Option<f64>,
-    /// With --bridge-spread: longest bridge as a multiple of the shortest link (1-16, default 4)
+    /// With spread or aligned: longest gap as a multiple of the shortest link (1-16, default 4)
     #[arg(long)]
     pub(crate) bridge_max_length: Option<f64>,
     /// Widen any strip of material thinner than this (mm); 0 is off

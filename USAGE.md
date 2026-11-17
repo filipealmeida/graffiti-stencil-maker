@@ -19,6 +19,7 @@ stencil logo.png -o logo.stl
 stencil artwork.svg --width 120 --thickness 3 --margin 10 --bridge 2 -o plate.stl
 stencil artwork.svg --vector --bridges-per-island 3 -o plate.stl   # three bridges for every island
 stencil artwork.svg --vector --bridges-per-island 2 --bridge-spread -o plate.stl   # distribute attachment positions around islands (--bridge-min-angle DEG)
+stencil artwork.svg --bridge-spacing aligned --bridges-per-island 2 -o plate.stl  # share straight alignments across islands
 stencil portrait.jpg --threshold 110 --invert
 stencil logo.png --vector --detail 4
 stencil tiled.png --tile-width 60 --tile-height 60 --connector hex --pads 4 --pad-thread M6
@@ -97,11 +98,28 @@ pocket-clearance constraints can prevent the target being met. Solid and per-til
 include verified local attachment counts (`placed`), independent routes to the main piece
 (`independent_routes`), and warnings for any route shortfall after clipping.
 
+Aligned is the default spacing strategy. Explicit Closest and Spread settings are
+preserved; projects without a spacing setting use Aligned. It greedily selects straight alignments that connect the
+most unsupported islands, then reinforce deficient independent routes, preferring
+shorter total gaps and better landings on ties. Only gaps between existing pieces receive
+material. Selection is deterministic and sampled in 5-degree increments, not a guarantee
+of the mathematical minimum number of lines. `bridge_max_length` limits each gap, not
+the total alignment length.
+
+In Aligned, the minimum angle is the smaller angle between different undirected line
+axes touching the same original island: parallel and opposite directions are 0 degrees,
+perpendicular is 90 degrees. Both sides of one selected alignment share one direction;
+their separate connections can still provide two independent routes to the main piece.
+Attachment clearance remains a separate constraint. Impossible route/angle targets
+produce warnings without relaxing the angle. A solid is planned as a whole; parts are
+planned separately per tile, never relying on support across a seam. If splitting after
+bridging, add a Bridges node after the split to repair any severed connections.
+
 Bridge placement uses a grid for routing and clearance checks, but the Bridges node
 exports straight-sided strips, including diagonal bridges, rather than pixel staircases.
 Reinforced ends taper into the span; Steps still changes height in whole print layers,
-without introducing a staircase into the plan-view edges. Real bends needed to route
-around obstacles are retained.
+without introducing a staircase into the plan-view edges. Closest and Spread retain
+real bends needed to route around obstacles; Aligned rejects blocked straight spans.
 
 ### Experimental roll-up stencils
 

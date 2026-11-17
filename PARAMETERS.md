@@ -372,7 +372,7 @@
 | `bridge_mm` | Bridge width (mm) | float | `1.6` | 0.4 to 6.0 |
 | `bridge_min_contact_mm` | Minimum bridge contact (mm) | float | `3.0` | 0.0 to 12.0 |
 | `bridges_per_island` | Bridges per island | int | `1.0` | 1.0 to 5.0 |
-| `bridge_spacing` | Bridge spacing | choice | `"spread"` | closest \| spread |
+| `bridge_spacing` | Bridge spacing | choice | `"aligned"` | closest \| spread \| aligned |
 | `bridge_min_angle_deg` | Minimum angle between bridges (deg) | float | `45.0` | 15.0 to 90.0 |
 | `bridge_max_length` | Longest bridge in spread mode (x shortest) | float | `4.0` | 1.0 to 16.0 |
 | `raised_bridges` | Raised bridges | bool | `true` | true \| false |

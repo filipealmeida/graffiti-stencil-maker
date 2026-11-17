@@ -90,6 +90,21 @@ const setSlider = (page: Page, v: number) =>
     e.dispatchEvent(new Event('input', { bubbles: true }))
   }, v)
 
+test('Aligned bridge spacing is the default and existing choices still run', async ({ page }) => {
+  await open(page)
+  await page.locator('.react-flow__node').filter({ hasText: /^Bridges/ }).dispatchEvent('click')
+  const spacing = page.locator('aside label.row').filter({ hasText: 'Bridge spacing' }).locator('select')
+  await expect(spacing.locator('option')).toHaveText(['closest', 'spread', 'aligned'])
+  await expect(spacing).toHaveValue('aligned')
+  await spacing.selectOption('spread')
+  await settled(page)
+  await expect(spacing).toHaveValue('spread')
+  await spacing.selectOption('aligned')
+  await settled(page)
+  await expect(spacing).toHaveValue('aligned')
+  await expect(page.locator('aside')).toContainText('line axes')
+})
+
 test('rapid edits settle into one finished run', async ({ page }) => {
   await open(page)
   await page.locator('.react-flow__node').first().dispatchEvent('click')
