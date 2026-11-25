@@ -471,6 +471,12 @@ fn build_once(
             .as_slice()
             .overlay(paint.as_slice(), OverlayRule::Difference, FillRule::EvenOdd)
     };
+    // a margin narrower than this is no frame: the plate's sides are bare edges like a window's cut sides
+    let edge_mm = p.min_contact_mm.max(0.2);
+    let framed = window.is_none() && margin >= edge_mm;
+    if !framed {
+        material = drop_edge_strips(&material, &plate, edge_mm);
+    }
     // A bridge runs a little past its ends, so in a window it would stick out over the cut edge.
     let clip: Option<Vec<Vec<IntPoint<i32>>>> = window.map(|_| vec![plate.clone()]);
     if let Some(w) = window.filter(|w| !w.solid.is_empty()) {
@@ -500,11 +506,10 @@ fn build_once(
     }
 
     let islands_found = material.len().saturating_sub(1);
-    // a window has no frame in its corner, so the biggest piece is the one the others are bridged to
+    // with no frame in its corner, the biggest piece is the one the others are bridged to
     let main = (0..material.len())
         .find(|&i| {
-            window.is_none()
-                && outer_contour(&material[i]).is_some_and(|c| contains(&to_mm(c), [1e-6, 1e-6]))
+            framed && outer_contour(&material[i]).is_some_and(|c| contains(&to_mm(c), [1e-6, 1e-6]))
         })
         .or_else(|| {
             (0..material.len())

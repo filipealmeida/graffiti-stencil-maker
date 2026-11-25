@@ -78,7 +78,7 @@ fn boolean(a: &Region, b: &Region, rule: OverlayRule) -> Region {
     }
 }
 
-fn normalize(contours: Vec<Contour>) -> Region {
+pub(crate) fn normalize(contours: Vec<Contour>) -> Region {
     if contours.is_empty() {
         return vec![];
     }

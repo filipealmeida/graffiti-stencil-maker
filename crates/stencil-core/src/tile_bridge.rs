@@ -5,6 +5,8 @@ use crate::islands::{bridge_labelled, Grid};
 use crate::mesh::{Mesh, P3};
 
 mod geometry;
+mod pieces;
+pub use pieces::{Pieces, SPECK_MM};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum BridgeSpacing {
@@ -84,14 +86,12 @@ pub fn components(m: &Mesh) -> (usize, Vec<usize>) {
     (ids.len(), of)
 }
 
-fn in_tri(p: [f64; 2], a: [f64; 2], b: [f64; 2], c: [f64; 2]) -> bool {
-    let e = |p: [f64; 2], q: [f64; 2], r: [f64; 2]| {
-        (q[0] - p[0]) * (r[1] - p[1]) - (q[1] - p[1]) * (r[0] - p[0])
-    };
-    let (d1, d2, d3) = (e(a, b, p), e(b, c, p), e(c, a, p));
-    let neg = d1 < 0.0 || d2 < 0.0 || d3 < 0.0;
-    let pos = d1 > 0.0 || d2 > 0.0 || d3 > 0.0;
-    !(neg && pos)
+/// The narrowest strip that holds two parts together: the contact target, with a floor for projects without one.
+/// A bridge is only widened to the target at its ends, so the join never exceeds most of the bridge's own width.
+pub fn join_mm(bp: &BridgeParams) -> f64 {
+    bp.min_contact_mm
+        .min(bp.bridge_mm * 0.8)
+        .max(pieces::SPECK_MM)
 }
 
 /// A mesh that, unioned into `m`, joins its separate pieces; `None` when `m` is a single piece.
@@ -101,8 +101,22 @@ pub fn bridge_mesh(
     avoid: &[(P3, P3)],
     bp: &BridgeParams,
 ) -> Result<Option<Mesh>, String> {
-    let (ncomp, comp) = components(m);
-    if ncomp < 2 {
+    let plane = if bp.flip { 0.0 } else { bp.plate_top };
+    let pieces = Pieces::new(m, plane, bp.flip, join_mm(bp));
+    let (lo, hi) = m.bounds();
+    bridge_pieces(m, &pieces, avoid, [[lo[0], lo[1]], [hi[0], hi[1]]], bp)
+}
+
+/// `bridge_mesh` for pieces already found in `m`. `outline` is the tile's rectangle on the bridging plane: its
+/// sides are cut edges, not material, so no bridge may run along one.
+pub fn bridge_pieces(
+    m: &Mesh,
+    pieces: &Pieces,
+    avoid: &[(P3, P3)],
+    outline: [[f64; 2]; 2],
+    bp: &BridgeParams,
+) -> Result<Option<Mesh>, String> {
+    if pieces.count() < 2 {
         return Ok(None);
     }
     let (lo, hi) = m.bounds();
@@ -113,73 +127,23 @@ pub fn bridge_mesh(
         (((hi[0] - lo[0]) / cell).ceil() as usize).max(1),
         (((hi[1] - lo[1]) / cell).ceil() as usize).max(1),
     );
-    let plane = if bp.flip { 0.0 } else { bp.plate_top };
-    let tol = 1e-3;
-    let mut label = vec![0u32; w * h];
-    let mut seen = vec![false; ncomp];
-    let mut hit = vec![false; ncomp];
+    let label = pieces.raster([lo[0], lo[1]], cell, w, h);
+    let mut count = vec![0usize; pieces.count()];
+    for &l in &label {
+        if l > 0 {
+            count[l as usize - 1] += 1;
+        }
+    }
+    // pieces smaller than a cell cannot be bridged here: the caller's final check reports them
+    let Some(frame) = pieces.frame().filter(|&f| count[f] > 0) else {
+        return Ok(None);
+    };
     let to_cell = |x: f64, y: f64| -> (i64, i64) {
         (
             ((x - lo[0]) / cell).floor() as i64,
             ((y - lo[1]) / cell).floor() as i64,
         )
     };
-    for (ti, t) in m.t.iter().enumerate() {
-        let [a, b, c] = [m.v[t[0]], m.v[t[1]], m.v[t[2]]];
-        if ![a, b, c].iter().all(|p| (p[2] - plane).abs() < tol) {
-            continue;
-        }
-        let nz = (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]);
-        if (nz > 0.0) == bp.flip {
-            continue;
-        }
-        seen[comp[ti]] = true;
-        let (x0, y0) = to_cell(a[0].min(b[0]).min(c[0]), a[1].min(b[1]).min(c[1]));
-        let (x1, y1) = to_cell(a[0].max(b[0]).max(c[0]), a[1].max(b[1]).max(c[1]));
-        for cy in y0.max(0)..=y1.min(h as i64 - 1) {
-            for cx in x0.max(0)..=x1.min(w as i64 - 1) {
-                let p = [
-                    lo[0] + (cx as f64 + 0.5) * cell,
-                    lo[1] + (cy as f64 + 0.5) * cell,
-                ];
-                if in_tri(p, [a[0], a[1]], [b[0], b[1]], [c[0], c[1]]) {
-                    label[cy as usize * w + cx as usize] = comp[ti] as u32 + 1;
-                    hit[comp[ti]] = true;
-                }
-            }
-        }
-        // thin parts can miss every cell centre: mark the centroid cell instead
-        if !hit[comp[ti]] {
-            let (cx, cy) = to_cell((a[0] + b[0] + c[0]) / 3.0, (a[1] + b[1] + c[1]) / 3.0);
-            if cx >= 0 && cy >= 0 && cx < w as i64 && cy < h as i64 {
-                let i = cy as usize * w + cx as usize;
-                if label[i] == 0 {
-                    label[i] = comp[ti] as u32 + 1;
-                }
-            }
-        }
-    }
-    let mut count = vec![0usize; ncomp];
-    for &l in &label {
-        if l > 0 {
-            count[l as usize - 1] += 1;
-        }
-    }
-    // pieces without a top face (or smaller than a cell) cannot be bridged here: the caller's final check reports them
-    let Some(frame) = (0..ncomp)
-        .max_by_key(|&c| count[c])
-        .filter(|&c| count[c] > 0)
-    else {
-        return Ok(None);
-    };
-    for c in 0..ncomp {
-        if !seen[c] || count[c] == 0 {
-            label
-                .iter_mut()
-                .filter(|l| **l == c as u32 + 1)
-                .for_each(|l| *l = 0);
-        }
-    }
     let mut grid = Grid {
         w,
         h,
@@ -195,6 +159,17 @@ pub fn bridge_mesh(
             }
         }
     }
+    let [fl, fh] = outline;
+    let edge: Vec<[f32; 2]> = (0..w * h)
+        .map(|i| {
+            let x = lo[0] + ((i % w) as f64 + 0.5) * cell;
+            let y = lo[1] + ((i / w) as f64 + 0.5) * cell;
+            [
+                ((x - fl[0]).min(fh[0] - x) / cell) as f32,
+                ((y - fl[1]).min(fh[1] - y) / cell) as f32,
+            ]
+        })
+        .collect();
     let radius = ((bp.bridge_mm / cell).round() as i64).max(1);
     let mut rise = vec![f32::NAN; w * h];
     let carved = bridge_labelled(
@@ -207,6 +182,7 @@ pub fn bridge_mesh(
         bp.min_angle_deg,
         bp.max_length,
         Some(&avoid_mask),
+        Some(&edge),
         if bp.min_contact_mm > 0.0 {
             (bp.min_contact_mm / cell).ceil() as i64 + 4
         } else {

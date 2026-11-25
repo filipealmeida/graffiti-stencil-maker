@@ -259,7 +259,7 @@ pub fn stencil_from_paint(
             p.bridges_per_island.clamp(1, 5) as usize,
             p.bridge_min_angle_deg,
             p.bridge_max_length,
-            p.frame_largest,
+            p.frame_largest || p.margin_mm <= 0.0,
         );
     }
 
@@ -485,6 +485,29 @@ mod tests {
         assert!(v1 - v0 > 100.0, "volume grew by only {}", v1 - v0);
         let tiny = run(0.2);
         assert!((stl_volume(&tiny.stl) - v0).abs() < 1.0);
+    }
+
+    #[test]
+    fn with_no_margin_islands_are_bridged_to_the_largest_piece() {
+        // paint everywhere but a long bar and a block above it: the corner is paint, not a frame
+        let (w, h) = (200, 100);
+        let mask: Vec<bool> = (0..w * h)
+            .map(|i| {
+                let (x, y) = (i % w, i / w);
+                let bar = (10..190).contains(&x) && (10..30).contains(&y);
+                let block = (90..110).contains(&x) && (50..70).contains(&y);
+                !(bar || block)
+            })
+            .collect();
+        let p = Params {
+            width_mm: 100.0,
+            margin_mm: 0.0,
+            ..Params::default()
+        };
+        let out = stencil_from_paint(&mask, w, h, 0, &p).unwrap();
+        assert_eq!(out.stats.islands_found, 1);
+        assert_eq!(out.stats.islands_remaining, 0);
+        assert!(out.stats.bridge_pixels > 0);
     }
 
     #[test]

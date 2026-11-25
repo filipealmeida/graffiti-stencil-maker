@@ -105,6 +105,8 @@ struct Planner<'a> {
     contact: i64,
     avoid: Option<&'a [bool]>,
     blocked: Vec<bool>,
+    /// Each cell's distance, in cells, to the tile's nearest vertical and horizontal side.
+    edge: Option<&'a [[f32; 2]]>,
     attachments: Vec<Vec<usize>>,
     groups: Vec<usize>,
     centres: Vec<[f64; 2]>,
@@ -175,6 +177,27 @@ impl Planner<'_> {
         }
         // Test the entire flared footprint: carving must not truncate an end at a pocket or merge bridges.
         let holes = link.holes();
+        if let Some(edge) = self.edge {
+            // the body spans half a bridge across its own axis: along a side it needs that much clearance, while
+            // one landing square on an island at the side only keeps its centre line off the cut
+            let (a, b) = (link.path[0], link.path[link.path.len() - 1]);
+            let d = [
+                (b % self.w) as f64 - (a % self.w) as f64,
+                (b / self.w) as f64 - (a / self.w) as f64,
+            ];
+            let length = d[0].hypot(d[1]).max(1e-9);
+            let half = self.radius as f64 / 2.0;
+            let need = [
+                1.0 + half * (d[1] / length).abs(),
+                1.0 + half * (d[0] / length).abs(),
+            ];
+            if holes
+                .iter()
+                .any(|&q| (edge[q][0] as f64) < need[0] || (edge[q][1] as f64) < need[1])
+            {
+                return false;
+            }
+        }
         for (j, &q) in holes.iter().enumerate() {
             let width = self
                 .radius
@@ -272,7 +295,10 @@ impl Planner<'_> {
                 path.push(i);
                 return Some(Link::new(path, self.label, true));
             }
-            if self.blocked[i] || self.avoid.is_some_and(|a| a[i]) {
+            if self.blocked[i]
+                || self.avoid.is_some_and(|a| a[i])
+                || self.edge.is_some_and(|e| e[i][0].min(e[i][1]) < 1.0)
+            {
                 return None;
             }
             path.push(i);
@@ -336,6 +362,36 @@ impl Planner<'_> {
     }
 }
 
+/// Connects every unsupported island along its best valid ray, repeating while any island gains support.
+fn connect(
+    planner: &mut Planner<'_>,
+    g: &mut Grid,
+    original: &[bool],
+    rise: &mut [f32],
+    boundaries: &[Vec<usize>],
+    reach: &dyn Fn(usize) -> f64,
+    landing: &[u32],
+) {
+    loop {
+        let mut progress = false;
+        let mut order: Vec<_> = (1..boundaries.len()).collect();
+        order.sort_by_key(|&i| boundaries[i].len());
+        for i in order {
+            let boundary = &boundaries[i];
+            if boundary.is_empty() || planner.supported(i) {
+                continue;
+            }
+            if let Some(link) = planner.best(i, boundary, reach(i), false, true, landing, None) {
+                planner.add(g, original, rise, link);
+                progress = true;
+            }
+        }
+        if !progress {
+            break;
+        }
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 pub(super) fn plan(
     g: &mut Grid,
@@ -349,6 +405,7 @@ pub(super) fn plan(
     min_angle: f64,
     max_length: f64,
     avoid: Option<&[bool]>,
+    edge: Option<&[[f32; 2]]>,
     contact: i64,
     landing: &[u32],
     spacing: BridgeSpacing,
@@ -363,6 +420,7 @@ pub(super) fn plan(
         contact,
         avoid,
         blocked: vec![false; label.len()],
+        edge,
         attachments: vec![vec![]; n],
         groups: (0..n).collect(),
         centres: vec![[0.0; 2]; n],
@@ -416,6 +474,15 @@ pub(super) fn plan(
             }
         }
     }
+    let reach = |i: usize| {
+        let shortest = if shortest[i].is_finite() {
+            shortest[i]
+        } else {
+            radius as f64
+        };
+        let factor = if spread { max_length } else { 4.0 };
+        factor * shortest.max(radius as f64) + 4.0 * radius as f64
+    };
     if spacing == BridgeSpacing::Aligned {
         aligned::plan(
             &mut planner,
@@ -426,6 +493,16 @@ pub(super) fn plan(
             max_length,
             landing,
             per_island,
+        );
+        // A gap the alignments left blocked must not leave an island loose: connect it off-axis instead.
+        connect(
+            &mut planner,
+            g,
+            original,
+            rise,
+            &boundaries,
+            &reach,
+            landing,
         );
         planner.plan.routes = (0..n)
             .map(|i| {
@@ -446,33 +523,15 @@ pub(super) fn plan(
             planner.add(g, original, rise, link);
         }
     }
-    let reach = |i: usize| {
-        let shortest = if shortest[i].is_finite() {
-            shortest[i]
-        } else {
-            radius as f64
-        };
-        let factor = if spread { max_length } else { 4.0 };
-        factor * shortest.max(radius as f64) + 4.0 * radius as f64
-    };
-    loop {
-        let mut progress = false;
-        let mut order: Vec<_> = (1..n).collect();
-        order.sort_by_key(|&i| boundaries[i].len());
-        for i in order {
-            let boundary = &boundaries[i];
-            if boundary.is_empty() || planner.supported(i) {
-                continue;
-            }
-            if let Some(link) = planner.best(i, boundary, reach(i), false, true, landing, None) {
-                planner.add(g, original, rise, link);
-                progress = true;
-            }
-        }
-        if !progress {
-            break;
-        }
-    }
+    connect(
+        &mut planner,
+        g,
+        original,
+        rise,
+        &boundaries,
+        &reach,
+        landing,
+    );
     let mut order: Vec<_> = (1..n).collect();
     order.sort_by_key(|&i| boundaries[i].len());
     for i in order {
@@ -587,6 +646,7 @@ mod tests {
                     angle,
                     4.0,
                     None,
+                    None,
                     0,
                     if spread {
                         BridgeSpacing::Spread
@@ -656,6 +716,7 @@ mod tests {
             angle,
             4.0,
             None,
+            None,
             0,
             if spread {
                 BridgeSpacing::Spread
@@ -699,6 +760,62 @@ mod tests {
                     }
                 }
             }
+        }
+    }
+
+    #[test]
+    fn bridges_never_run_along_a_tile_side_but_may_land_square_on_it() {
+        let (w, h) = (60, 40);
+        // 1-cell sliver on the bottom side, 4 cells right of a low frame stub; `roof` adds frame above it
+        let routes = |roof: bool, sides: bool, spacing: BridgeSpacing| {
+            let label: Vec<u32> = (0..w * h)
+                .map(|i| match (i % w, i / w) {
+                    (0..=19, 0..=3) => 1,
+                    (_, 8..) if roof => 1,
+                    (24..=29, 0) => 2,
+                    _ => 0,
+                })
+                .collect();
+            let edge: Vec<[f32; 2]> = (0..w * h)
+                .map(|i| {
+                    let (x, y) = ((i % w) as f32 + 0.5, (i / w) as f32 + 0.5);
+                    [x.min(w as f32 - x), y.min(h as f32 - y)]
+                })
+                .collect();
+            let mut grid = Grid {
+                w,
+                h,
+                m: label.iter().map(|&l| l > 0).collect(),
+            };
+            let mut rise = vec![f32::NAN; w * h];
+            let plan = super::super::bridge_labelled(
+                &mut grid,
+                &label,
+                1,
+                4,
+                &mut rise,
+                1,
+                if spacing == BridgeSpacing::Spread {
+                    30.0
+                } else {
+                    0.0
+                },
+                4.0,
+                None,
+                sides.then_some(edge.as_slice()),
+                0,
+                spacing,
+            );
+            plan.routes[2]
+        };
+        for spacing in [
+            BridgeSpacing::Closest,
+            BridgeSpacing::Spread,
+            BridgeSpacing::Aligned,
+        ] {
+            assert_eq!(routes(false, false, spacing), 1, "{spacing:?}");
+            assert_eq!(routes(false, true, spacing), 0, "{spacing:?}");
+            assert_eq!(routes(true, true, spacing), 1, "{spacing:?}");
         }
     }
 }

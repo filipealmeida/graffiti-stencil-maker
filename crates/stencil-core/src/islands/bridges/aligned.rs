@@ -374,6 +374,7 @@ mod tests {
             angle,
             4.0,
             avoid,
+            None,
             0,
             BridgeSpacing::Aligned,
         );

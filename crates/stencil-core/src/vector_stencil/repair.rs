@@ -251,30 +251,7 @@ pub(super) fn widen_thin(
         )
         .into_iter()
         .filter(|s| shape_area(s) >= min_area)
-        .filter(|s| {
-            let reach = grow(&vec![s.clone()], 50.0);
-            let Some(first) = reach.first() else {
-                return false;
-            };
-            let b = bounds(first);
-            let touching = (0..opening.len())
-                .filter(|&j| {
-                    let o = boxes[j];
-                    o[0] <= b[2] && b[0] <= o[2] && o[1] <= b[3] && b[1] <= o[3]
-                })
-                .filter(|&j| {
-                    !reach
-                        .as_slice()
-                        .overlay(
-                            opening[j].as_slice(),
-                            OverlayRule::Intersect,
-                            FillRule::NonZero,
-                        )
-                        .is_empty()
-                })
-                .count();
-            touching >= 2
-        })
+        .filter(|s| touching(s, &opening, &boxes) >= 2)
         .collect();
     if thin.is_empty() {
         return material.to_vec();
@@ -288,6 +265,93 @@ pub(super) fn widen_thin(
         plate_region.as_slice(),
         OverlayRule::Intersect,
         FillRule::NonZero,
+    )
+}
+
+/// How many of the `opening` pieces (with their bounding `boxes`) the thin part `s` touches.
+fn touching(s: &Shape, opening: &[Shape], boxes: &[[i32; 4]]) -> usize {
+    let reach = grow(&vec![s.clone()], 50.0);
+    let Some(first) = reach.first() else {
+        return 0;
+    };
+    let b = bounds(first);
+    (0..opening.len())
+        .filter(|&j| {
+            let o = boxes[j];
+            o[0] <= b[2] && b[0] <= o[2] && o[1] <= b[3] && b[1] <= o[3]
+        })
+        .filter(|&j| {
+            !reach
+                .as_slice()
+                .overlay(
+                    opening[j].as_slice(),
+                    OverlayRule::Intersect,
+                    FillRule::NonZero,
+                )
+                .is_empty()
+        })
+        .count()
+}
+
+/// Removes material narrower than `min_mm` that lies within `min_mm` of the plate's sides and either joins two
+/// parts or stands alone. Paint rarely meets a plate with no margin (or a window's cut sides) exactly: the hairlines
+/// left along a side are no frame, and must not join the parts they touch.
+pub(super) fn drop_edge_strips(
+    material: &[Shape],
+    plate: &[IntPoint<i32>],
+    min_mm: f64,
+) -> Vec<Shape> {
+    let r = min_mm * 0.5 * UNITS_PER_MM;
+    let pb = bounds(&[plate.to_vec()]);
+    let pad = (2.0 * r) as i32 + 2;
+    let rect = |b: [i32; 4]| {
+        vec![
+            IntPoint::new(b[0], b[1]),
+            IntPoint::new(b[2], b[1]),
+            IntPoint::new(b[2], b[3]),
+            IntPoint::new(b[0], b[3]),
+        ]
+    };
+    // beyond the sides counts as empty, so a strip against one erodes from both faces
+    let outside = rect([pb[0] - pad, pb[1] - pad, pb[2] + pad, pb[3] + pad])
+        .as_slice()
+        .overlay(material, OverlayRule::Difference, FillRule::EvenOdd);
+    let eroded = material.overlay(
+        grow(&outside, r).as_slice(),
+        OverlayRule::Difference,
+        FillRule::EvenOdd,
+    );
+    let opening = grow(&eroded, r);
+    let boxes: Vec<[i32; 4]> = opening.iter().map(|s| bounds(s)).collect();
+    let inset = (min_mm * UNITS_PER_MM) as i32;
+    let band = rect(pb).as_slice().overlay(
+        &[rect([
+            pb[0] + inset,
+            pb[1] + inset,
+            pb[2] - inset,
+            pb[3] - inset,
+        ])],
+        OverlayRule::Difference,
+        FillRule::EvenOdd,
+    );
+    let strips: Vec<Shape> = material
+        .overlay(
+            opening.as_slice(),
+            OverlayRule::Difference,
+            FillRule::EvenOdd,
+        )
+        .as_slice()
+        .overlay(band.as_slice(), OverlayRule::Intersect, FillRule::NonZero)
+        .into_iter()
+        .filter(|s| touching(s, &opening, &boxes) != 1)
+        .collect();
+    if strips.is_empty() {
+        return material.to_vec();
+    }
+    material.overlay(
+        strips.as_slice(),
+        OverlayRule::Difference,
+        FillRule::EvenOdd,
     )
 }
 

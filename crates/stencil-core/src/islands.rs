@@ -234,7 +234,8 @@ pub(crate) fn bridge_islands(
     if islands == 0 {
         return 0;
     }
-    let frame = if largest_frame {
+    // without material in the corner there is no frame there to hold on to
+    let frame = if largest_frame || label[0] == 0 {
         let mut size = vec![0usize; islands + 2];
         for &l in &label {
             size[l as usize] += 1;
@@ -253,6 +254,7 @@ pub(crate) fn bridge_islands(
         min_angle,
         max_length,
         None,
+        None,
         0,
         if min_angle > 0.0 {
             crate::tile_bridge::BridgeSpacing::Spread
@@ -265,7 +267,8 @@ pub(crate) fn bridge_islands(
 
 #[allow(clippy::too_many_arguments)]
 /// Like `bridge_islands`, for pieces already labelled by the caller (0 = empty) and a chosen frame piece. Pixels in
-/// `avoid` are crossed only when nothing else connects a piece.
+/// `avoid` are crossed only when nothing else connects a piece. `edge` holds each pixel's distance (in pixels) to the
+/// nearest vertical and horizontal side of the tile: sides are cut edges, so no bridge may lie on or along one.
 pub(crate) fn bridge_labelled(
     g: &mut Grid,
     label: &[u32],
@@ -276,6 +279,7 @@ pub(crate) fn bridge_labelled(
     min_angle: f64,
     max_length: f64,
     avoid: Option<&[bool]>,
+    edge: Option<&[[f32; 2]]>,
     contact: i64,
     spacing: crate::tile_bridge::BridgeSpacing,
 ) -> BridgePlan {
@@ -324,6 +328,9 @@ pub(crate) fn bridge_labelled(
                 continue;
             }
             let j = ny as usize * w + nx as usize;
+            if !g.m[j] && edge.is_some_and(|e| e[j][0].min(e[j][1]) < 1.0) {
+                continue;
+            }
             let mut step = if g.m[j] {
                 0
             } else if avoid.is_some_and(|a| a[j]) {
@@ -365,7 +372,7 @@ pub(crate) fn bridge_labelled(
     }
     bridges::plan(
         g, &original, label, frame, radius, rise, &primary, per_island, min_angle, max_length,
-        avoid, contact, &landing, spacing,
+        avoid, edge, contact, &landing, spacing,
     )
 }
 

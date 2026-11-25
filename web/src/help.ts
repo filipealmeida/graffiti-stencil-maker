@@ -22,7 +22,7 @@ export const PARAM_HELP: Record<string, string> = {
   overlap: 'Darker wins keeps the darkest pixel where layers overlap, so a logo on white paper leaves the picture under it. Later on top covers whatever lies under each layer.',
   width_mm: 'Overall width of the plate. The height follows the picture. Bigger plates print in tiles.',
   thickness_mm: 'How thick the stencil is. Thicker stands up better and keeps paint from bleeding under the edge, but costs print time.',
-  margin_mm: 'Solid frame around the artwork. It stiffens the plate and gives room for tape, magnets or registration holes. 0 = no frame.',
+  margin_mm: 'Solid frame around the artwork. It stiffens the plate and gives room for tape, magnets or registration holes. 0 = no frame: islands are bridged to the largest piece, and hairlines that traced outlines leave along the plate edge are removed.',
   flip: 'Mirror the plate so it prints with the flat face up. Turn it on when the first layer must be the artwork side.',
   bridge_mm: 'Width of the strips that hold floating pieces (islands) to the frame. Wider is stronger but hides more of the picture. Keep it above your nozzle width.',
   bridge_min_contact_mm: 'Prefers substantial landing sites and flares bridge ends toward this contact width. May reduce nearby paint openings. Contacts are measured through the bridge height after tile clipping; unmet targets produce warnings. This is not a strength guarantee. 0 keeps the original geometry. Does not repair bridges already present upstream.',

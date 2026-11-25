@@ -527,7 +527,7 @@ pub(super) fn catalogue() -> Vec<NodeDef> {
             outputs: vec![("solid", "solid"), ("parts", "parts")],
             params: vec![
                 num("bridge_mm", "Bridge width (mm)", 1.6, 0.4, 6.0, 0.1, Some("Bridges"), false),
-                num("bridge_min_contact_mm", "Minimum bridge contact (mm)", 3.0, 0.0, 12.0, 0.1, Some("Bridges"), false),
+                num("bridge_min_contact_mm", "Minimum bridge contact (mm)", 0.4, 0.0, 12.0, 0.1, Some("Bridges"), false),
                 num("bridges_per_island", "Bridges per island", 1.0, 1.0, 5.0, 1.0, Some("Bridges"), true),
                 choice("bridge_spacing", "Bridge spacing", "aligned", &["closest", "spread", "aligned"], Some("Bridges")),
                 num("bridge_min_angle_deg", "Minimum angle between bridges (deg)", 45.0, 15.0, 90.0, 5.0, Some("Bridges"), false),

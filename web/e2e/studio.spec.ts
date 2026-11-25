@@ -156,13 +156,13 @@ test('the Reshape paint node can be added from the menu and shows its parameters
   await expect(page.locator('aside select:not([aria-label=Preset])').first()).toHaveValue('open')
 })
 
-test('new Bridges nodes expose a 3 mm minimum contact control', async ({ page }) => {
+test('new Bridges nodes expose a 0.4 mm minimum contact control', async ({ page }) => {
   await page.goto('/')
   await page.getByRole('button', { name: '+ finish' }).click()
   await page.locator('.menu button').filter({ hasText: /^Bridges/ }).click()
   await page.locator('.react-flow__node').filter({ hasText: 'Bridges' }).dispatchEvent('click')
   const control = page.locator('aside').getByRole('spinbutton', { name: 'Minimum bridge contact', exact: true })
-  await expect(control).toHaveValue('3')
+  await expect(control).toHaveValue('0.4')
   await control.fill('4')
   await control.blur()
   await expect(control).toHaveValue('4')

@@ -104,7 +104,8 @@ most unsupported islands, then reinforce deficient independent routes, preferrin
 shorter total gaps and better landings on ties. Only gaps between existing pieces receive
 material. Selection is deterministic and sampled in 5-degree increments, not a guarantee
 of the mathematical minimum number of lines. `bridge_max_length` limits each gap, not
-the total alignment length.
+the total alignment length. An island that no alignment can still reach once the others are
+placed gets the best straight bridge that meets the same rules, off any shared axis.
 
 In Aligned, the minimum angle is the smaller angle between different undirected line
 axes touching the same original island: parallel and opposite directions are 0 degrees,
@@ -114,6 +115,13 @@ Attachment clearance remains a separate constraint. Impossible route/angle targe
 produce warnings without relaxing the angle. A solid is planned as a whole; parts are
 planned separately per tile, never relying on support across a seam. If splitting after
 bridging, add a Bridges node after the split to repair any severed connections.
+
+A tile's sides are cut edges, not material: no bridge runs along a side or ends on one, and
+reaching a side never counts as support. Pieces count as joined only through material at
+least as wide as **Minimum bridge contact** (at least 0.2 mm, at most 0.8 × **Bridge width**),
+so a hairline strip along a side leaves the pieces it touches as separate islands to bridge.
+Specks narrower than 0.2 mm are deleted and counted as `dropped_specks`. An island whose only
+way across runs along a side or through a connector pocket is reported, not bridged.
 
 Bridge placement uses a grid for routing and clearance checks, but the Bridges node
 exports straight-sided strips, including diagonal bridges, rather than pixel staircases.
@@ -255,8 +263,8 @@ The graph is arranged into three stages:
 3. **Post-process:** Tiles & mounting (old) splits plates (the `depth` slider sets how far each connector sinks into each tile, 4–20 mm, default 10; the rod is `2 × depth − 1` mm long and tiles must be at least `depth / 0.4` mm wide), adds optional hardware features, and exports parts as a ZIP.
    Pieces that a seam cuts off from the rest of their tile are counted as `loose_pieces` in the tiling info and
    flagged; put a Bridges node after Split volume to join them.
-   **Bridges: Minimum bridge contact** (mm, default 3 for new nodes; CLI
-   `--set bridges.bridge_min_contact_mm=3`) prefers substantial landing sites and flares bridge ends locally,
+   **Bridges: Minimum bridge contact** (mm, default 0.4 for new nodes; CLI
+   `--set bridges.bridge_min_contact_mm=0.4`) prefers substantial landing sites and flares bridge ends locally,
    keeping the middle of long spans at **Bridge width**. It may reduce nearby paint openings. The algorithm
    retries larger ends when necessary and samples contiguous contact spans through the bridge height after
    clipping to the tile, including bevelled seams. Shortfalls appear as warnings with tile names and measured

@@ -344,3 +344,25 @@ fn rejects_degenerate_input() {
     )
     .is_err());
 }
+
+#[test]
+fn hairlines_along_a_bare_plate_side_do_not_join_parts() {
+    let rect =
+        |x0: f64, y0: f64, x1: f64, y1: f64| to_int(&[[x0, y0], [x1, y0], [x1, y1], [x0, y1]]);
+    let plate = rect(0.0, 0.0, 100.0, 50.0);
+    let blocks = vec![
+        vec![rect(5.0, 0.0, 45.0, 45.0)],
+        vec![rect(55.0, 0.0, 95.0, 45.0)],
+    ];
+    let joined = |strip: Vec<IntPoint<i32>>| {
+        blocks
+            .as_slice()
+            .overlay(&[strip], OverlayRule::Union, FillRule::NonZero)
+    };
+    let side = joined(rect(44.0, 0.0, 56.0, 0.1));
+    assert_eq!(side.len(), 1);
+    assert_eq!(drop_edge_strips(&side, &plate, 0.4).len(), 2);
+    // thin art away from the sides is left alone
+    let inside = joined(rect(44.0, 25.0, 56.0, 25.1));
+    assert_eq!(drop_edge_strips(&inside, &plate, 0.4).len(), 1);
+}
